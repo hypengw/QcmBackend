@@ -1,0 +1,6 @@
+[package]
+name = "qcm-service-local"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

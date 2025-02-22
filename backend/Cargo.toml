@@ -1,0 +1,24 @@
+[package]
+name = "qcm-backend"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+qcm-core = { path = "../core" }
+log = "0.4"
+env_logger = "0.11"
+prost = "0.13"
+futures-util = "0.3.30"
+tokio-tungstenite = "0.26"
+reqwest = { version = "0.12", features = ["json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono"] }
+tokio = { version = "1", features = ["full"] }
+syn = "2.0"
+quote = "1.0"
+proc-macro2 = "1.0"
+base64 = "0.22"
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.9"

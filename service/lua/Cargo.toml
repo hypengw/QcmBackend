@@ -1,0 +1,6 @@
+[package]
+name = "qcm-service-lua"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

@@ -3,8 +3,7 @@ use openssl::hash::{Hasher, MessageDigest};
 use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::PKey;
 use std::error::Error;
-
-pub mod ncm;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -33,11 +32,11 @@ pub fn decrypt(cipher: Cipher, key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec
 }
 
 pub fn encode(data: &[u8]) -> Result<Vec<u8>> {
-    Ok(base64::encode(data).into_bytes())
+    Ok(BASE64.encode(data).into_bytes())
 }
 
 pub fn decode(data: &[u8]) -> Result<Vec<u8>> {
-    Ok(base64::decode(data)?)
+    Ok(BASE64.decode(data)?)
 }
 
 pub fn digest(digest_type: MessageDigest, data: &[u8]) -> Result<Vec<u8>> {
@@ -53,24 +52,5 @@ pub mod hex {
 
     pub fn encode_up(data: &[u8]) -> Vec<u8> {
         hex::encode_upper(data).into_bytes()
-    }
-}
-
-pub struct RsaKey {
-    key: PKey<openssl::pkey::Public>
-}
-
-impl RsaKey {
-    pub fn from_pem(data: &[u8]) -> Result<Self> {
-        let rsa = Rsa::public_key_from_pem(data)?;
-        let key = PKey::from_rsa(rsa)?;
-        Ok(Self { key })
-    }
-
-    pub fn encrypt(&self, padding: Padding, data: &[u8]) -> Result<Vec<u8>> {
-        let mut buf = vec![0; self.key.size() as usize];
-        let len = self.key.public_encrypt(data, &mut buf, padding)?;
-        buf.truncate(len);
-        Ok(buf)
     }
 }
