@@ -4,7 +4,7 @@ members = [
     "backend",
     "plugin/lua",
     "plugin/jellyfin",
-#    "plugin/qcm-plugin-github",
+#    "vendor/qcm-plugin-jellyfin",
 #    "plugin/jellyfin",
 #    "plugin/local"
 ]
@@ -15,4 +15,4 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
-#qcm-plugin-github = { git = "https://github.com/hypengw/qcm-jellyfin-plugin.git", branch = "master" }
+#qcm-plugin-jellyfin = { git = "https://github.com/hypengw/qcm-jellyfin-plugin.git", branch = "master" }
