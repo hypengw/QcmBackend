@@ -13,19 +13,19 @@ pub struct Model {
     pub removed: i32,
 }
 
-#[derive(Copy, Clone, Debug, EnumIter)]
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::library::Entity",
+        from = "Column::LibraryId",
+        to = "super::library::Column::LibraryId"
+    )]
     Library,
 }
 
-impl RelationTrait for Relation {
-    fn def(&self) -> RelationDef {
-        match self {
-            Self::Library => Entity::belongs_to(super::library::Entity)
-                .from(Column::LibraryId)
-                .to(super::library::Column::LibraryId)
-                .into(),
-        }
+impl Related<super::library::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Library.def()
     }
 }
 
