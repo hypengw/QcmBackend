@@ -1,5 +1,6 @@
 [package]
-name = "qcm-service-local"
+name = "qcm-service-lua"
+authors = ["hypengw <hypengwip@gmail.com>"]
 version.workspace = true
 edition.workspace = true
 

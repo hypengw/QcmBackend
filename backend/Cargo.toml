@@ -1,5 +1,6 @@
 [package]
 name = "qcm-backend"
+authors = ["hypengw <hypengwip@gmail.com>"]
 version.workspace = true
 edition.workspace = true
 
@@ -16,8 +17,6 @@ tokio = { version = "1", features = ["full"] }
 syn = "2.0"
 quote = "1.0"
 proc-macro2 = "1.0"
-base64 = "0.22"
-hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

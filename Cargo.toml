@@ -2,12 +2,17 @@
 members = [
     "core",
     "backend",
-#    "service/lua",
-#    "service/jellyfin",
-#    "service/local"
+    "plugin/lua",
+    "plugin/jellyfin",
+#    "plugin/qcm-plugin-github",
+#    "plugin/jellyfin",
+#    "plugin/local"
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+
+[workspace.dependencies]
+#qcm-plugin-github = { git = "https://github.com/hypengw/qcm-jellyfin-plugin.git", branch = "master" }

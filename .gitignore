@@ -1,4 +1,4 @@
 /target
 /.vscode/launch.json
 /old
-/service/jellyfin
+/plugin/jellyfin
