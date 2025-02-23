@@ -7,9 +7,9 @@ use tokio::net::{TcpListener, TcpStream};
 
 use anyhow;
 use clap::{self, Parser};
-use sea_orm::Database;
+use sea_orm::{sqlx::sqlite::{SqliteConnectOptions}, Database};
 
-use migration::Migrator;
+use migration::{Migrator, MigratorTrait};
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -59,10 +59,12 @@ async fn main() -> Result<(), anyhow::Error> {
 
 async fn prepare_db(data: PathBuf) -> Result<(), anyhow::Error> {
     let db_path = data.join("backend.db");
+    // TODO: add journal_mode=wal support
     let db_url = format!(
-        "sqlite://{}?mode=rwc&journal_mode=WAL",
+        "sqlite://{}?mode=rwc",
         db_path.to_string_lossy()
     );
+
     let db = Database::connect(&db_url).await?;
 
     Migrator::up(&db, None).await?;

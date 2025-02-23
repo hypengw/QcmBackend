@@ -1,7 +1,5 @@
 use openssl::symm::{Cipher, Crypter, Mode};
 use openssl::hash::{Hasher, MessageDigest};
-use openssl::rsa::{Rsa, Padding};
-use openssl::pkey::PKey;
 use std::error::Error;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
