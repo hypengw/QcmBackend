@@ -1,13 +1,13 @@
 use log::LevelFilter;
-use std::{env, io::Error, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use futures_util::{future, StreamExt, TryStreamExt};
-use log::info;
+use log::{info, warn}; // Add warn to the log import
 use tokio::net::{TcpListener, TcpStream};
 
 use anyhow;
 use clap::{self, Parser};
-use sea_orm::{sqlx::sqlite::{SqliteConnectOptions}, Database};
+use sea_orm::Database;
 
 use migration::{Migrator, MigratorTrait};
 #[derive(clap::Parser)]
@@ -44,9 +44,12 @@ async fn main() -> Result<(), anyhow::Error> {
     let try_socket = TcpListener::bind(&addr).await;
     let listener = try_socket.expect("Failed to bind");
 
-    // Get the actual local address (including system-assigned port if port was 0)
     let local_addr = listener.local_addr().expect("Failed to get local address");
-    info!("Listening on: {}", local_addr);
+    // print port json
+    println!(
+        "{}",
+        serde_json::to_string(&HashMap::from([("port", local_addr.port())])).unwrap()
+    );
 
     prepare_db(args.data).await?;
 
@@ -60,10 +63,7 @@ async fn main() -> Result<(), anyhow::Error> {
 async fn prepare_db(data: PathBuf) -> Result<(), anyhow::Error> {
     let db_path = data.join("backend.db");
     // TODO: add journal_mode=wal support
-    let db_url = format!(
-        "sqlite://{}?mode=rwc",
-        db_path.to_string_lossy()
-    );
+    let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
     let db = Database::connect(&db_url).await?;
 
@@ -86,8 +86,11 @@ async fn accept_connection(stream: TcpStream) {
 
     let (write, read) = ws_stream.split();
     // We should not forward messages other than text or binary.
-    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
+    if let Err(e) = read
+        .try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
         .forward(write)
         .await
-        .expect("Failed to forward messages")
+    {
+        warn!("Error forwarding messages for {}: {}", addr, e);
+    }
 }
