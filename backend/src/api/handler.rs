@@ -1,8 +1,9 @@
-use crate::api::queries;
 use futures_util::SinkExt;
 use prost::Message;
 use sqlx::SqlitePool;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+use crate::msg::{self, MessageType, QcmMessage, TestRequest, TestResponse};
 
 pub async fn handle_message(
     msg: WsMessage,
@@ -13,40 +14,53 @@ pub async fn handle_message(
     >,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let WsMessage::Binary(data) = msg {
-        let request = proto::Request::decode(&data[..])?;
-        
-        let mut response = proto::Response::default();
-        
-        match request.request_type.as_str() {
-            "albums" => {
-                let albums = queries::get_albums_by_library(pool, request.library_id).await?;
-                response.albums = albums.into_iter().map(|a| proto::Album {
-                    item_id: a.item_id,
-                    name: a.name,
-                }).collect();
-            }
-            "artists" => {
-                let artists = queries::get_artists_by_library(pool, request.library_id).await?;
-                response.artists = artists.into_iter().map(|a| proto::Artist {
-                    item_id: a.item_id,
-                    name: a.name,
-                }).collect();
-            }
-            "songs" => {
-                let songs = queries::get_songs_by_library(pool, request.library_id).await?;
-                response.songs = songs.into_iter().map(|s| proto::Song {
-                    item_id: s.item_id,
-                    name: s.name,
-                    album_id: s.album_id,
-                    artist_id: s.artist_id,
-                }).collect();
-            }
-            _ => return Ok(()),
-        }
+        let message = QcmMessage::decode(&data[..])?;
 
-        let mut buf = Vec::new();
-        response.encode(&mut buf)?;
-        tx.send(WsMessage::Binary(buf)).await?;
+        match message.r#type() {
+            MessageType::TestRequest => {
+                if let Some(payload) = message.payload {
+                    match payload {
+                        msg::qcm_message::Payload::TestRequest(req) => {
+                            handle_test_message(req, message.request_id, tx).await?;
+                        }
+                        _ => {
+                            log::warn!("Unexpected payload for TEST message type");
+                        }
+                    }
+                }
+            }
+            _ => {
+                log::warn!("Unhandled message type: {:?}", message.r#type());
+            }
+        }
+    } else if let WsMessage::Text(text) = msg {
+        log::info!("{}", text);
     }
+    Ok(())
+}
+
+async fn handle_test_message(
+    request: TestRequest,
+    request_id: String,
+    tx: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+        WsMessage,
+    >,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = TestResponse {
+        test_data: format!("Echo: {}", request.test_data),
+        success: true,
+    };
+
+    let message = QcmMessage {
+        r#type: MessageType::TestResponse as i32,
+        request_id,
+        payload: Some(msg::qcm_message::Payload::TestResponse(response)),
+    };
+
+    let mut buf = Vec::new();
+    message.encode(&mut buf)?;
+    tx.send(WsMessage::Binary(buf.into())).await?;
+
     Ok(())
 }

@@ -3,13 +3,17 @@ use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use futures_util::{future, StreamExt, TryStreamExt};
 use log::{info, warn}; // Add warn to the log import
-use tokio::net::{TcpListener, TcpStream};
+use sqlx::SqlitePool;
+use tokio::net::{TcpListener, TcpStream}; // 新增
 
 use anyhow;
 use clap::{self, Parser};
 use sea_orm::Database;
 
 use migration::{Migrator, MigratorTrait};
+
+mod api;
+mod msg;
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -37,6 +41,8 @@ async fn main() -> Result<(), anyhow::Error> {
         )
         .init();
 
+    let pool = prepare_db(args.data).await?;
+
     // Use port 0 if none specified (system will assign an available port)
     let port = args.port.unwrap_or(0);
     let addr = format!("127.0.0.1:{}", port);
@@ -51,16 +57,15 @@ async fn main() -> Result<(), anyhow::Error> {
         serde_json::to_string(&HashMap::from([("port", local_addr.port())])).unwrap()
     );
 
-    prepare_db(args.data).await?;
-
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(accept_connection(stream));
+        let pool = pool.clone(); // 克隆连接池
+        tokio::spawn(accept_connection(stream, pool)); // 修改
     }
 
     Ok(())
 }
 
-async fn prepare_db(data: PathBuf) -> Result<(), anyhow::Error> {
+async fn prepare_db(data: PathBuf) -> Result<SqlitePool, anyhow::Error> {
     let db_path = data.join("backend.db");
     // TODO: add journal_mode=wal support
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
@@ -69,10 +74,12 @@ async fn prepare_db(data: PathBuf) -> Result<(), anyhow::Error> {
 
     Migrator::up(&db, None).await?;
 
-    Ok(())
+    let pool = SqlitePool::connect(&db_url).await?;
+    Ok(pool)
 }
 
-async fn accept_connection(stream: TcpStream) {
+async fn accept_connection(stream: TcpStream, pool: SqlitePool) {
+    // 修改签名
     let addr = stream
         .peer_addr()
         .expect("connected streams should have a peer address");
@@ -84,13 +91,14 @@ async fn accept_connection(stream: TcpStream) {
 
     info!("New WebSocket connection: {}", addr);
 
-    let (write, read) = ws_stream.split();
-    // We should not forward messages other than text or binary.
-    if let Err(e) = read
-        .try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
-        .forward(write)
-        .await
-    {
-        warn!("Error forwarding messages for {}: {}", addr, e);
+    let (mut write, read) = ws_stream.split();
+
+    // 修改消息处理逻辑
+    let mut read = read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
+    while let Ok(Some(message)) = read.next().await.transpose() {
+        if let Err(e) = api::handler::handle_message(message, &pool, &mut write).await {
+            warn!("Error processing message: {}", e);
+            break;
+        }
     }
 }

@@ -1,8 +1,4 @@
 pub mod model {
-    include!(concat!(env!("OUT_DIR"), "/qcm.model.rs"));
+    include!(concat!(env!("OUT_DIR"), "/qcm.msg.model.rs"));
 }
-mod msg {
-    include!(concat!(env!("OUT_DIR"), "/qcm.message.rs"));
-}
-
-pub use msg::*;
+include!(concat!(env!("OUT_DIR"), "/qcm.msg.rs"));
