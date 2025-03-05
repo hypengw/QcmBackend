@@ -1,7 +1,8 @@
 [package]
-name = "qcm-service-lua"
+name = "qcm-plugin-lua"
 authors = ["hypengw <hypengwip@gmail.com>"]
-version.workspace = true
-edition.workspace = true
+version = "0.1.0"
+edition = "2021"
 
 [dependencies]
+mlua = { version = "0.10", features = ["lua54", "vendored"] }

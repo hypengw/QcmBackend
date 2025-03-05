@@ -1,18 +1,10 @@
 [workspace]
-members = [
-    "core",
-    "backend",
-    "plugin/lua",
-    "plugin/jellyfin",
-#    "vendor/qcm-plugin-jellyfin",
-#    "plugin/jellyfin",
-#    "plugin/local"
-]
+members = ["core", "backend", "plugin"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[workspace.dependencies]
-#qcm-plugin-jellyfin = { git = "https://github.com/hypengw/qcm-jellyfin-plugin.git", branch = "master" }
+[patch.'https://github.com/hypengw/QcmBackend.git']
+qcm-core = { path = "./core" }
