@@ -1,8 +1,9 @@
+pub mod provider;
+pub mod library;
 pub mod album;
 pub mod artist;
 pub mod album_artist;
 pub mod collection;
-pub mod library;
 pub mod mix;
 pub mod mix_song;
 pub mod program;

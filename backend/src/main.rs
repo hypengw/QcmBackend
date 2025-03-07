@@ -8,7 +8,7 @@ use tokio::net::{TcpListener, TcpStream}; // 新增
 
 use anyhow;
 use clap::{self, Parser};
-use sea_orm::Database;
+use sea_orm::{Database, DatabaseConnection};
 
 use migration::{Migrator, MigratorTrait};
 
@@ -41,7 +41,7 @@ async fn main() -> Result<(), anyhow::Error> {
         )
         .init();
 
-    let pool = prepare_db(args.data).await?;
+    let db = prepare_db(args.data).await?;
 
     // Use port 0 if none specified (system will assign an available port)
     let port = args.port.unwrap_or(0);
@@ -58,14 +58,14 @@ async fn main() -> Result<(), anyhow::Error> {
     );
 
     while let Ok((stream, _)) = listener.accept().await {
-        let pool = pool.clone(); // 克隆连接池
-        tokio::spawn(accept_connection(stream, pool)); // 修改
+        let db = db.clone(); // 克隆连接池
+        tokio::spawn(accept_connection(stream, db)); // 修改
     }
 
     Ok(())
 }
 
-async fn prepare_db(data: PathBuf) -> Result<SqlitePool, anyhow::Error> {
+async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> {
     let db_path = data.join("backend.db");
     // TODO: add journal_mode=wal support
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
@@ -74,11 +74,13 @@ async fn prepare_db(data: PathBuf) -> Result<SqlitePool, anyhow::Error> {
 
     Migrator::up(&db, None).await?;
 
-    let pool = SqlitePool::connect(&db_url).await?;
-    Ok(pool)
+    Ok(db)
+
+    // let pool = SqlitePool::connect(&db_url).await?;
+    // Ok(pool)
 }
 
-async fn accept_connection(stream: TcpStream, pool: SqlitePool) {
+async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
     // 修改签名
     let addr = stream
         .peer_addr()
@@ -96,7 +98,7 @@ async fn accept_connection(stream: TcpStream, pool: SqlitePool) {
     // 修改消息处理逻辑
     let mut read = read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
     while let Ok(Some(message)) = read.next().await.transpose() {
-        if let Err(e) = api::handler::handle_message(message, &pool, &mut write).await {
+        if let Err(e) = api::handler::handle_message(message, &db, &mut write).await {
             warn!("Error processing message: {}", e);
             break;
         }

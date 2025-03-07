@@ -1,5 +1,6 @@
 use futures_util::SinkExt;
 use prost::Message;
+use sea_orm::DatabaseConnection;
 use sqlx::SqlitePool;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -7,7 +8,7 @@ use crate::msg::{self, MessageType, QcmMessage, TestRequest, TestResponse};
 
 pub async fn handle_message(
     msg: WsMessage,
-    pool: &SqlitePool,
+    db: &DatabaseConnection,
     tx: &mut futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
         WsMessage,

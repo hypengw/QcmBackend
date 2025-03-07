@@ -1,7 +1,24 @@
-pub enum LoginInfo {
+use crate::Result;
+use sea_orm::DatabaseConnection;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum AuthMethod {
     Username { username: String, pw: String },
     Phone { username: String, pw: String },
     Email { email: String, pw: String },
+}
+
+
+#[derive(Clone, Debug)]
+pub struct Context {
+    pub db: DatabaseConnection,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AuthInfo {
+    pub server_url: String,
+    pub method: AuthMethod,
 }
 
 pub trait SyncState {
@@ -10,6 +27,7 @@ pub trait SyncState {
 
 #[async_trait::async_trait]
 pub trait Provider {
-    async fn login(info: LoginInfo);
-    async fn sync(state: &dyn SyncState);
+    fn id(&self) -> Option<i64>;
+    async fn login(&self, ctx: &Context, info: AuthInfo) -> Result<()>;
+    async fn sync(&self, ctx: &Context, state: &dyn SyncState) -> Result<()>;
 }

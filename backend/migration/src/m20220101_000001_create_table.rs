@@ -15,6 +15,43 @@ impl MigrationTrait for Migration {
         let schema = Schema::new(builder);
 
         manager
+            .create_table(
+                Table::create()
+                    .table(provider::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(provider::Column::ProviderId)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(provider::Column::Name)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(provider::Column::Auth)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(provider::Column::Cookie)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(provider::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
             .create_table(schema.create_table_from_entity(library::Entity))
             .await?;
 
@@ -87,7 +124,7 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Drop in reverse order - first indexes, then tables
-        
+
         // Drop indexes
         manager
             .drop_index(
