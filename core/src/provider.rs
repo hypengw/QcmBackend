@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AuthMethod {
     Username { username: String, pw: String },
-    Phone { username: String, pw: String },
+    Phone { phone: String, pw: String },
     Email { email: String, pw: String },
+    None
 }
 
 

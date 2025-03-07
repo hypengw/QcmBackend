@@ -97,3 +97,27 @@ message Album {
   string type = 10;
   google.protobuf.Timestamp edit_time = 11;
 }
+
+message UsernameAuth {
+  string username = 1;
+  string pw = 2;
+}
+
+message PhoneAuth {
+  string Phone = 1;
+  string pw = 2;
+}
+
+message EmailAuth {
+  string email = 1;
+  string pw = 2;
+}
+
+message AuthInfo {
+  string server_url = 1;
+  oneof method {
+    UsernameAuth username = 2;
+    PhoneAuth phone = 3;
+    EmailAuth email = 4;
+  }
+}

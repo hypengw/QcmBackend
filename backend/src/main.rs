@@ -12,6 +12,7 @@ use sea_orm::{Database, DatabaseConnection};
 
 use migration::{Migrator, MigratorTrait};
 
+mod convert;
 mod api;
 mod msg;
 #[derive(clap::Parser)]
