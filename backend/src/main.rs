@@ -10,6 +10,8 @@ use clap::{self, Parser};
 use sea_orm::{Database, DatabaseConnection};
 
 use migration::{Migrator, MigratorTrait};
+use qcm_core::provider::Context;
+use std::sync::Arc;
 
 mod api;
 mod convert;
@@ -98,12 +100,14 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
 
     info!("New WebSocket connection: {}", addr);
 
+    let ctx = Arc::new(Context { db });
+
     let (mut write, read) = ws_stream.split();
 
     // 修改消息处理逻辑
     let mut read = read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
     while let Ok(Some(message)) = read.next().await.transpose() {
-        if let Err(e) = api::handler::handle_message(message, &db, &mut write).await {
+        if let Err(e) = api::handler::handle_message(message, ctx.clone(), &mut write).await {
             warn!("Error processing message: {}", e);
             break;
         }

@@ -8,7 +8,9 @@ enum MessageType {
   UNKNOWN = 0;
   TEST_REQ = 1;
   TEST_RSP = 2;
-  ADD_PROVIDER_REQ = 3;
+  GET_PROVIDER_METAS_REQ = 3;
+  GET_PROVIDER_METAS_RSP = 4;
+  ADD_PROVIDER_REQ = 5;
   //  GET_ALL_ALBUMS_REQUEST = 3;
   //  GET_ALL_ALBUMS_RESPONSE = 4;
   //  GET_SONGS_BY_ALBUM_REQUEST = 5;
@@ -52,6 +54,12 @@ message TestRsp {
   string test_data = 2;
 }
 
+message GetProviderMetasReq {}
+message GetProviderMetasRsp {
+  Rsp base = 1;
+  repeated qcm.msg.model.ProviderMeta metas = 2;
+}
+
 message AddProviderReq { qcm.msg.model.Provider provider = 1; }
 
 message QcmMessage {
@@ -62,7 +70,9 @@ message QcmMessage {
     Rsp rsp = 100;
     TestReq test_req = 101;
     TestRsp test_rsp = 102;
-    AddProviderReq add_provider_req = 103;
+    GetProviderMetasReq get_provider_metas_req = 103;
+    GetProviderMetasRsp get_provider_metas_rsp = 104;
+    AddProviderReq add_provider_req = 105;
     //    GetAllAlbumsRequest get_all_albums_request = 103;
     //    GetAllAlbumsResponse get_all_albums_response = 104;
     //    GetSongsByAlbumRequest get_songs_by_album_request = 105;

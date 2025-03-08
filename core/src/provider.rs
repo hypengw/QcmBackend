@@ -36,18 +36,22 @@ pub type Creator = dyn Fn(&str) -> Box<dyn Provider> + Send + Sync;
 #[derive(Clone)]
 pub struct ProviderMeta {
     pub type_name: String,
+    pub svg: Arc<String>,
+    pub creator: Arc<Creator>,
     pub mutable: bool,
     pub is_script: bool,
-    pub creator: Arc<Creator>,
+    pub has_server_url: bool,
 }
 
 impl ProviderMeta {
-    pub fn new(type_name: &str, f: Arc<Creator>) -> Self {
+    pub fn new(type_name: &str, svg: Arc<String>, f: Arc<Creator>) -> Self {
         ProviderMeta {
             type_name: type_name.to_string(),
+            svg,
+            creator: f,
             mutable: false,
             is_script: false,
-            creator: f,
+            has_server_url: true,
         }
     }
 }
@@ -58,10 +62,10 @@ pub trait ProviderSession {
 }
 
 #[async_trait::async_trait]
-pub trait Provider: ProviderSession {
+pub trait Provider: ProviderSession + Send {
     fn id(&self) -> Option<i64>;
     fn name(&self) -> String;
     fn type_name(&self) -> &str;
-    async fn login(&self, ctx: &Context, info: AuthInfo) -> Result<()>;
+    async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()>;
     async fn sync(&self, ctx: &Context, state: &dyn SyncState) -> Result<()>;
 }

@@ -42,7 +42,7 @@ pub fn reg_provider_meta(meta: ProviderMeta) {
         .insert(meta.type_name.clone(), meta);
 }
 
-pub fn provider_metas(type_name: &str) -> Option<ProviderMeta> {
+pub fn provider_meta(type_name: &str) -> Option<ProviderMeta> {
     let g = GLOBAL.lock().unwrap();
     g.provider_metas.get(type_name).map(|s| s.clone())
 }
