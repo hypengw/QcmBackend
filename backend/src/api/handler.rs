@@ -4,7 +4,7 @@ use sea_orm::DatabaseConnection;
 use sqlx::SqlitePool;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::msg::{self, MessageType, QcmMessage, TestRequest, TestResponse};
+use crate::msg::{self, MessageType, QcmMessage, Rsp, TestReq, TestRsp};
 
 pub async fn handle_message(
     msg: WsMessage,
@@ -14,22 +14,26 @@ pub async fn handle_message(
         WsMessage,
     >,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use msg::qcm_message::Payload;
     if let WsMessage::Binary(data) = msg {
         let message = QcmMessage::decode(&data[..])?;
 
         match message.r#type() {
-            MessageType::TestRequest => {
-                if let Some(payload) = message.payload {
-                    match payload {
-                        msg::qcm_message::Payload::TestRequest(req) => {
-                            handle_test_message(req, message.request_id, tx).await?;
-                        }
-                        _ => {
-                            log::warn!("Unexpected payload for TEST message type");
-                        }
-                    }
+            MessageType::AddProviderReq => match message.payload {
+                Some(Payload::AddProviderReq(req)) => if let Some(p) = req.provider {
+                },
+                _ => {
+                    log::warn!("Unexpected payload for TEST message type");
                 }
-            }
+            },
+            MessageType::TestReq => match message.payload {
+                Some(Payload::TestReq(req)) => {
+                    handle_test_message(req, message.id, tx).await?;
+                }
+                _ => {
+                    log::warn!("Unexpected payload for TEST message type");
+                }
+            },
             _ => {
                 log::warn!("Unhandled message type: {:?}", message.r#type());
             }
@@ -41,22 +45,22 @@ pub async fn handle_message(
 }
 
 async fn handle_test_message(
-    request: TestRequest,
-    request_id: String,
+    request: TestReq,
+    id: String,
     tx: &mut futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
         WsMessage,
     >,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let response = TestResponse {
+    let response = TestRsp {
+        base: Some(Rsp::default()),
         test_data: format!("Echo: {}", request.test_data),
-        success: true,
     };
 
     let message = QcmMessage {
-        r#type: MessageType::TestResponse as i32,
-        request_id,
-        payload: Some(msg::qcm_message::Payload::TestResponse(response)),
+        r#type: MessageType::TestRsp as i32,
+        id,
+        payload: Some(msg::qcm_message::Payload::TestRsp(response)),
     };
 
     let mut buf = Vec::new();

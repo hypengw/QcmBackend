@@ -11,9 +11,11 @@ use sea_orm::{Database, DatabaseConnection};
 
 use migration::{Migrator, MigratorTrait};
 
+mod global;
 mod convert;
 mod api;
 mod msg;
+
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -32,6 +34,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    qcm_core::global::init();
+    qcm_plugins::init();
+
     let args = Args::parse();
     env_logger::Builder::new()
         .filter_level(

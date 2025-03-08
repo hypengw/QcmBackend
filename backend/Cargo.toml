@@ -9,6 +9,7 @@ qcm-core = { path = "../core" }
 serde = { version = "1.0" }
 serde_json = "1.0"
 
+once_cell = "1"
 migration = { path = "./migration" }
 sea-orm = { version = "1.1" }
 sqlx = "0.8"
@@ -24,6 +25,8 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9"
+
+qcm-plugins = { path = "../plugin" }
 
 [build-dependencies]
 prost-build = "0.13"
