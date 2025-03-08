@@ -26,17 +26,25 @@ pub trait SyncState {
     fn commit(&self, finished: i32, total: i32);
 }
 
+/// Creator for provider
+///
+/// # Parameters
+/// - `name`: provider name
+///
+pub type Creator = dyn Fn(&str) -> Box<dyn Provider> + Send + Sync;
+
+#[derive(Clone)]
 pub struct ProviderMeta {
     pub type_name: String,
     pub mutable: bool,
     pub is_script: bool,
-    pub creator: Box<dyn Fn() -> Box<dyn Provider> + Send>,
+    pub creator: Arc<Creator>,
 }
 
 impl ProviderMeta {
-    fn new(f: Box<dyn Fn() -> Box<dyn Provider> + Send>) -> Self {
+    pub fn new(type_name: &str, f: Arc<Creator>) -> Self {
         ProviderMeta {
-            type_name: String::new(),
+            type_name: type_name.to_string(),
             mutable: false,
             is_script: false,
             creator: f,

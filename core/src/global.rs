@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::plugin::Plugin;
 use crate::provider::ProviderMeta;
@@ -34,12 +34,17 @@ pub fn add_plugin(p: Box<dyn Plugin>) {
         .insert((*p).id().to_string(), p);
 }
 
-pub fn reg_provider_meta(p: ProviderMeta) {
+pub fn reg_provider_meta(meta: ProviderMeta) {
     GLOBAL
         .lock()
         .unwrap()
         .provider_metas
-        .insert(p.type_name.clone(), p);
+        .insert(meta.type_name.clone(), meta);
+}
+
+pub fn provider_metas(type_name: &str) -> Option<ProviderMeta> {
+    let g = GLOBAL.lock().unwrap();
+    g.provider_metas.get(type_name).map(|s| s.clone())
 }
 
 pub fn plugin_for_each<F>(mut f: F)
