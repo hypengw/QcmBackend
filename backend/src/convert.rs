@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::msg::model as proto;
 use qcm_core as core;
 
@@ -77,6 +79,18 @@ impl QcmFrom<core::provider::AuthInfo> for proto::AuthInfo {
         Self {
             server_url: value.server_url,
             method: value.method.qcm_into(),
+        }
+    }
+}
+
+impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
+    fn qcm_from(v: core::provider::ProviderMeta) -> Self {
+        Self {
+            type_name: v.type_name,
+            svg: v.svg.deref().clone(),
+            mutable: v.mutable,
+            is_script: v.is_script,
+            has_server_url: v.has_server_url,
         }
     }
 }

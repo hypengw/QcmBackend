@@ -1,21 +1,17 @@
-use futures_util::SinkExt;
 use prost::Message;
 use qcm_core::provider::Context;
 use qcm_core::Result;
-use sea_orm::DatabaseConnection;
-use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use crate::convert::{QcmFrom, QcmInto};
-use crate::msg::{self, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestReq, TestRsp};
+use tokio::sync::mpsc::Sender;
 
-type TX = futures_util::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-    WsMessage,
->;
+use crate::convert::QcmInto;
+use crate::msg::{self, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
 
-async fn send(tx: &mut TX, in_msg: &QcmMessage, playload: msg::qcm_message::Payload) -> Result<()> {
+type TX = Sender<WsMessage>;
+
+async fn send(tx: &TX, in_msg: &QcmMessage, playload: msg::qcm_message::Payload) -> Result<()> {
     let message = QcmMessage {
         r#type: in_msg.r#type() as i32,
         id: in_msg.id.clone(),
@@ -31,55 +27,68 @@ async fn send(tx: &mut TX, in_msg: &QcmMessage, playload: msg::qcm_message::Payl
 pub async fn handle_message(
     msg: WsMessage,
     ctx: Arc<Context>,
-    tx: &mut TX,
+    tx: TX,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use msg::qcm_message::Payload;
     if let WsMessage::Binary(data) = msg {
         let message = QcmMessage::decode(&data[..])?;
+        let mtype = message.r#type();
+        let payload = &message.payload;
 
-        match message.r#type() {
+        let mut err_payload = true;
+        let rsp_base = Some(Rsp::default());
+
+        match mtype {
             MessageType::GetProviderMetasReq => {
+                err_payload = false;
                 let response = GetProviderMetasRsp {
-                    base: Some(Rsp::default()),
-                    metas: Vec::new(),
+                    base: rsp_base,
+                    metas: qcm_core::global::with_provider_metas(|metas| {
+                        metas
+                            .values()
+                            .map(|el| -> msg::model::ProviderMeta { el.clone().qcm_into() })
+                            .collect()
+                    }),
                 };
 
-                send(tx, &message, Payload::GetProviderMetasRsp(response)).await?;
+                send(&tx, &message, Payload::GetProviderMetasRsp(response)).await?;
             }
-            MessageType::AddProviderReq => match &message.payload {
-                Some(Payload::AddProviderReq(req)) => {
+            MessageType::AddProviderReq => {
+                if let Some(Payload::AddProviderReq(req)) = payload {
+                    err_payload = false;
                     if let Some(p) = &req.provider {
                         if let (Some(meta), Some(auth_info)) =
                             (qcm_core::global::provider_meta(&p.type_name), &p.auth_info)
                         {
                             let provider = (meta.creator)(&p.name);
-                            provider.login(ctx.as_ref(), &auth_info.clone().qcm_into()).await?;
+                            provider
+                                .login(ctx.as_ref(), &auth_info.clone().qcm_into())
+                                .await?;
                         }
                     }
                 }
-                _ => {
-                    log::warn!("Unexpected payload for TEST message type");
-                }
-            },
-            MessageType::TestReq => match &message.payload {
-                Some(Payload::TestReq(req)) => {
+            }
+            MessageType::TestReq => {
+                if let Some(Payload::TestReq(req)) = payload {
+                    err_payload = false;
                     let response = TestRsp {
-                        base: Some(Rsp::default()),
+                        base: rsp_base,
                         test_data: format!("Echo: {}", req.test_data),
                     };
 
-                    send(tx, &message, Payload::TestRsp(response)).await?;
+                    send(&tx, &message, Payload::TestRsp(response)).await?;
                 }
-                _ => {
-                    log::warn!("Unexpected payload for TEST message type");
-                }
-            },
-            _ => {
-                log::warn!("Unhandled message type: {:?}", message.r#type());
             }
+            _ => {
+                log::warn!("Unhandled message type: {:?}", mtype);
+            }
+        }
+        if err_payload {
+            log::warn!("Unexpected payload for message type: {:?}", mtype);
         }
     } else if let WsMessage::Text(text) = msg {
         log::info!("{}", text);
+        tx.send(WsMessage::Text(format!("Echo: {}", text).into())).await?;
     }
     Ok(())
 }

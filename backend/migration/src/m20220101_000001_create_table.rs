@@ -1,6 +1,6 @@
 use qcm_core::model::*;
 use sea_orm::Schema;
-use sea_orm_migration::{prelude::*, schema::*};
+use sea_orm_migration::prelude::*;
 use sea_query;
 
 use crate::{unique_index, unique_index_name};
@@ -26,21 +26,9 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(provider::Column::Name)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(provider::Column::Auth)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(provider::Column::Cookie)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(provider::Column::Name).string().not_null())
+                    .col(ColumnDef::new(provider::Column::Auth).string().not_null())
+                    .col(ColumnDef::new(provider::Column::Cookie).string().not_null())
                     .col(
                         ColumnDef::new(provider::Column::EditTime)
                             .timestamp()

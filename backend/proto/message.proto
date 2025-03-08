@@ -64,7 +64,7 @@ message AddProviderReq { qcm.msg.model.Provider provider = 1; }
 
 message QcmMessage {
   MessageType type = 1;
-  string id = 2;
+  int32 id = 2;
 
   oneof payload {
     Rsp rsp = 100;

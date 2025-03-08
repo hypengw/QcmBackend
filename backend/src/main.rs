@@ -1,17 +1,19 @@
-use log::LevelFilter;
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
-
-use futures_util::{future, StreamExt, TryStreamExt};
-use log::{info, warn}; // Add warn to the log import
-use tokio::net::{TcpListener, TcpStream}; // 新增
-
 use anyhow;
 use clap::{self, Parser};
-use sea_orm::{Database, DatabaseConnection};
+use log::LevelFilter;
+use log::{info, warn};
+use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
+
+use futures_util::{future, SinkExt, StreamExt, TryStreamExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use migration::{Migrator, MigratorTrait};
+use sea_orm::{Database, DatabaseConnection};
+
 use qcm_core::provider::Context;
-use std::sync::Arc;
 
 mod api;
 mod convert;
@@ -50,23 +52,29 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let db = prepare_db(args.data).await?;
 
-    // Use port 0 if none specified (system will assign an available port)
-    let port = args.port.unwrap_or(0);
-    let addr = format!("127.0.0.1:{}", port);
+    let listener = {
+        // Use port 0 if none specified (system will assign an available port)
+        let port = args.port.unwrap_or(0);
+        let addr = format!("127.0.0.1:{}", port);
 
-    let try_socket = TcpListener::bind(&addr).await;
-    let listener = try_socket.expect("Failed to bind");
+        let try_socket = TcpListener::bind(&addr).await;
+        let listener = try_socket.expect("Failed to bind");
 
-    let local_addr = listener.local_addr().expect("Failed to get local address");
-    // print port json
-    println!(
-        "{}",
-        serde_json::to_string(&HashMap::from([("port", local_addr.port())])).unwrap()
-    );
+        let local_addr = listener.local_addr().expect("Failed to get local address");
 
-    while let Ok((stream, _)) = listener.accept().await {
-        let db = db.clone(); // 克隆连接池
-        tokio::spawn(accept_connection(stream, db)); // 修改
+        // print port json
+        println!(
+            "{}",
+            serde_json::to_string(&HashMap::from([("port", local_addr.port())])).unwrap()
+        );
+        listener
+    };
+
+    // only need the first accept connection
+    if let Ok((stream, _)) = listener.accept().await {
+        let db = db.clone();
+        let handle = tokio::spawn(accept_connection(stream, db));
+        handle.await?;
     }
 
     Ok(())
@@ -88,7 +96,6 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
 }
 
 async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
-    // 修改签名
     let addr = stream
         .peer_addr()
         .expect("connected streams should have a peer address");
@@ -98,18 +105,36 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         .await
         .expect("Error during the websocket handshake occurred");
 
-    info!("New WebSocket connection: {}", addr);
+    info!("New connection: {}", addr);
 
     let ctx = Arc::new(Context { db });
 
-    let (mut write, read) = ws_stream.split();
+    let (sender, mut receiver) = mpsc::channel::<WsMessage>(32);
+    let (mut ws_sender, ws_receiver) = ws_stream.split();
 
-    // 修改消息处理逻辑
-    let mut read = read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
-    while let Ok(Some(message)) = read.next().await.transpose() {
-        if let Err(e) = api::handler::handle_message(message, ctx.clone(), &mut write).await {
-            warn!("Error processing message: {}", e);
-            break;
+    tokio::spawn(async move {
+        while let Some(msg) = receiver.recv().await {
+            if ws_sender.send(msg.into()).await.is_err() {
+                break;
+            }
         }
+        info!("Channel recv end");
+    });
+
+    let mut read = ws_receiver.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
+    while let Ok(Some(message)) = read.next().await.transpose() {
+        tokio::spawn({
+            let sender = sender.clone();
+            let ctx = ctx.clone();
+            async move {
+                if let Err(e) = api::handler::handle_message(message, ctx, sender).await {
+                    warn!("Error processing message: {}", e);
+                }
+            }
+        });
     }
+
+    // let receiver stop
+    drop(sender);
+    info!("Connection end: {}", addr);
 }

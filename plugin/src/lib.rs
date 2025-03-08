@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use qcm_core::{global as qg, plugin::Plugin};
+use qcm_core::global as qg;
 
 pub fn init() {
     {

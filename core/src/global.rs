@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use crate::plugin::Plugin;
 use crate::provider::ProviderMeta;
@@ -65,3 +65,12 @@ where
     let global = GLOBAL.lock().unwrap();
     f(&global.plugins)
 }
+
+pub fn with_provider_metas<F, R>(f: F) -> R
+where
+    F: FnOnce(&BTreeMap<String, ProviderMeta>) -> R,
+{
+    let global = GLOBAL.lock().unwrap();
+    f(&global.provider_metas)
+}
+
