@@ -8,7 +8,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::convert::QcmInto;
 use crate::error::ProcessError;
-use crate::msg::{self, Rsp, GetProviderMetasRsp, MessageType, QcmMessage, TestRsp};
+use crate::msg::{self, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
 
 type TX = Sender<WsMessage>;
 
@@ -58,8 +58,11 @@ async fn process_message(
                                 provider
                                     .login(ctx.as_ref(), &auth_info.clone().qcm_into())
                                     .await?;
+                                return Ok(wrap(&message, Payload::Rsp(Rsp::default())));
                             }
+                            return Err(ProcessError::MissingFields("auth_info".to_string()));
                         }
+                        return Err(ProcessError::MissingFields("provider".to_string()));
                     }
                 }
                 MessageType::TestReq => {

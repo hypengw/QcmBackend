@@ -45,6 +45,7 @@ enum ErrorCode {
   DECODE = 2;
   UNKNOWN_MESSAGE_TYPE = 3;
   UNEXPECTED_PAYLOAD = 4;
+  MISSING_FIELDS = 5;
 }
 
 message Rsp {

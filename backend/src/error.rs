@@ -12,6 +12,8 @@ pub enum ProcessError {
     UnknownMessageType(i32),
     #[error("Unexpected payload for message type: {0}")]
     UnexpectedPayload(i32),
+    #[error("Missing fields: {0}")]
+    MissingFields(String),
     #[error("")]
     None,
 }
