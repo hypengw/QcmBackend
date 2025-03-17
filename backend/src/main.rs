@@ -15,6 +15,7 @@ use sea_orm::{Database, DatabaseConnection};
 
 use qcm_core::provider::Context;
 
+mod error;
 mod api;
 mod convert;
 mod global;

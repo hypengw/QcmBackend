@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+use crate::error::ProcessError;
+use crate::msg;
 use crate::msg::model as proto;
 use qcm_core as core;
 
@@ -91,6 +93,21 @@ impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
             mutable: v.mutable,
             is_script: v.is_script,
             has_server_url: v.has_server_url,
+        }
+    }
+}
+
+impl QcmFrom<ProcessError> for msg::Rsp {
+    fn qcm_from(v: ProcessError) -> Self {
+        Self {
+            code: match v {
+                ProcessError::Internal(_) => msg::ErrorCode::Internal.into(),
+                ProcessError::DecodeError(_) => msg::ErrorCode::Decode.into(),
+                ProcessError::UnknownMessageType(_) => msg::ErrorCode::UnknownMessageType.into(),
+                ProcessError::UnexpectedPayload(_) => msg::ErrorCode::UnexpectedPayload.into(),
+                _ => msg::ErrorCode::Ok.into(),
+            },
+            message: v.to_string(),
         }
     }
 }
