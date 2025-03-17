@@ -1,14 +1,35 @@
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fs;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
 use crate::plugin::Plugin;
 use crate::provider::ProviderMeta;
 
+pub const APP_NAME: &str = "QcmBackend";
+pub const APP_VERSION: &str = "0.1.0";
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Setting {
+    pub device_id: String,
+}
+
+impl Setting {
+    fn new() -> Self {
+        Self {
+            device_id: Uuid::new_v4().to_string(),
+        }
+    }
+}
+
 pub struct Global {
     pub plugins: BTreeMap<String, Box<dyn Plugin>>,
     pub provider_metas: BTreeMap<String, ProviderMeta>,
+    setting: Setting,
 }
 
 impl Global {
@@ -16,14 +37,31 @@ impl Global {
         Self {
             plugins: BTreeMap::new(),
             provider_metas: BTreeMap::new(),
+            setting: Setting::new(),
         }
     }
 }
 
 static GLOBAL: Lazy<Arc<Mutex<Global>>> = Lazy::new(|| Arc::new(Mutex::new(Global::new())));
 
-pub fn init() {
-    Lazy::force(&GLOBAL);
+pub fn init(data_dir: &PathBuf) {
+    let setting_path = data_dir.join("setting.json");
+    let mut global = GLOBAL.lock().unwrap();
+
+    if setting_path.exists() {
+        let content = fs::read_to_string(&setting_path).expect("Failed to read setting.json");
+        global.setting = serde_json::from_str(&content).expect("Failed to parse setting.json");
+    } else {
+        fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+        let setting = Setting::new();
+        let content = serde_json::to_string_pretty(&setting).expect("Failed to serialize setting");
+        fs::write(&setting_path, content).expect("Failed to write setting.json");
+        global.setting = setting;
+    }
+}
+
+pub fn device_id() -> String {
+    return GLOBAL.lock().unwrap().setting.device_id.clone();
 }
 
 pub fn add_plugin(p: Box<dyn Plugin>) {
@@ -73,4 +111,3 @@ where
     let global = GLOBAL.lock().unwrap();
     f(&global.provider_metas)
 }
-

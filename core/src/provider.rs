@@ -30,8 +30,9 @@ pub trait SyncState {
 ///
 /// # Parameters
 /// - `name`: provider name
+/// - `device_id`: device id
 ///
-pub type Creator = dyn Fn(&str) -> Box<dyn Provider> + Send + Sync;
+pub type Creator = dyn Fn(&str, &str) -> Box<dyn Provider> + Send + Sync;
 
 #[derive(Clone)]
 pub struct ProviderMeta {

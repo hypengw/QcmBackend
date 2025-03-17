@@ -1,3 +1,4 @@
+pub use reqwest::header::{HeaderMap, HeaderValue};
 pub use reqwest::Client as HttpClient;
 pub use reqwest::ClientBuilder as HttpClientBuilder;
 pub use reqwest_cookie_store::{CookieStore, CookieStoreRwLock};

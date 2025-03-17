@@ -1,6 +1,6 @@
 use prost::{self, Message};
 use qcm_core::provider::Context;
-use qcm_core::Result;
+use qcm_core::{global, Result};
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -54,7 +54,7 @@ async fn process_message(
                             if let (Some(meta), Some(auth_info)) =
                                 (qcm_core::global::provider_meta(&p.type_name), &p.auth_info)
                             {
-                                let provider = (meta.creator)(&p.name);
+                                let provider = (meta.creator)(&p.name, &global::device_id());
                                 provider
                                     .login(ctx.as_ref(), &auth_info.clone().qcm_into())
                                     .await?;

@@ -15,9 +15,9 @@ use sea_orm::{Database, DatabaseConnection};
 
 use qcm_core::provider::Context;
 
-mod error;
 mod api;
 mod convert;
+mod error;
 mod global;
 mod msg;
 
@@ -39,9 +39,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    qcm_core::global::init();
-    qcm_plugins::init();
-
     let args = Args::parse();
     env_logger::Builder::new()
         .filter_level(
@@ -50,6 +47,9 @@ async fn main() -> Result<(), anyhow::Error> {
                 .unwrap_or(LevelFilter::Warn),
         )
         .init();
+
+    qcm_core::global::init(&args.data);
+    qcm_plugins::init();
 
     let db = prepare_db(args.data).await?;
 
