@@ -27,8 +27,9 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(provider::Column::Name).string().not_null())
-                    .col(ColumnDef::new(provider::Column::Auth).string().not_null())
+                    .col(ColumnDef::new(provider::Column::Type).string().not_null())
                     .col(ColumnDef::new(provider::Column::Cookie).string().not_null())
+                    .col(ColumnDef::new(provider::Column::Custom).string().not_null())
                     .col(
                         ColumnDef::new(provider::Column::EditTime)
                             .timestamp()

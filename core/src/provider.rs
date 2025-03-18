@@ -11,12 +11,18 @@ pub enum AuthMethod {
     None,
 }
 
+impl Default for AuthMethod {
+    fn default() -> Self {
+        return AuthMethod::None;
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Context {
     pub db: DatabaseConnection,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct AuthInfo {
     pub server_url: String,
     pub method: AuthMethod,
