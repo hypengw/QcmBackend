@@ -38,7 +38,7 @@ pub trait SyncState {
 /// - `name`: provider name
 /// - `device_id`: device id
 ///
-pub type Creator = dyn Fn(&str, &str) -> Box<dyn Provider> + Send + Sync;
+pub type Creator = dyn Fn(Option<i64>, &str, &str) -> Arc<dyn Provider> + Send + Sync;
 
 #[derive(Clone)]
 pub struct ProviderMeta {
@@ -69,10 +69,13 @@ pub trait ProviderSession {
 }
 
 #[async_trait::async_trait]
-pub trait Provider: ProviderSession + Send {
+pub trait Provider: ProviderSession + Send + Sync {
     fn id(&self) -> Option<i64>;
     fn name(&self) -> String;
     fn type_name(&self) -> &str;
+    fn from_model(&self, model: &crate::model::provider::Model) -> Result<()>;
+    fn to_model(&self) -> crate::model::provider::ActiveModel;
+
     async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()>;
     async fn sync(&self, ctx: &Context, state: &dyn SyncState) -> Result<()>;
 }

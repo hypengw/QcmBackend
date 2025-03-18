@@ -4,7 +4,7 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ProcessError {
-    #[error("Internal error: {0}")]
+    #[error("{0}")]
     Internal(#[from] anyhow::Error),
     #[error("Decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
@@ -14,6 +14,8 @@ pub enum ProcessError {
     UnexpectedPayload(i32),
     #[error("Missing fields: {0}")]
     MissingFields(String),
+    #[error("No such provider type: {0}")]
+    NoSuchProviderType(String),
     #[error("")]
     None,
 }

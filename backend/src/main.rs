@@ -52,6 +52,7 @@ async fn main() -> Result<(), anyhow::Error> {
     qcm_plugins::init();
 
     let db = prepare_db(args.data).await?;
+    qcm_core::global::load_from_db(&db).await;
 
     let listener = {
         // Use port 0 if none specified (system will assign an available port)

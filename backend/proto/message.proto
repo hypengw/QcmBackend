@@ -46,6 +46,7 @@ enum ErrorCode {
   UNKNOWN_MESSAGE_TYPE = 3;
   UNEXPECTED_PAYLOAD = 4;
   MISSING_FIELDS = 5;
+  NO_SUCH_PROVIDER_TYPE = 6;
 }
 
 message Rsp {
@@ -58,9 +59,17 @@ message TestReq { string test_data = 1; }
 message TestRsp { string test_data = 2; }
 
 message GetProviderMetasReq {}
-message GetProviderMetasRsp { repeated qcm.msg.model.ProviderMeta metas = 2; }
+message GetProviderMetasRsp { repeated qcm.msg.model.ProviderMeta metas = 1; }
 
-message AddProviderReq { qcm.msg.model.Provider provider = 1; }
+message AddProviderReq {
+  string name = 1;
+  string type_name = 2;
+  qcm.msg.model.AuthInfo auth_info = 3;
+}
+
+message ProviderStatusMsg {
+  repeated qcm.msg.model.ProviderStatus statuses = 1;
+}
 
 message QcmMessage {
   MessageType type = 1;
@@ -73,6 +82,7 @@ message QcmMessage {
     GetProviderMetasReq get_provider_metas_req = 103;
     GetProviderMetasRsp get_provider_metas_rsp = 104;
     AddProviderReq add_provider_req = 105;
+    ProviderStatusMsg provider_status_msg = 106;
     //    GetAllAlbumsRequest get_all_albums_request = 103;
     //    GetAllAlbumsResponse get_all_albums_response = 104;
     //    GetSongsByAlbumRequest get_songs_by_album_request = 105;

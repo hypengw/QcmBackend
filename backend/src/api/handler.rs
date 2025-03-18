@@ -50,19 +50,18 @@ async fn process_message(
                 MessageType::AddProviderReq => {
                     log::warn!("add provider");
                     if let Some(Payload::AddProviderReq(req)) = payload {
-                        if let Some(p) = &req.provider {
-                            if let (Some(meta), Some(auth_info)) =
-                                (qcm_core::global::provider_meta(&p.type_name), &p.auth_info)
-                            {
-                                let provider = (meta.creator)(&p.name, &global::device_id());
+                        if let Some(auth_info) = &req.auth_info {
+                            if let Some(meta) = qcm_core::global::provider_meta(&req.type_name) {
+                                let provider =
+                                    (meta.creator)(None, &req.name, &global::device_id());
                                 provider
                                     .login(ctx.as_ref(), &auth_info.clone().qcm_into())
                                     .await?;
                                 return Ok(wrap(&message, Payload::Rsp(Rsp::default())));
                             }
-                            return Err(ProcessError::MissingFields("auth_info".to_string()));
+                            return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));
                         }
-                        return Err(ProcessError::MissingFields("provider".to_string()));
+                        return Err(ProcessError::MissingFields("auth_info".to_string()));
                     }
                 }
                 MessageType::TestReq => {
