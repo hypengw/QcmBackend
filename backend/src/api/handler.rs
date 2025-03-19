@@ -3,11 +3,13 @@ use qcm_core::{global, Result};
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
+use qcm_core::model as sql_model;
+use sea_orm::{sea_query, EntityTrait};
 use tokio::sync::mpsc::Sender;
 
 use crate::convert::QcmInto;
 use crate::error::ProcessError;
-use crate::event::BackendContext;
+use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{self, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
 
 type TX = Sender<WsMessage>;
@@ -48,7 +50,6 @@ async fn process_message(
                     return Ok(wrap(&message, Payload::GetProviderMetasRsp(response)));
                 }
                 MessageType::AddProviderReq => {
-                    log::warn!("add provider");
                     if let Some(Payload::AddProviderReq(req)) = payload {
                         if let Some(auth_info) = &req.auth_info {
                             if let Some(meta) = qcm_core::global::provider_meta(&req.type_name) {
@@ -57,6 +58,24 @@ async fn process_message(
                                 provider
                                     .login(&ctx.provider_context, &auth_info.clone().qcm_into())
                                     .await?;
+
+                                let model = provider.to_model();
+                                sql_model::provider::Entity::insert(model)
+                                    .on_conflict(
+                                        sea_query::OnConflict::column(
+                                            sql_model::provider::Column::ProviderId,
+                                        )
+                                        .update_columns([
+                                            sql_model::provider::Column::Custom,
+                                            sql_model::provider::Column::Cookie,
+                                            sql_model::provider::Column::EditTime,
+                                        ])
+                                        .to_owned(),
+                                    )
+                                    .exec(&ctx.provider_context.db)
+                                    .await?;
+
+                                ctx.bk_ev_sender.send(BackendEvent::NewProvider).await?;
                                 return Ok(wrap(&message, Payload::Rsp(Rsp::default())));
                             }
                             return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));

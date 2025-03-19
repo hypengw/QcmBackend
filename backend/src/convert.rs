@@ -102,11 +102,12 @@ impl QcmFrom<ProcessError> for msg::Rsp {
         Self {
             code: match v {
                 ProcessError::Internal(_) => msg::ErrorCode::Internal.into(),
-                ProcessError::DecodeError(_) => msg::ErrorCode::Decode.into(),
+                ProcessError::Decode(_) => msg::ErrorCode::Decode.into(),
                 ProcessError::UnknownMessageType(_) => msg::ErrorCode::UnknownMessageType.into(),
                 ProcessError::UnexpectedPayload(_) => msg::ErrorCode::UnexpectedPayload.into(),
                 ProcessError::MissingFields(_) => msg::ErrorCode::MissingFields.into(),
                 ProcessError::NoSuchProviderType(_) => msg::ErrorCode::NoSuchProviderType.into(),
+                ProcessError::Db(_) => msg::ErrorCode::Db.into(),
                 ProcessError::None => msg::ErrorCode::Ok.into(),
             },
             message: v.to_string(),

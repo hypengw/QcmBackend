@@ -2,7 +2,6 @@ use anyhow;
 use clap::{self, Parser};
 use event::BackendContext;
 use log::LevelFilter;
-use log::{info, warn};
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
@@ -103,13 +102,13 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
     let addr = stream
         .peer_addr()
         .expect("connected streams should have a peer address");
-    info!("Peer address: {}", addr);
+    log::info!("Peer address: {}", addr);
 
     let ws_stream = tokio_tungstenite::accept_async(stream)
         .await
         .expect("Error during the websocket handshake occurred");
 
-    info!("New connection: {}", addr);
+    log::info!("New connection: {}", addr);
 
     let (ws_sender, mut ws_receiver) = mpsc::channel::<WsMessage>(32);
 
@@ -134,7 +133,7 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
                 break;
             }
         }
-        info!("Channel recv end");
+        log::info!("Channel recv end");
     });
 
     // event queue
@@ -148,7 +147,7 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
                     _ => (),
                 }
             }
-            info!("Event channel recv end");
+            log::info!("Event channel recv end");
         }
     });
 
@@ -163,18 +162,19 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
                     _ => (),
                 }
             }
-            info!("Backend event channel recv end");
+            log::info!("Backend event channel recv end");
         }
     });
 
     // receive from ws
-    let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
-    while let Ok(Some(message)) = read.next().await.transpose() {
+    // let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
+    let mut reader = ws_reader;
+    while let Ok(Some(message)) = reader.next().await.transpose() {
         tokio::spawn({
             let ctx = ctx.clone();
             async move {
                 if let Err(e) = api::handler::handle_message(message, ctx).await {
-                    warn!("Error processing message: {}", e);
+                    log::warn!("Error processing message: {}", e);
                 }
             }
         });
@@ -190,5 +190,5 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         .send(event::BackendEvent::End)
         .await
         .unwrap();
-    info!("Connection end: {}", addr);
+    log::info!("Connection end: {}", addr);
 }

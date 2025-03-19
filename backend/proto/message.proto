@@ -47,6 +47,7 @@ enum ErrorCode {
   UNEXPECTED_PAYLOAD = 4;
   MISSING_FIELDS = 5;
   NO_SUCH_PROVIDER_TYPE = 6;
+  DB = 7;
 }
 
 message Rsp {
