@@ -142,7 +142,11 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         let ctx = ctx.clone();
         async move {
             while let Some(ev) = ev_receiver.recv().await {
-                event::process_event(ev, ctx.clone()).await;
+                match event::process_event(ev, ctx.clone()).await {
+                    Ok(true) => break,
+                    Err(err) => log::error!("{}", err),
+                    _ => (),
+                }
             }
             info!("Event channel recv end");
         }
@@ -153,7 +157,11 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         let ctx = ctx.clone();
         async move {
             while let Some(ev) = bk_ev_receiver.recv().await {
-                event::process_backend_event(ev, ctx.clone()).await;
+                match event::process_backend_event(ev, ctx.clone()).await {
+                    Ok(true) => break,
+                    Err(err) => log::error!("{}", err),
+                    _ => (),
+                }
             }
             info!("Backend event channel recv end");
         }
@@ -172,6 +180,15 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         });
     }
 
-    // let receiver stop
+    // end event process
+    ctx.provider_context
+        .ev_sender
+        .send(event::Event::End)
+        .await
+        .unwrap();
+    ctx.bk_ev_sender
+        .send(event::BackendEvent::End)
+        .await
+        .unwrap();
     info!("Connection end: {}", addr);
 }
