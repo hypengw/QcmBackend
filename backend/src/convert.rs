@@ -1,9 +1,11 @@
 use std::ops::Deref;
 
 use crate::error::ProcessError;
-use crate::msg;
 use crate::msg::model as proto;
+use crate::msg::{self, QcmMessage};
+use prost::{DecodeError, EncodeError, Message};
 use qcm_core as core;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 pub trait QcmFrom<T>: Sized {
     fn qcm_from(value: T) -> Self;
@@ -11,6 +13,19 @@ pub trait QcmFrom<T>: Sized {
 
 pub trait QcmInto<T>: Sized {
     fn qcm_into(self) -> T;
+}
+
+pub trait QcmTryFrom<T>: Sized {
+    type Error;
+
+    // Required method
+    fn qcm_try_from(value: T) -> Result<Self, Self::Error>;
+}
+pub trait QcmTryInto<T>: Sized {
+    type Error;
+
+    // Required method
+    fn qcm_try_into(self) -> Result<T, Self::Error>;
 }
 
 // From implies Into
@@ -21,6 +36,18 @@ where
     #[inline]
     fn qcm_into(self) -> U {
         U::qcm_from(self)
+    }
+}
+
+impl<T, U> QcmTryInto<U> for T
+where
+    U: QcmTryFrom<T>,
+{
+    type Error = U::Error;
+
+    #[inline]
+    fn qcm_try_into(self) -> Result<U, Self::Error> {
+        U::qcm_try_from(self)
     }
 }
 
@@ -111,6 +138,25 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::None => msg::ErrorCode::Ok.into(),
             },
             message: v.to_string(),
+        }
+    }
+}
+
+impl QcmTryFrom<QcmMessage> for WsMessage {
+    type Error = EncodeError;
+    fn qcm_try_from(msg: QcmMessage) -> Result<Self, EncodeError> {
+        let mut buf = Vec::new();
+        msg.encode(&mut buf)?;
+        Ok(WsMessage::Binary(buf.into()))
+    }
+}
+
+impl QcmFrom<msg::ProviderStatusMsg> for QcmMessage {
+    fn qcm_from(v: msg::ProviderStatusMsg) -> Self {
+        Self {
+            id: 0,
+            r#type: msg::MessageType::ProviderStatusMsg.into(),
+            payload: Some(msg::qcm_message::Payload::ProviderStatusMsg(v)),
         }
     }
 }

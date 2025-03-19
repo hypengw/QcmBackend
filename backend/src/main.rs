@@ -1,6 +1,6 @@
 use anyhow;
 use clap::{self, Parser};
-use event::BackendContext;
+use event::{BackendContext, BackendEvent};
 use log::LevelFilter;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
@@ -165,6 +165,8 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
             log::info!("Backend event channel recv end");
         }
     });
+
+    let _ = ctx.bk_ev_sender.try_send(BackendEvent::Frist);
 
     // receive from ws
     // let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));

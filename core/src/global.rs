@@ -138,3 +138,12 @@ where
     let global = GLOBAL.lock().unwrap();
     f(&global.provider_metas)
 }
+
+pub fn providers() -> Vec<Arc<dyn Provider>> {
+    let g = GLOBAL.lock().unwrap();
+    return g
+        .providers
+        .values()
+        .cloned()
+        .collect::<Vec<Arc<dyn Provider>>>();
+}
