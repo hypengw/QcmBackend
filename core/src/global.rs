@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use sea_orm::{DatabaseConnection, EntityTrait};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -8,9 +8,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-use crate::model::provider;
 use crate::plugin::Plugin;
-use crate::provider::{Provider, ProviderMeta};
+use crate::provider::ProviderMeta;
 
 pub const APP_NAME: &str = "QcmBackend";
 pub const APP_VERSION: &str = "0.1.0";
@@ -31,7 +30,6 @@ impl Setting {
 pub struct Global {
     pub plugins: BTreeMap<String, Box<dyn Plugin>>,
     pub provider_metas: BTreeMap<String, ProviderMeta>,
-    pub providers: BTreeMap<i64, Arc<dyn Provider>>,
     setting: Setting,
 }
 
@@ -40,7 +38,6 @@ impl Global {
         Self {
             plugins: BTreeMap::new(),
             provider_metas: BTreeMap::new(),
-            providers: BTreeMap::new(),
             setting: Setting::new(),
         }
     }
@@ -65,26 +62,7 @@ pub fn init(data_dir: &PathBuf) {
 }
 
 pub async fn load_from_db(db: &DatabaseConnection) {
-    let providers = provider::Entity::find()
-        .all(db)
-        .await
-        .expect("Failed to load providers");
 
-    let mut global = GLOBAL.lock().unwrap();
-    for provider_model in providers {
-        if let Some(meta) = global.provider_metas.get(&provider_model.type_) {
-            let provider = (meta.creator)(
-                Some(provider_model.provider_id),
-                &provider_model.name,
-                &global.setting.device_id,
-            );
-            // TODO: not ignore
-            let _ = provider.from_model(&provider_model);
-            if let Some(id) = provider.id() {
-                global.providers.insert(id, provider.clone());
-            }
-        }
-    }
 }
 
 pub fn device_id() -> String {

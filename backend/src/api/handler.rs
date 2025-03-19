@@ -1,5 +1,4 @@
 use prost::{self, Message};
-use qcm_core::provider::Context;
 use qcm_core::{global, Result};
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -8,6 +7,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::convert::QcmInto;
 use crate::error::ProcessError;
+use crate::event::BackendContext;
 use crate::msg::{self, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
 
 type TX = Sender<WsMessage>;
@@ -22,7 +22,7 @@ fn wrap(in_msg: &QcmMessage, playload: msg::qcm_message::Payload) -> QcmMessage 
 }
 
 async fn process_message(
-    ctx: Arc<Context>,
+    ctx: &Arc<BackendContext>,
     tx: &TX,
     msg: &WsMessage,
     in_id: &mut Option<i32>,
@@ -55,7 +55,7 @@ async fn process_message(
                                 let provider =
                                     (meta.creator)(None, &req.name, &global::device_id());
                                 provider
-                                    .login(ctx.as_ref(), &auth_info.clone().qcm_into())
+                                    .login(&ctx.provider_context, &auth_info.clone().qcm_into())
                                     .await?;
                                 return Ok(wrap(&message, Payload::Rsp(Rsp::default())));
                             }
@@ -95,15 +95,15 @@ async fn process_message(
     }
 }
 
-pub async fn handle_message(msg: WsMessage, ctx: Arc<Context>, tx: TX) -> Result<()> {
+pub async fn handle_message(msg: WsMessage, ctx: Arc<BackendContext>) -> Result<()> {
     use msg::qcm_message::Payload;
     let mut id: Option<i32> = None;
 
-    match process_message(ctx, &tx, &msg, &mut id).await {
+    match process_message(&ctx, &ctx.ws_sender, &msg, &mut id).await {
         Ok(msg_rsp) => {
             let mut buf = Vec::new();
             msg_rsp.encode(&mut buf)?;
-            tx.send(WsMessage::Binary(buf.into())).await?;
+            ctx.ws_sender.send(WsMessage::Binary(buf.into())).await?;
         }
         Err(ProcessError::None) => {}
         Err(err) => {
@@ -116,7 +116,7 @@ pub async fn handle_message(msg: WsMessage, ctx: Arc<Context>, tx: TX) -> Result
                 };
                 let mut buf = Vec::new();
                 msg.encode(&mut buf)?;
-                tx.send(WsMessage::Binary(buf.into())).await?;
+                ctx.ws_sender.send(WsMessage::Binary(buf.into())).await?;
             } else {
                 log::error!("{}", err);
             }

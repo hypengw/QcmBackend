@@ -1,7 +1,8 @@
-use crate::Result;
+use crate::{event::Event, Result};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::mpsc::Sender;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AuthMethod {
@@ -20,6 +21,7 @@ impl Default for AuthMethod {
 #[derive(Clone, Debug)]
 pub struct Context {
     pub db: DatabaseConnection,
+    pub ev_sender: Sender<Event>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]

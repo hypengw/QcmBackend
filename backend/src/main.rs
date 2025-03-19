@@ -1,5 +1,6 @@
 use anyhow;
 use clap::{self, Parser};
+use event::BackendContext;
 use log::LevelFilter;
 use log::{info, warn};
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use qcm_core::provider::Context;
 mod api;
 mod convert;
 mod error;
+mod event;
 mod global;
 mod msg;
 
@@ -109,27 +111,61 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
 
     info!("New connection: {}", addr);
 
-    let ctx = Arc::new(Context { db });
+    let (ws_sender, mut ws_receiver) = mpsc::channel::<WsMessage>(32);
 
-    let (sender, mut receiver) = mpsc::channel::<WsMessage>(32);
-    let (mut ws_sender, ws_receiver) = ws_stream.split();
+    let (ev_sender, mut ev_receiver) = mpsc::channel::<event::Event>(32);
+    let (bk_ev_sender, mut bk_ev_receiver) = mpsc::channel::<event::BackendEvent>(32);
 
+    let (mut ws_writer, ws_reader) = ws_stream.split();
+
+    let ctx = Arc::new(BackendContext {
+        provider_context: Arc::new(Context {
+            db,
+            ev_sender: ev_sender,
+        }),
+        bk_ev_sender,
+        ws_sender,
+    });
+
+    // ws sender queue
     tokio::spawn(async move {
-        while let Some(msg) = receiver.recv().await {
-            if ws_sender.send(msg.into()).await.is_err() {
+        while let Some(msg) = ws_receiver.recv().await {
+            if ws_writer.send(msg.into()).await.is_err() {
                 break;
             }
         }
         info!("Channel recv end");
     });
 
-    let mut read = ws_receiver.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
+    // event queue
+    tokio::spawn({
+        let ctx = ctx.clone();
+        async move {
+            while let Some(ev) = ev_receiver.recv().await {
+                event::process_event(ev, ctx.clone()).await;
+            }
+            info!("Event channel recv end");
+        }
+    });
+
+    // backend event queue
+    tokio::spawn({
+        let ctx = ctx.clone();
+        async move {
+            while let Some(ev) = bk_ev_receiver.recv().await {
+                event::process_backend_event(ev, ctx.clone()).await;
+            }
+            info!("Backend event channel recv end");
+        }
+    });
+
+    // receive from ws
+    let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
     while let Ok(Some(message)) = read.next().await.transpose() {
         tokio::spawn({
-            let sender = sender.clone();
             let ctx = ctx.clone();
             async move {
-                if let Err(e) = api::handler::handle_message(message, ctx, sender).await {
+                if let Err(e) = api::handler::handle_message(message, ctx).await {
                     warn!("Error processing message: {}", e);
                 }
             }
@@ -137,6 +173,5 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
     }
 
     // let receiver stop
-    drop(sender);
     info!("Connection end: {}", addr);
 }
