@@ -141,7 +141,7 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         let ctx = ctx.clone();
         async move {
             while let Some(ev) = ev_receiver.recv().await {
-                match event::process_event(ev, ctx.clone()).await {
+                match api::process_event(ev, ctx.clone()).await {
                     Ok(true) => break,
                     Err(err) => log::error!("{}", err),
                     _ => (),
@@ -156,7 +156,7 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         let ctx = ctx.clone();
         async move {
             while let Some(ev) = bk_ev_receiver.recv().await {
-                match event::process_backend_event(ev, ctx.clone()).await {
+                match api::process_backend_event(ev, ctx.clone()).await {
                     Ok(true) => break,
                     Err(err) => log::error!("{}", err),
                     _ => (),
