@@ -12,7 +12,7 @@ pub struct Model {
     pub description: String,
     pub program_count: i32,
     pub create_time: DateTime,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

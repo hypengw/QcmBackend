@@ -17,7 +17,7 @@ pub struct Model {
     pub play_count: i32,
     pub user_id: String,
     pub tags: String,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

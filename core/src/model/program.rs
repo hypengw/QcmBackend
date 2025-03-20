@@ -15,7 +15,7 @@ pub struct Model {
     pub create_time: DateTime,
     pub serial_number: i32,
     pub radio_id: String,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

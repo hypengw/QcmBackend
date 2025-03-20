@@ -15,7 +15,7 @@ pub struct Model {
     pub cover_url: String,
     pub tags: String,
     pub popularity: f64,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

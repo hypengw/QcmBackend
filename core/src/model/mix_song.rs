@@ -10,7 +10,7 @@ pub struct Model {
     pub mix_id: String,
     pub order_idx: i32,
     pub removed: i32,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

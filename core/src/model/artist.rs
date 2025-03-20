@@ -13,7 +13,7 @@ pub struct Model {
     pub album_count: i32,
     pub music_count: i32,
     pub alias: String,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -8,7 +8,7 @@ pub struct Model {
     pub library_id: i32,
     pub song_id: String,
     pub artist_id: String,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]

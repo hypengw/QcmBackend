@@ -8,7 +8,7 @@ pub struct Model {
     pub name: String,
     pub provider_id: i64,
     pub native_id: String,
-    pub _edit_time: DateTime,
+    pub edit_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
