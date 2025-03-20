@@ -151,6 +151,15 @@ impl QcmTryFrom<QcmMessage> for WsMessage {
     }
 }
 
+impl QcmFrom<msg::ProviderMetaStatusMsg> for QcmMessage {
+    fn qcm_from(v: msg::ProviderMetaStatusMsg) -> Self {
+        Self {
+            id: 0,
+            r#type: msg::MessageType::ProviderMetaStatusMsg.into(),
+            payload: Some(msg::qcm_message::Payload::ProviderMetaStatusMsg(v)),
+        }
+    }
+}
 impl QcmFrom<msg::ProviderStatusMsg> for QcmMessage {
     fn qcm_from(v: msg::ProviderStatusMsg) -> Self {
         Self {
