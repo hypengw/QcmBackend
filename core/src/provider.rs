@@ -79,5 +79,5 @@ pub trait Provider: ProviderSession + Send + Sync {
     fn to_model(&self) -> crate::model::provider::ActiveModel;
 
     async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()>;
-    async fn sync(&self, ctx: &Context, state: &dyn SyncState) -> Result<()>;
+    async fn sync(&self, ctx: &Context) -> Result<()>;
 }

@@ -43,6 +43,13 @@ impl MigrationTrait for Migration {
         manager
             .create_table(schema.create_table_from_entity(library::Entity))
             .await?;
+        manager
+            .create_index(unique_index!(
+                library::Entity,
+                library::Column::ProviderId,
+                library::Column::NativeId
+            ))
+            .await?;
 
         manager
             .create_table(schema.create_table_from_entity(album::Entity))
