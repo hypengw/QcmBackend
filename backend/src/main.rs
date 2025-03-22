@@ -19,6 +19,7 @@ mod api;
 mod convert;
 mod error;
 mod event;
+mod task;
 mod global;
 mod msg;
 

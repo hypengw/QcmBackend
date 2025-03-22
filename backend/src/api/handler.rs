@@ -7,6 +7,7 @@ use qcm_core::model as sql_model;
 use sea_orm::{sea_query, EntityTrait};
 use tokio::sync::mpsc::Sender;
 
+use crate::api;
 use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
@@ -14,13 +15,13 @@ use crate::msg::{self, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRs
 
 type TX = Sender<WsMessage>;
 
-fn wrap(in_msg: &QcmMessage, playload: msg::qcm_message::Payload) -> QcmMessage {
-    let message = QcmMessage {
-        r#type: in_msg.r#type() as i32,
-        id: in_msg.id.clone(),
-        payload: Some(playload),
-    };
-    return message;
+fn wrap<T>(in_msg: &QcmMessage, msg: T) -> QcmMessage
+where
+    T: QcmInto<QcmMessage>,
+{
+    let mut qcm_msg: QcmMessage = msg.qcm_into();
+    qcm_msg.id = in_msg.id;
+    return qcm_msg;
 }
 
 async fn process_message(
@@ -47,7 +48,7 @@ async fn process_message(
                                 .collect()
                         }),
                     };
-                    return Ok(wrap(&message, Payload::GetProviderMetasRsp(response)));
+                    return Ok(wrap(&message, response));
                 }
                 MessageType::AddProviderReq => {
                     if let Some(Payload::AddProviderReq(req)) = payload {
@@ -59,24 +60,17 @@ async fn process_message(
                                     .login(&ctx.provider_context, &auth_info.clone().qcm_into())
                                     .await?;
 
-                                let model = provider.to_model();
-                                sql_model::provider::Entity::insert(model)
-                                    .on_conflict(
-                                        sea_query::OnConflict::column(
-                                            sql_model::provider::Column::ProviderId,
-                                        )
-                                        .update_columns([
-                                            sql_model::provider::Column::Custom,
-                                            sql_model::provider::Column::Cookie,
-                                            sql_model::provider::Column::EditTime,
-                                        ])
-                                        .to_owned(),
-                                    )
-                                    .exec(&ctx.provider_context.db)
-                                    .await?;
+                                let id = api::db::add_provider(
+                                    &ctx.provider_context.db,
+                                    provider.clone(),
+                                )
+                                .await?;
+                                provider.set_id(Some(id));
+
+                                global::add_provider(provider.clone());
 
                                 ctx.bk_ev_sender.send(BackendEvent::NewProvider).await?;
-                                return Ok(wrap(&message, Payload::Rsp(Rsp::default())));
+                                return Ok(wrap(&message, Rsp::default()));
                             }
                             return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));
                         }
@@ -88,7 +82,7 @@ async fn process_message(
                         let response = TestRsp {
                             test_data: format!("Echo: {}", req.test_data),
                         };
-                        return Ok(wrap(&message, Payload::TestRsp(response)));
+                        return Ok(wrap(&message, response));
                     }
                 }
                 _ => {

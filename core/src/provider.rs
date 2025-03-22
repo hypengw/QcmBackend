@@ -73,6 +73,7 @@ pub trait ProviderSession {
 #[async_trait::async_trait]
 pub trait Provider: ProviderSession + Send + Sync {
     fn id(&self) -> Option<i64>;
+    fn set_id(&self, id: Option<i64>);
     fn name(&self) -> String;
     fn type_name(&self) -> &str;
     fn from_model(&self, model: &crate::model::provider::Model) -> Result<()>;

@@ -147,3 +147,8 @@ pub fn providers() -> Vec<Arc<dyn Provider>> {
         .cloned()
         .collect::<Vec<Arc<dyn Provider>>>();
 }
+
+pub fn add_provider(p: Arc<dyn Provider>) {
+    let mut g = GLOBAL.lock().unwrap();
+    g.providers.insert(p.id().unwrap(), p);
+}

@@ -151,21 +151,22 @@ impl QcmTryFrom<QcmMessage> for WsMessage {
     }
 }
 
-impl QcmFrom<msg::ProviderMetaStatusMsg> for QcmMessage {
-    fn qcm_from(v: msg::ProviderMetaStatusMsg) -> Self {
-        Self {
-            id: 0,
-            r#type: msg::MessageType::ProviderMetaStatusMsg.into(),
-            payload: Some(msg::qcm_message::Payload::ProviderMetaStatusMsg(v)),
+macro_rules! impl_from_for_qcm_msg {
+    ($msg_type:ident) => {
+        impl QcmFrom<msg::$msg_type> for QcmMessage {
+            fn qcm_from(v: msg::$msg_type) -> Self {
+                Self {
+                    id: 0,
+                    r#type: msg::MessageType::$msg_type.into(),
+                    payload: Some(msg::qcm_message::Payload::$msg_type(v)),
+                }
+            }
         }
-    }
+    };
 }
-impl QcmFrom<msg::ProviderStatusMsg> for QcmMessage {
-    fn qcm_from(v: msg::ProviderStatusMsg) -> Self {
-        Self {
-            id: 0,
-            r#type: msg::MessageType::ProviderStatusMsg.into(),
-            payload: Some(msg::qcm_message::Payload::ProviderStatusMsg(v)),
-        }
-    }
-}
+impl_from_for_qcm_msg!(ProviderMetaStatusMsg);
+impl_from_for_qcm_msg!(ProviderStatusMsg);
+impl_from_for_qcm_msg!(GetProviderMetasRsp);
+impl_from_for_qcm_msg!(TestRsp);
+impl_from_for_qcm_msg!(Rsp);
+
