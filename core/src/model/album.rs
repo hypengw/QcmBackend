@@ -1,4 +1,6 @@
+use crate::db::values::StringVec;
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "album")]
@@ -6,15 +8,16 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub item_id: String,
-    pub library_id: i32,
+    pub library_id: i64,
     pub name: String,
-    pub pic_url: String,
-    pub publish_time: DateTime,
+    pub pic_id: String,
+    pub publish_time: DateTimeUtc,
     pub track_count: i32,
     pub description: String,
     pub company: String,
     pub type_: String,
-    pub edit_time: DateTime,
+    pub genres: StringVec,
+    pub edit_time: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

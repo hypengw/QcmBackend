@@ -139,6 +139,11 @@ where
     f(&global.provider_metas)
 }
 
+pub fn provider(id: i64) -> Option<Arc<dyn Provider>> {
+    let g = GLOBAL.lock().unwrap();
+    return g.providers.get(&id).map(|p| p.clone());
+}
+
 pub fn providers() -> Vec<Arc<dyn Provider>> {
     let g = GLOBAL.lock().unwrap();
     return g

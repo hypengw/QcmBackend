@@ -8,6 +8,7 @@ pub struct Model {
     pub name: String,
     #[sea_orm(column_name = "type")]
     pub type_: String,
+    pub base_url: String,
     pub cookie: String,
     pub custom: String,
     #[sea_orm(default_expr = "Expr::current_timestamp()")]

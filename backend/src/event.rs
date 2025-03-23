@@ -7,7 +7,7 @@ pub use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 pub enum BackendEvent {
     Frist,
-    NewProvider,
+    NewProvider { id: i64 },
     End,
 }
 

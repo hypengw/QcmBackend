@@ -1,5 +1,4 @@
 use crossbeam_channel::{Receiver, Sender};
-use qcm_core::event::TaskEvent;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{atomic::AtomicI64, Arc};
@@ -27,6 +26,10 @@ enum TaskManagerEvent {
     Stop,
     // Wait,
     // Pause,
+}
+pub struct TaskOper {
+    id: i64,
+    tx: Sender<TaskManagerEvent>,
 }
 
 #[derive(Debug)]
@@ -60,7 +63,7 @@ impl TaskManagerOper {
         let _ = self.sender.send(TaskManagerEvent::Stop);
     }
 
-    pub async fn spawn<F>(&self, future: F) -> i64
+    pub fn spawn<F>(&self, future: F) -> i64
     where
         F: Future<Output = ()> + Send + 'static,
     {

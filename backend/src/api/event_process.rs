@@ -1,4 +1,5 @@
 use crate::event::{BackendContext, BackendEvent, Event};
+use qcm_core::provider::Provider;
 use qcm_core::{self, provider};
 use qcm_core::{global, Result};
 use std::sync::Arc;
@@ -11,19 +12,42 @@ use crate::msg::{
 
 pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> {
     match ev {
+        Event::ProviderSync { id } => {
+            if let Some(p) = global::provider(id) {
+                ctx.oper.spawn({
+                    let ctx = ctx.provider_context.clone();
+                    async move {
+                        match p.sync(&ctx).await {
+                            Err(err) => {
+                                log::error!("{}", err);
+                            }
+                            _ => {}
+                        }
+                        log::info!("sync ok");
+                    }
+                });
+            }
+        }
         Event::End => return Ok(true),
     }
     return Ok(false);
 }
 
 pub async fn process_backend_event(ev: BackendEvent, ctx: Arc<BackendContext>) -> Result<bool> {
+    let ev_sender = &ctx.provider_context.ev_sender;
     match ev {
         BackendEvent::Frist => {
             send_provider_meta_status(ctx.as_ref()).await?;
-            send_provider_status(ctx.as_ref()).await?;
+            let providers = send_provider_status(ctx.as_ref()).await?;
+            for p in providers {
+                if let Some(id) = p.id() {
+                    ev_sender.send(Event::ProviderSync { id: id }).await?;
+                }
+            }
         }
-        BackendEvent::NewProvider => {
+        BackendEvent::NewProvider { id } => {
             send_provider_status(ctx.as_ref()).await?;
+            ev_sender.send(Event::ProviderSync { id }).await?;
         }
         BackendEvent::End => return Ok(true),
     }
@@ -51,10 +75,11 @@ async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {
     Ok(())
 }
 
-async fn send_provider_status(ctx: &BackendContext) -> Result<()> {
+async fn send_provider_status(ctx: &BackendContext) -> Result<Vec<Arc<dyn Provider>>> {
+    let providers = global::providers();
     let msg: Option<QcmMessage> = {
         let mut msg = ProviderStatusMsg::default();
-        msg.statuses = global::providers()
+        msg.statuses = providers
             .iter()
             .map(|p| {
                 let mut status = ProviderStatus::default();
@@ -73,5 +98,5 @@ async fn send_provider_status(ctx: &BackendContext) -> Result<()> {
     if let Some(msg) = msg {
         ctx.ws_sender.send(msg.qcm_try_into()?).await?;
     }
-    Ok(())
+    Ok(providers)
 }

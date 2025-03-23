@@ -69,7 +69,9 @@ async fn process_message(
 
                                 global::add_provider(provider.clone());
 
-                                ctx.bk_ev_sender.send(BackendEvent::NewProvider).await?;
+                                ctx.bk_ev_sender
+                                    .send(BackendEvent::NewProvider { id })
+                                    .await?;
                                 return Ok(wrap(&message, Rsp::default()));
                             }
                             return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));
