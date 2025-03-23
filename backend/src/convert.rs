@@ -3,8 +3,10 @@ use std::ops::Deref;
 use crate::error::ProcessError;
 use crate::msg::model as proto;
 use crate::msg::{self, QcmMessage};
+use chrono::Timelike;
 use prost::{DecodeError, EncodeError, Message};
 use qcm_core as core;
+use qcm_core::db::values::StringVec;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 pub trait QcmFrom<T>: Sized {
@@ -48,6 +50,23 @@ where
     #[inline]
     fn qcm_try_into(self) -> Result<U, Self::Error> {
         U::qcm_try_from(self)
+    }
+}
+
+impl QcmFrom<prost_types::Timestamp> for sea_orm::entity::prelude::DateTimeUtc {
+    fn qcm_from(v: prost_types::Timestamp) -> Self {
+        let datetime =
+            chrono::DateTime::from_timestamp(v.seconds, v.nanos as u32).unwrap_or_default();
+        datetime
+    }
+}
+
+impl QcmFrom<sea_orm::entity::prelude::DateTimeUtc> for prost_types::Timestamp {
+    fn qcm_from(v: sea_orm::entity::prelude::DateTimeUtc) -> Self {
+        let seconds = v.timestamp();
+        let nanos = v.nanosecond() as i32;
+
+        Self { seconds, nanos }
     }
 }
 
@@ -112,6 +131,43 @@ impl QcmFrom<core::provider::AuthInfo> for proto::AuthInfo {
     }
 }
 
+impl QcmFrom<proto::Album> for core::model::album::Model {
+    fn qcm_from(v: proto::Album) -> Self {
+        Self {
+            id: v.id.parse().unwrap_or_default(),
+            item_id: v.item_id,
+            library_id: v.library_id.parse().unwrap_or_default(),
+            name: v.name,
+            pic_id: v.pic_url,
+            publish_time: v.publish_time.unwrap_or_default().qcm_into(),
+            track_count: v.track_count,
+            description: v.description,
+            company: v.company,
+            type_: v.r#type,
+            genres: StringVec::default(),
+            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+        }
+    }
+}
+
+impl QcmFrom<core::model::album::Model> for proto::Album {
+    fn qcm_from(v: core::model::album::Model) -> Self {
+        Self {
+            id: v.id.to_string(),
+            item_id: v.item_id,
+            library_id: v.library_id.to_string(),
+            name: v.name,
+            pic_url: v.pic_id,
+            publish_time: Some(v.publish_time.qcm_into()),
+            track_count: v.track_count,
+            description: v.description,
+            company: v.company,
+            r#type: v.type_,
+            edit_time: Some(v.edit_time.qcm_into()),
+        }
+    }
+}
+
 impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
     fn qcm_from(v: core::provider::ProviderMeta) -> Self {
         Self {
@@ -168,5 +224,5 @@ impl_from_for_qcm_msg!(ProviderMetaStatusMsg);
 impl_from_for_qcm_msg!(ProviderStatusMsg);
 impl_from_for_qcm_msg!(GetProviderMetasRsp);
 impl_from_for_qcm_msg!(TestRsp);
+impl_from_for_qcm_msg!(GetAlbumsRsp);
 impl_from_for_qcm_msg!(Rsp);
-
