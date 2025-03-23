@@ -4,6 +4,7 @@ use event::{BackendContext, BackendEvent};
 use log::LevelFilter;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use task::{TaskManager, TaskManagerOper};
 
 use futures_util::{future, SinkExt, StreamExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -19,9 +20,9 @@ mod api;
 mod convert;
 mod error;
 mod event;
-mod task;
 mod global;
 mod msg;
+mod task;
 
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
@@ -53,6 +54,11 @@ async fn main() -> Result<(), anyhow::Error> {
     qcm_core::global::init(&args.data);
     qcm_plugins::init();
 
+    let (oper, taskmgr_handle) = {
+        let (oper, mgr) = TaskManager::new();
+        (oper, mgr.start())
+    };
+
     let db = prepare_db(args.data).await?;
     qcm_core::global::load_from_db(&db).await;
 
@@ -77,10 +83,16 @@ async fn main() -> Result<(), anyhow::Error> {
     // only need the first accept connection
     if let Ok((stream, _)) = listener.accept().await {
         let db = db.clone();
-        let handle = tokio::spawn(accept_connection(stream, db));
+        let oper = oper.clone();
+        let handle = tokio::spawn(accept_connection(stream, db, oper));
         handle.await?;
     }
 
+    // wait stop
+    {
+        oper.stop();
+        let _ = taskmgr_handle.join();
+    }
     Ok(())
 }
 
@@ -99,7 +111,7 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
     // Ok(pool)
 }
 
-async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
+async fn accept_connection(stream: TcpStream, db: DatabaseConnection, oper: TaskManagerOper) {
     let addr = stream
         .peer_addr()
         .expect("connected streams should have a peer address");
@@ -125,6 +137,7 @@ async fn accept_connection(stream: TcpStream, db: DatabaseConnection) {
         }),
         bk_ev_sender,
         ws_sender,
+        oper,
     });
 
     // ws sender queue

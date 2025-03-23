@@ -24,14 +24,17 @@ enum TaskManagerEvent {
     Progress,
     Cancel { id: i64 },
     End { id: i64 },
+    Stop,
     // Wait,
     // Pause,
 }
 
+#[derive(Debug)]
 struct TaskManagerInner {
     id: AtomicI64,
 }
 
+#[derive(Debug, Clone)]
 pub struct TaskManagerOper {
     inner: Arc<TaskManagerInner>,
     sender: Sender<TaskManagerEvent>,
@@ -49,8 +52,12 @@ impl TaskManagerOper {
         let _ = self.sender.send(TaskManagerEvent::Add(task));
     }
 
-    fn canel(&self, id: i64) {
+    pub fn canel(&self, id: i64) {
         let _ = self.sender.send(TaskManagerEvent::Cancel { id });
+    }
+
+    pub fn stop(&self) {
+        let _ = self.sender.send(TaskManagerEvent::Stop);
     }
 
     pub async fn spawn<F>(&self, future: F) -> i64
@@ -132,6 +139,9 @@ impl TaskManager {
                     self.tasks.remove(&id);
                 }
                 TaskManagerEvent::Progress => {}
+                TaskManagerEvent::Stop => {
+                    break;
+                }
             }
         }
     }
