@@ -186,6 +186,9 @@ impl QcmFrom<ProcessError> for msg::Rsp {
             code: match v {
                 ProcessError::Internal(_) => msg::ErrorCode::Internal.into(),
                 ProcessError::Decode(_) => msg::ErrorCode::Decode.into(),
+                ProcessError::UnsupportedMessageType(_) => {
+                    msg::ErrorCode::UnsupportedMessageType.into()
+                }
                 ProcessError::UnknownMessageType(_) => msg::ErrorCode::UnknownMessageType.into(),
                 ProcessError::UnexpectedPayload(_) => msg::ErrorCode::UnexpectedPayload.into(),
                 ProcessError::MissingFields(_) => msg::ErrorCode::MissingFields.into(),

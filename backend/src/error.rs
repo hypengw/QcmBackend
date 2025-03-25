@@ -10,6 +10,8 @@ pub enum ProcessError {
     Internal(#[from] anyhow::Error),
     #[error("Decode error: {0}")]
     Decode(#[from] prost::DecodeError),
+    #[error("Unsupported message type: {0}")]
+    UnsupportedMessageType(i32),
     #[error("Unknown message type: {0}")]
     UnknownMessageType(i32),
     #[error("Unexpected payload for message type: {0}")]

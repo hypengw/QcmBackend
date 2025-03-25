@@ -4,14 +4,15 @@ use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use qcm_core::model as sql_model;
-use sea_orm::{sea_query, EntityTrait};
+use sea_orm::{sea_query, EntityTrait, PaginatorTrait};
 use tokio::sync::mpsc::Sender;
 
 use crate::api;
+use crate::api::pagination::PageParams;
 use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
-use crate::msg::{self, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
+use crate::msg::{self, GetAlbumsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
 
 type TX = Sender<WsMessage>;
 
@@ -79,16 +80,39 @@ async fn process_message(
                         return Err(ProcessError::MissingFields("auth_info".to_string()));
                     }
                 }
+                MessageType::GetAlbumsReq => {
+                    if let Some(Payload::GetAlbumsReq(req)) = payload {
+                        let page_params = PageParams::new(req.page, req.page_size);
+
+                        let paginator = sql_model::album::Entity::find()
+                            .paginate(&ctx.provider_context.db, page_params.page_size);
+
+                        let total = paginator.num_items().await?;
+                        let albums = paginator
+                            .fetch_page(page_params.page)
+                            .await?
+                            .into_iter()
+                            .map(|album| album.qcm_into())
+                            .collect();
+
+                        let rsp = GetAlbumsRsp {
+                            albums,
+                            total: total as i32,
+                            has_more: page_params.has_more(total),
+                        };
+                        return Ok(wrap(&message, rsp));
+                    }
+                }
                 MessageType::TestReq => {
                     if let Some(Payload::TestReq(req)) = payload {
-                        let response = TestRsp {
+                        let rsp = TestRsp {
                             test_data: format!("Echo: {}", req.test_data),
                         };
-                        return Ok(wrap(&message, response));
+                        return Ok(wrap(&message, rsp));
                     }
                 }
                 _ => {
-                    return Err(ProcessError::UnknownMessageType(mtype.into()));
+                    return Err(ProcessError::UnsupportedMessageType(mtype.into()));
                 }
             }
             return Err(ProcessError::UnexpectedPayload(mtype.into()));
@@ -116,6 +140,7 @@ pub async fn handle_message(msg: WsMessage, ctx: Arc<BackendContext>) -> Result<
 
     match process_message(&ctx, &ctx.ws_sender, &msg, &mut id).await {
         Ok(msg_rsp) => {
+            log::warn!("send {}", msg_rsp.r#type);
             let mut buf = Vec::new();
             msg_rsp.encode(&mut buf)?;
             ctx.ws_sender.send(WsMessage::Binary(buf.into())).await?;
@@ -129,6 +154,7 @@ pub async fn handle_message(msg: WsMessage, ctx: Arc<BackendContext>) -> Result<
                     r#type: msg::MessageType::Rsp.into(),
                     payload: Some(Payload::Rsp(rsp)),
                 };
+                log::warn!("send {}", msg.r#type);
                 let mut buf = Vec::new();
                 msg.encode(&mut buf)?;
                 ctx.ws_sender.send(WsMessage::Binary(buf.into())).await?;
