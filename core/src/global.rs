@@ -15,7 +15,7 @@ pub const APP_NAME: &str = "QcmBackend";
 pub const APP_VERSION: &str = "0.1.0";
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Setting {
+struct Setting {
     pub device_id: String,
 }
 

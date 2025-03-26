@@ -31,6 +31,7 @@ hyper = { version = "1", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["server-auto"] }
 http-body-util = "0.1"
 hyper-tungstenite = "0.17"
+scopeguard = "1"
 
 qcm-plugins = { path = "../plugin" }
 
