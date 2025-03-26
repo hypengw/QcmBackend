@@ -1,144 +1,147 @@
+use super::process_ws::process_ws;
+pub use super::process_ws::WsMessage;
+use crate::convert::*;
+use crate::msg::{self, QcmMessage, Rsp};
+use crate::task::TaskManagerOper;
+use crate::{
+    error::ProcessError,
+    event::{self, BackendContext, BackendEvent},
+};
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use http_body_util::Full;
+use hyper::body::{Bytes, Incoming};
+use hyper::{Request, Response};
+use hyper_tungstenite::HyperWebsocket;
 use prost::{self, Message};
-use qcm_core::{global, Result};
+use qcm_core::provider::Context;
+use qcm_core::Result;
+use sea_orm::{Database, DatabaseConnection};
 use std::sync::Arc;
-use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio::sync::mpsc as async_mpsc;
 
-use qcm_core::model as sql_model;
-use sea_orm::{sea_query, EntityTrait, PaginatorTrait};
-use tokio::sync::mpsc::Sender;
+use super::process_event::{process_backend_event, process_event};
 
-use crate::api;
-use crate::api::pagination::PageParams;
-use crate::convert::QcmInto;
-use crate::error::ProcessError;
-use crate::event::{BackendContext, BackendEvent};
-use crate::msg::{self, GetAlbumsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
+pub async fn handle_request(
+    mut request: Request<Incoming>,
+    db: DatabaseConnection,
+    oper: TaskManagerOper,
+) -> Result<Response<Full<Bytes>>> {
+    // if ws
+    if hyper_tungstenite::is_upgrade_request(&request) {
+        let (response, websocket) = hyper_tungstenite::upgrade(&mut request, None)?;
 
-type TX = Sender<WsMessage>;
-
-fn wrap<T>(in_msg: &QcmMessage, msg: T) -> QcmMessage
-where
-    T: QcmInto<QcmMessage>,
-{
-    let mut qcm_msg: QcmMessage = msg.qcm_into();
-    qcm_msg.id = in_msg.id;
-    return qcm_msg;
-}
-
-async fn process_message(
-    ctx: &Arc<BackendContext>,
-    tx: &TX,
-    msg: &WsMessage,
-    in_id: &mut Option<i32>,
-) -> Result<QcmMessage, ProcessError> {
-    use msg::qcm_message::Payload;
-    match msg {
-        WsMessage::Binary(data) => {
-            let message = QcmMessage::decode(&data[..])?;
-            let mtype = message.r#type();
-            let payload = &message.payload;
-            *in_id = Some(message.id);
-
-            match mtype {
-                MessageType::GetProviderMetasReq => {
-                    let response = GetProviderMetasRsp {
-                        metas: qcm_core::global::with_provider_metas(|metas| {
-                            metas
-                                .values()
-                                .map(|el| -> msg::model::ProviderMeta { el.clone().qcm_into() })
-                                .collect()
-                        }),
-                    };
-                    return Ok(wrap(&message, response));
-                }
-                MessageType::AddProviderReq => {
-                    if let Some(Payload::AddProviderReq(req)) = payload {
-                        if let Some(auth_info) = &req.auth_info {
-                            if let Some(meta) = qcm_core::global::provider_meta(&req.type_name) {
-                                let provider =
-                                    (meta.creator)(None, &req.name, &global::device_id());
-                                provider
-                                    .login(&ctx.provider_context, &auth_info.clone().qcm_into())
-                                    .await?;
-
-                                let id = api::db::add_provider(
-                                    &ctx.provider_context.db,
-                                    provider.clone(),
-                                )
-                                .await?;
-                                provider.set_id(Some(id));
-
-                                global::add_provider(provider.clone());
-
-                                ctx.bk_ev_sender
-                                    .send(BackendEvent::NewProvider { id })
-                                    .await?;
-                                return Ok(wrap(&message, Rsp::default()));
-                            }
-                            return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));
-                        }
-                        return Err(ProcessError::MissingFields("auth_info".to_string()));
-                    }
-                }
-                MessageType::GetAlbumsReq => {
-                    if let Some(Payload::GetAlbumsReq(req)) = payload {
-                        let page_params = PageParams::new(req.page, req.page_size);
-
-                        let paginator = sql_model::album::Entity::find()
-                            .paginate(&ctx.provider_context.db, page_params.page_size);
-
-                        let total = paginator.num_items().await?;
-                        let albums = paginator
-                            .fetch_page(page_params.page)
-                            .await?
-                            .into_iter()
-                            .map(|album| album.qcm_into())
-                            .collect();
-
-                        let rsp = GetAlbumsRsp {
-                            albums,
-                            total: total as i32,
-                            has_more: page_params.has_more(total),
-                        };
-                        return Ok(wrap(&message, rsp));
-                    }
-                }
-                MessageType::TestReq => {
-                    if let Some(Payload::TestReq(req)) = payload {
-                        let rsp = TestRsp {
-                            test_data: format!("Echo: {}", req.test_data),
-                        };
-                        return Ok(wrap(&message, rsp));
-                    }
-                }
-                _ => {
-                    return Err(ProcessError::UnsupportedMessageType(mtype.into()));
-                }
+        // spawn to handle ws connect
+        tokio::spawn(async move {
+            if let Err(e) = handle_ws(websocket, db, oper).await {
+                eprintln!("Error in websocket connection: {e}");
             }
-            return Err(ProcessError::UnexpectedPayload(mtype.into()));
-        }
-        WsMessage::Text(text) => {
-            log::info!("{}", text);
-            tx.send(WsMessage::Text(format!("Echo: {}", text).into()))
-                .await
-                .unwrap();
-            return Err(ProcessError::None);
-        }
-        WsMessage::Ping(a) => {
-            tx.send(WsMessage::Pong(a.clone())).await.unwrap();
-            return Err(ProcessError::None);
-        }
-        _ => {
-            return Err(ProcessError::None);
-        }
+        });
+
+        // return handshake
+        Ok(response)
+    } else {
+        // Handle regular HTTP requests here.
+        Ok(Response::new(Full::<Bytes>::from("Hello HTTP!")))
     }
 }
 
-pub async fn handle_message(msg: WsMessage, ctx: Arc<BackendContext>) -> Result<()> {
+async fn handle_ws(
+    ws: HyperWebsocket,
+    db: DatabaseConnection,
+    oper: TaskManagerOper,
+) -> Result<()> {
+    let (mut ws_writer, ws_reader) = ws.await?.split();
+
+    let (ws_sender, mut ws_receiver) = async_mpsc::channel::<WsMessage>(32);
+    let (ev_sender, mut ev_receiver) = async_mpsc::channel::<event::Event>(32);
+    let (bk_ev_sender, mut bk_ev_receiver) = async_mpsc::channel::<event::BackendEvent>(32);
+
+    let ctx = Arc::new(BackendContext {
+        provider_context: Arc::new(Context {
+            db,
+            ev_sender: ev_sender,
+        }),
+        bk_ev_sender,
+        ws_sender,
+        oper,
+    });
+
+    // ws sender queue
+    tokio::spawn({
+        async move {
+            while let Some(msg) = ws_receiver.recv().await {
+                if ws_writer.send(msg.into()).await.is_err() {
+                    break;
+                }
+            }
+            log::info!("Channel recv end");
+        }
+    });
+
+    // event queue
+    tokio::spawn({
+        let ctx = ctx.clone();
+        async move {
+            while let Some(ev) = ev_receiver.recv().await {
+                match process_event(ev, ctx.clone()).await {
+                    Ok(true) => break,
+                    Err(err) => log::error!("{}", err),
+                    _ => (),
+                }
+            }
+            log::info!("Event channel recv end");
+        }
+    });
+
+    // backend event queue
+    tokio::spawn({
+        let ctx = ctx.clone();
+        async move {
+            while let Some(ev) = bk_ev_receiver.recv().await {
+                match process_backend_event(ev, ctx.clone()).await {
+                    Ok(true) => break,
+                    Err(err) => log::error!("{}", err),
+                    _ => (),
+                }
+            }
+            log::info!("Backend event channel recv end");
+        }
+    });
+
+    let _ = ctx.bk_ev_sender.try_send(BackendEvent::Frist);
+
+    // receive from ws
+    // let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
+    let mut reader = ws_reader;
+    while let Ok(Some(message)) = reader.next().await.transpose() {
+        tokio::spawn({
+            let ctx = ctx.clone();
+            async move {
+                if let Err(e) = handle_ws_message(message, ctx).await {
+                    log::warn!("Error processing message: {}", e);
+                }
+            }
+        });
+    }
+
+    // end event process
+    ctx.provider_context
+        .ev_sender
+        .send(event::Event::End)
+        .await
+        .unwrap();
+    ctx.bk_ev_sender
+        .send(event::BackendEvent::End)
+        .await
+        .unwrap();
+    return Ok(());
+}
+
+pub async fn handle_ws_message(msg: WsMessage, ctx: Arc<BackendContext>) -> Result<()> {
     use msg::qcm_message::Payload;
     let mut id: Option<i32> = None;
 
-    match process_message(&ctx, &ctx.ws_sender, &msg, &mut id).await {
+    match process_ws(&ctx, &ctx.ws_sender, &msg, &mut id).await {
         Ok(msg_rsp) => {
             log::warn!("send {}", msg_rsp.r#type);
             let mut buf = Vec::new();

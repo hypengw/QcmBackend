@@ -1,28 +1,30 @@
 use anyhow;
 use clap::{self, Parser};
-use event::{BackendContext, BackendEvent};
 use log::LevelFilter;
-use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
-use task::{TaskManager, TaskManagerOper};
+use task::TaskManager;
 
-use futures_util::{future, SinkExt, StreamExt, TryStreamExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::Message as WsMessage;
+use hyper::{body::Incoming, Request};
+use hyper_util::rt::TokioIo;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    signal::unix::{signal, SignalKind},
+    sync::watch,
+};
 
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection};
-
-use qcm_core::provider::Context;
 
 mod api;
 mod convert;
 mod error;
 mod event;
 mod global;
+mod media;
 mod msg;
 mod task;
+
+use api::handler::handle_request;
 
 #[derive(clap::Parser)]
 #[command(author, version, about, long_about = None)]
@@ -62,6 +64,20 @@ async fn main() -> Result<(), anyhow::Error> {
     let db = prepare_db(args.data).await?;
     qcm_core::global::load_from_db(&db).await;
 
+    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+
+    tokio::spawn(async move {
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+        loop {
+            tokio::select! {
+                _ = sigterm.recv() => {}
+                _ = sigint.recv() => {}
+            };
+            shutdown_tx.send(true).unwrap();
+        }
+    });
+
     let listener = {
         // Use port 0 if none specified (system will assign an available port)
         let port = args.port.unwrap_or(0);
@@ -80,12 +96,46 @@ async fn main() -> Result<(), anyhow::Error> {
         listener
     };
 
-    // only need the first accept connection
-    if let Ok((stream, _)) = listener.accept().await {
+    let accept = |stream: TcpStream| {
+        let addr = stream
+            .peer_addr()
+            .expect("connected streams should have a peer address");
+        log::info!("New connection: {}", addr);
         let db = db.clone();
         let oper = oper.clone();
-        let handle = tokio::spawn(accept_connection(stream, db, oper));
-        handle.await?;
+        tokio::spawn(async move {
+            let http = hyper::server::conn::http1::Builder::new();
+            let service = |request: Request<Incoming>| {
+                let db = db.clone();
+                let oper = oper.clone();
+                async move { handle_request(request, db, oper).await }
+            };
+            let connection = http
+                .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
+                .with_upgrades();
+
+            if let Err(err) = connection.await {
+                log::error!("Error HTTP connection: {err:?}");
+            }
+        });
+    };
+
+    loop {
+        if *shutdown_rx.borrow() {
+            break;
+        }
+
+        tokio::select! {
+            accept_result = listener.accept() => {
+                if let Ok((stream, _)) = accept_result {
+                    accept(stream);
+                }
+            }
+            _ = shutdown_rx.changed() => {
+                log::info!("Shutting down...");
+                break;
+            }
+        }
     }
 
     // wait stop
@@ -109,102 +159,4 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
 
     // let pool = SqlitePool::connect(&db_url).await?;
     // Ok(pool)
-}
-
-async fn accept_connection(stream: TcpStream, db: DatabaseConnection, oper: TaskManagerOper) {
-    let addr = stream
-        .peer_addr()
-        .expect("connected streams should have a peer address");
-    log::info!("Peer address: {}", addr);
-
-    let ws_stream = tokio_tungstenite::accept_async(stream)
-        .await
-        .expect("Error during the websocket handshake occurred");
-
-    log::info!("New connection: {}", addr);
-
-    let (ws_sender, mut ws_receiver) = mpsc::channel::<WsMessage>(32);
-
-    let (ev_sender, mut ev_receiver) = mpsc::channel::<event::Event>(32);
-    let (bk_ev_sender, mut bk_ev_receiver) = mpsc::channel::<event::BackendEvent>(32);
-
-    let (mut ws_writer, ws_reader) = ws_stream.split();
-
-    let ctx = Arc::new(BackendContext {
-        provider_context: Arc::new(Context {
-            db,
-            ev_sender: ev_sender,
-        }),
-        bk_ev_sender,
-        ws_sender,
-        oper,
-    });
-
-    // ws sender queue
-    tokio::spawn(async move {
-        while let Some(msg) = ws_receiver.recv().await {
-            if ws_writer.send(msg.into()).await.is_err() {
-                break;
-            }
-        }
-        log::info!("Channel recv end");
-    });
-
-    // event queue
-    tokio::spawn({
-        let ctx = ctx.clone();
-        async move {
-            while let Some(ev) = ev_receiver.recv().await {
-                match api::process_event(ev, ctx.clone()).await {
-                    Ok(true) => break,
-                    Err(err) => log::error!("{}", err),
-                    _ => (),
-                }
-            }
-            log::info!("Event channel recv end");
-        }
-    });
-
-    // backend event queue
-    tokio::spawn({
-        let ctx = ctx.clone();
-        async move {
-            while let Some(ev) = bk_ev_receiver.recv().await {
-                match api::process_backend_event(ev, ctx.clone()).await {
-                    Ok(true) => break,
-                    Err(err) => log::error!("{}", err),
-                    _ => (),
-                }
-            }
-            log::info!("Backend event channel recv end");
-        }
-    });
-
-    let _ = ctx.bk_ev_sender.try_send(BackendEvent::Frist);
-
-    // receive from ws
-    // let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
-    let mut reader = ws_reader;
-    while let Ok(Some(message)) = reader.next().await.transpose() {
-        tokio::spawn({
-            let ctx = ctx.clone();
-            async move {
-                if let Err(e) = api::handler::handle_message(message, ctx).await {
-                    log::warn!("Error processing message: {}", e);
-                }
-            }
-        });
-    }
-
-    // end event process
-    ctx.provider_context
-        .ev_sender
-        .send(event::Event::End)
-        .await
-        .unwrap();
-    ctx.bk_ev_sender
-        .send(event::BackendEvent::End)
-        .await
-        .unwrap();
-    log::info!("Connection end: {}", addr);
 }
