@@ -11,15 +11,6 @@ use crate::msg::{self, QcmMessage};
 
 type TX = Sender<WsMessage>;
 
-fn wrap<T>(in_msg: &QcmMessage, msg: T) -> QcmMessage
-where
-    T: QcmInto<QcmMessage>,
-{
-    let mut qcm_msg: QcmMessage = msg.qcm_into();
-    qcm_msg.id = in_msg.id;
-    return qcm_msg;
-}
-
 pub async fn process_ws(
     ctx: &Arc<BackendContext>,
     tx: &TX,

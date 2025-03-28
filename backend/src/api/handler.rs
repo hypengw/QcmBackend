@@ -1,8 +1,11 @@
+use super::process_http::process_http_get;
 use super::process_ws::process_ws;
 pub use super::process_ws::WsMessage;
+use crate::api::process_http::process_http_post;
 use crate::convert::*;
 use crate::global as bglobal;
 use crate::msg::{self, QcmMessage, Rsp};
+use crate::reverse::body_type::ResponseBody;
 use crate::task::TaskManagerOper;
 use crate::{
     error::ProcessError,
@@ -14,6 +17,7 @@ use hyper::body::{Body, Bytes, Frame, Incoming};
 use hyper::{Request, Response};
 use hyper_tungstenite::HyperWebsocket;
 use prost::{self, Message};
+use qcm_core::anyhow;
 use qcm_core::provider::Context;
 use qcm_core::Result;
 use scopeguard::guard;
@@ -28,7 +32,7 @@ pub async fn handle_request(
     mut request: Request<Incoming>,
     db: DatabaseConnection,
     oper: TaskManagerOper,
-) -> Result<Response<BoxBody<Bytes, std::io::Error>>> {
+) -> Result<Response<ResponseBody>> {
     // if ws
     if hyper_tungstenite::is_upgrade_request(&request) {
         let (response, websocket) = hyper_tungstenite::upgrade(&mut request, None)?;
@@ -40,15 +44,17 @@ pub async fn handle_request(
             }
         });
 
-        // return handshake
-        Ok(response.map(|b| b.map_err(|_| std::io::ErrorKind::NotFound.into()).boxed()))
+        // return upgrade rsp
+        Ok(response.map(|b| ResponseBody::Boxed(b.map_err(|e| e.into()).boxed())))
     } else {
         let ctx = bglobal::context(1).unwrap();
-        let stream = futures_util::stream::once(async {
-            Ok::<_, std::io::Error>(Frame::data(Bytes::from("Hello HTTP!")))
-        });
-        let body = BoxBody::new(StreamBody::new(stream));
-        Ok(Response::new(body))
+
+        use hyper::Method;
+        match *request.method() {
+            Method::GET => Ok(process_http_get(&ctx, request).await?),
+            Method::POST => Ok(process_http_post(&ctx, request).await?),
+            _ => Err(anyhow!("Unsupported Method")),
+        }
     }
 }
 

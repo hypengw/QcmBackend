@@ -31,7 +31,7 @@ tokio = { version = "1", features = [
     "time",
 ] }
 # client
-reqwest = { version = "0.12", features = ["json", "cookies"] }
+reqwest = { version = "0.12", features = ["json", "cookies", "stream"] }
 reqwest_cookie_store = { version = "0.8" }
 # orm
 sea-orm = { version = "1.1", features = [

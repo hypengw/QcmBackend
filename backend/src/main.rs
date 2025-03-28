@@ -15,6 +15,7 @@ use tokio::{
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection};
 
+mod reverse;
 mod api;
 mod convert;
 mod error;

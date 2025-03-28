@@ -1,4 +1,5 @@
-use crate::{event::Event, Result};
+use crate::{error::ConnectError, event::Event, Result};
+use reqwest::Response;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -81,4 +82,10 @@ pub trait Provider: ProviderSession + Send + Sync {
 
     async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()>;
     async fn sync(&self, ctx: &Context) -> Result<()>;
+    async fn image(
+        &self,
+        ctx: &Context,
+        item_id: &str,
+        image_id: &str,
+    ) -> Result<Response, ConnectError>;
 }

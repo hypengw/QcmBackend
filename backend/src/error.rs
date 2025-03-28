@@ -1,5 +1,6 @@
 use prost;
 
+use hyper;
 use sea_orm::error as orm_error;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -8,6 +9,8 @@ use tokio::sync::mpsc::error::SendError;
 pub enum ProcessError {
     #[error("{0}")]
     Internal(#[from] anyhow::Error),
+    #[error("Encode error: {0}")]
+    Encode(#[from] prost::EncodeError),
     #[error("Decode error: {0}")]
     Decode(#[from] prost::DecodeError),
     #[error("Unsupported message type: {0}")]
@@ -20,8 +23,16 @@ pub enum ProcessError {
     MissingFields(String),
     #[error("No such provider type: {0}")]
     NoSuchProviderType(String),
-    #[error("No such provider type: {0}")]
+    #[error("Database error: {0}")]
     Db(#[from] orm_error::DbErr),
+    #[error("No such library: {0}")]
+    NoSuchLibrary(String),
+    #[error("No such library: {0}")]
+    NoSuchProvider(String),
+    #[error("Hyper body error: {0}")]
+    HyperBody(#[from] hyper::Error),
+    #[error("Infallible")]
+    Infallible(#[from] std::convert::Infallible),
     #[error("")]
     None,
 }
@@ -32,5 +43,35 @@ where
 {
     fn from(e: SendError<T>) -> Self {
         ProcessError::Internal(e.into())
+    }
+}
+
+impl From<qcm_core::error::ConnectError> for ProcessError {
+    fn from(e: qcm_core::error::ConnectError) -> Self {
+        use qcm_core::error::ConnectError;
+        match e {
+            ConnectError::Infallible(e) => ProcessError::Infallible(e),
+            e => ProcessError::Internal(e.into()),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum HttpError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error("Hyper body error: {0}")]
+    HyperBody(#[from] hyper::Error),
+    #[error("Infallible")]
+    Infallible(#[from] std::convert::Infallible),
+}
+
+impl From<HttpError> for ProcessError {
+    fn from(e: HttpError) -> Self {
+        match e {
+            HttpError::Reqwest(e) => ProcessError::Internal(e.into()),
+            HttpError::HyperBody(e) => ProcessError::HyperBody(e),
+            HttpError::Infallible(e) => ProcessError::Infallible(e),
+        }
     }
 }

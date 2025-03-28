@@ -185,6 +185,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
         Self {
             code: match v {
                 ProcessError::Internal(_) => msg::ErrorCode::Internal.into(),
+                ProcessError::Encode(_) => msg::ErrorCode::Encode.into(),
                 ProcessError::Decode(_) => msg::ErrorCode::Decode.into(),
                 ProcessError::UnsupportedMessageType(_) => {
                     msg::ErrorCode::UnsupportedMessageType.into()
@@ -194,6 +195,12 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::MissingFields(_) => msg::ErrorCode::MissingFields.into(),
                 ProcessError::NoSuchProviderType(_) => msg::ErrorCode::NoSuchProviderType.into(),
                 ProcessError::Db(_) => msg::ErrorCode::Db.into(),
+                ProcessError::NoSuchLibrary(_) => msg::ErrorCode::NoSuchLibrary.into(),
+                ProcessError::NoSuchProvider(_) => msg::ErrorCode::NoSuchProvider.into(),
+                ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
+                ProcessError::Infallible(_) => {
+                    panic!("Got infallible error!")
+                }
                 ProcessError::None => msg::ErrorCode::Ok.into(),
             },
             message: v.to_string(),
