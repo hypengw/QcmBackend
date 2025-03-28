@@ -14,6 +14,7 @@ use tokio::sync::mpsc::Sender;
 use crate::convert::QcmInto;
 use crate::error::{HttpError, ProcessError};
 use crate::event::BackendContext;
+use crate::media::server::media_get_image;
 use crate::msg::{self, QcmMessage, Rsp};
 use crate::reverse::body_type::ResponseBody;
 use qcm_core::anyhow;
@@ -60,7 +61,7 @@ pub async fn process_http_get(
 
     match path_segments.as_slice() {
         ["image", library_id, item_id, image_id] => {
-            process_image_get(
+            media_get_image(
                 ctx,
                 library_id
                     .parse()
@@ -79,35 +80,4 @@ pub async fn process_http_get(
             )))
         }
     }
-}
-
-async fn process_image_get(
-    ctx: &Arc<BackendContext>,
-    library_id: i64,
-    item_id: &str,
-    image_id: &str,
-) -> Result<Response<ResponseBody>, ProcessError> {
-    let library = sql_model::library::Entity::find_by_id(library_id)
-        .one(&ctx.provider_context.db)
-        .await?
-        .ok_or(ProcessError::NoSuchLibrary(library_id.to_string()))?;
-
-    let provider = qcm_core::global::provider(library.provider_id).ok_or(
-        ProcessError::NoSuchProvider(library.provider_id.to_string()),
-    )?;
-    let resp = provider
-        .image(&ctx.provider_context, item_id, image_id)
-        .await?;
-
-    let status = resp.status();
-    let headers = resp.headers().clone();
-    let stream = resp.bytes_stream().map(|f| f.map(|b| Frame::data(b)));
-    let s = StreamBody::new(stream);
-
-    use reqwest::header::CONTENT_TYPE;
-    let resp = Response::builder()
-        .status(status)
-        .body(ResponseBody::Boxed(BoxBody::new(s.map_err(|e| e.into()))))
-        .unwrap();
-    Ok(resp)
 }
