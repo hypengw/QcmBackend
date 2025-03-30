@@ -163,6 +163,36 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
     }
 }
 
+impl QcmFrom<proto::Artist> for core::model::artist::Model {
+    fn qcm_from(v: proto::Artist) -> Self {
+        Self {
+            id: v.id.parse().unwrap_or_default(),
+            item_id: v.item_id,
+            name: v.name,
+            library_id: v.library_id.parse().unwrap_or_default(),
+            description: v.description,
+            album_count: v.album_count,
+            music_count: v.music_count,
+            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+        }
+    }
+}
+
+impl QcmFrom<core::model::artist::Model> for proto::Artist {
+    fn qcm_from(v: core::model::artist::Model) -> Self {
+        Self {
+            id: v.id.to_string(),
+            item_id: v.item_id,
+            name: v.name,
+            library_id: v.library_id.to_string(),
+            description: v.description,
+            album_count: v.album_count,
+            music_count: v.music_count,
+            edit_time: Some(v.edit_time.qcm_into()),
+        }
+    }
+}
+
 impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
     fn qcm_from(v: core::provider::ProviderMeta) -> Self {
         Self {
@@ -230,4 +260,5 @@ impl_from_for_qcm_msg!(ProviderStatusMsg);
 impl_from_for_qcm_msg!(GetProviderMetasRsp);
 impl_from_for_qcm_msg!(TestRsp);
 impl_from_for_qcm_msg!(GetAlbumsRsp);
+impl_from_for_qcm_msg!(GetArtistsRsp);
 impl_from_for_qcm_msg!(Rsp);

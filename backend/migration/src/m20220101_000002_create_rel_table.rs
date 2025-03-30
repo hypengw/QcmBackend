@@ -74,6 +74,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 rel_album_artist::Entity,
+                rel_album_artist::Column::LibraryId,
                 rel_album_artist::Column::AlbumId,
                 rel_album_artist::Column::ArtistId
             ))

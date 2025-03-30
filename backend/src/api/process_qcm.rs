@@ -9,7 +9,9 @@ use crate::api::{self, pagination::PageParams};
 use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
-use crate::msg::{self, GetAlbumsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp};
+use crate::msg::{
+    self, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp,
+};
 
 pub async fn process_qcm(
     ctx: &Arc<BackendContext>,
@@ -75,7 +77,30 @@ pub async fn process_qcm(
                     .collect();
 
                 let rsp = GetAlbumsRsp {
-                    albums,
+                    items: albums,
+                    total: total as i32,
+                    has_more: page_params.has_more(total),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetArtistsReq => {
+            if let Some(Payload::GetArtistsReq(req)) = payload {
+                let page_params = PageParams::new(req.page, req.page_size);
+
+                let paginator = sql_model::artist::Entity::find()
+                    .paginate(&ctx.provider_context.db, page_params.page_size);
+
+                let total = paginator.num_items().await?;
+                let artists = paginator
+                    .fetch_page(page_params.page)
+                    .await?
+                    .into_iter()
+                    .map(|a| a.qcm_into())
+                    .collect();
+
+                let rsp = GetArtistsRsp {
+                    items: artists,
                     total: total as i32,
                     has_more: page_params.has_more(total),
                 };
