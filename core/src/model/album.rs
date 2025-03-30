@@ -1,4 +1,3 @@
-use crate::db::values::StringVec;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -10,13 +9,10 @@ pub struct Model {
     pub item_id: String,
     pub library_id: i64,
     pub name: String,
-    pub pic_id: String,
     pub publish_time: DateTimeUtc,
     pub track_count: i32,
     pub description: String,
     pub company: String,
-    pub type_: String,
-    pub genres: StringVec,
     pub edit_time: DateTimeUtc,
 }
 

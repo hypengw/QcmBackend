@@ -7,7 +7,6 @@ pub struct Model {
     pub id: i64,
     pub item_id: String,
     pub name: String,
-    pub pic_id: String,
     pub library_id: i64,
     pub description: String,
     pub album_count: i32,
