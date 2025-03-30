@@ -1,6 +1,5 @@
 use anyhow;
 use clap::{self, Parser};
-use log::LevelFilter;
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use task::TaskManager;
 
@@ -15,7 +14,6 @@ use tokio::{
 use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection};
 
-mod reverse;
 mod api;
 mod convert;
 mod error;
@@ -23,6 +21,7 @@ mod event;
 mod global;
 mod media;
 mod msg;
+mod reverse;
 mod task;
 
 use api::handler::handle_request;
@@ -45,14 +44,18 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let args = Args::parse();
-    env_logger::Builder::new()
-        .filter_level(
-            args.log_level
-                .and_then(|l| LevelFilter::from_str(&l).ok())
-                .unwrap_or(LevelFilter::Warn),
-        )
+    use tracing_subscriber::{filter::LevelFilter, fmt, prelude::*, reload};
+    let (filter, reload_handle) = reload::Layer::new(LevelFilter::ERROR);
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::Layer::default())
         .init();
+
+    let args = Args::parse();
+    let log_level = args
+        .log_level
+        .and_then(|l| LevelFilter::from_str(&l).ok())
+        .unwrap_or(LevelFilter::ERROR);
 
     qcm_core::global::init(&args.data);
     qcm_plugins::init();
@@ -79,23 +82,12 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     });
 
-    let listener = {
-        // Use port 0 if none specified (system will assign an available port)
-        let port = args.port.unwrap_or(0);
-        let addr = format!("127.0.0.1:{}", port);
+    // Use port 0 if none specified (system will assign an available port)
+    let listener = listen(args.port.unwrap_or(0)).await;
 
-        let try_socket = TcpListener::bind(&addr).await;
-        let listener = try_socket.expect("Failed to bind");
-
-        let local_addr = listener.local_addr().expect("Failed to get local address");
-
-        // print port json
-        println!(
-            "{}",
-            serde_json::to_string(&HashMap::from([("port", local_addr.port())])).unwrap()
-        );
-        listener
-    };
+    let _ = reload_handle.modify(|f| {
+        *f = LevelFilter::DEBUG; //log_level;
+    });
 
     let accept = |stream: TcpStream| {
         let addr = stream
@@ -160,4 +152,23 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
 
     // let pool = SqlitePool::connect(&db_url).await?;
     // Ok(pool)
+}
+
+async fn listen(port: u16) -> TcpListener {
+    let listener = {
+        let addr = format!("127.0.0.1:{}", port);
+
+        let try_socket = TcpListener::bind(&addr).await;
+        let listener = try_socket.expect("Failed to bind");
+
+        let local_addr = listener.local_addr().expect("Failed to get local address");
+
+        // print port json
+        println!(
+            "{}",
+            serde_json::to_string(&HashMap::from([("port", local_addr.port())])).unwrap()
+        );
+        listener
+    };
+    listener
 }

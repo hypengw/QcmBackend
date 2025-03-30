@@ -7,13 +7,12 @@ pub struct Model {
     pub id: i64,
     pub item_id: String,
     pub name: String,
-    pub pic_url: String,
-    pub library_id: i32,
+    pub pic_id: String,
+    pub library_id: i64,
     pub description: String,
     pub album_count: i32,
     pub music_count: i32,
-    pub alias: String,
-    pub edit_time: DateTime,
+    pub edit_time: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -33,3 +32,9 @@ impl Related<super::library::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl PartialEq for Column {
+    fn eq(&self, other: &Self) -> bool {
+        self.default_as_str() == other.default_as_str()
+    }
+}

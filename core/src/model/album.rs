@@ -37,3 +37,10 @@ impl Related<super::library::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl PartialEq for Column {
+    fn eq(&self, other: &Self) -> bool {
+        self.default_as_str() == other.default_as_str()
+    }
+}
+
