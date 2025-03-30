@@ -138,13 +138,10 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
             item_id: v.item_id,
             library_id: v.library_id.parse().unwrap_or_default(),
             name: v.name,
-            pic_id: v.pic_url,
             publish_time: v.publish_time.unwrap_or_default().qcm_into(),
             track_count: v.track_count,
             description: v.description,
             company: v.company,
-            type_: v.r#type,
-            genres: StringVec::default(),
             edit_time: v.edit_time.unwrap_or_default().qcm_into(),
         }
     }
@@ -157,12 +154,10 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
             item_id: v.item_id,
             library_id: v.library_id.to_string(),
             name: v.name,
-            pic_url: v.pic_id,
             publish_time: Some(v.publish_time.qcm_into()),
             track_count: v.track_count,
             description: v.description,
             company: v.company,
-            r#type: v.type_,
             edit_time: Some(v.edit_time.qcm_into()),
         }
     }

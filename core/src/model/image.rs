@@ -12,8 +12,6 @@ pub struct Model {
     pub item_type: ItemType,
     pub image_type: ImageType,
     pub native_id: Option<String>,
-    pub content_type: String,
-    pub content_length: i64,
 
     pub db: Option<String>,
 

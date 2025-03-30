@@ -46,7 +46,36 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(schema.create_table_from_entity(library::Entity))
+            .create_table(
+                Table::create()
+                    .table(library::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(library::Column::LibraryId)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(library::Column::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(library::Column::ProviderId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(library::Column::NativeId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(library::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .to_owned(),
+            )
             .await?;
         manager
             .create_index(unique_index!(
@@ -57,7 +86,54 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(schema.create_table_from_entity(album::Entity))
+            .create_table(
+                Table::create()
+                    .table(album::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(album::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(album::Column::ItemId).string().not_null())
+                    .col(
+                        ColumnDef::new(album::Column::LibraryId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(album::Column::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(album::Column::PublishTime)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(album::Column::TrackCount)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(album::Column::Description)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(album::Column::Company).string().not_null())
+                    .col(
+                        ColumnDef::new(album::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_album_library")
+                            .from(album::Entity, album::Column::LibraryId)
+                            .to(library::Entity, library::Column::LibraryId),
+                    )
+                    .to_owned(),
+            )
             .await?;
         manager
             .create_index(unique_index!(
@@ -68,7 +144,53 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(schema.create_table_from_entity(artist::Entity))
+            .create_table(
+                Table::create()
+                    .table(artist::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(artist::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(artist::Column::ItemId).string().not_null())
+                    .col(ColumnDef::new(artist::Column::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(artist::Column::LibraryId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(artist::Column::Description)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(artist::Column::AlbumCount)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(artist::Column::MusicCount)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(artist::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_artist_library")
+                            .from(artist::Entity, artist::Column::LibraryId)
+                            .to(library::Entity, library::Column::LibraryId),
+                    )
+                    .to_owned(),
+            )
             .await?;
         manager
             .create_index(unique_index!(
