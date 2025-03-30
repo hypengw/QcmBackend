@@ -1,5 +1,6 @@
 pub mod provider;
 pub mod library;
+pub mod genre;
 pub mod album;
 pub mod artist;
 pub mod album_artist;
@@ -12,4 +13,5 @@ pub mod radio_program;
 pub mod song;
 pub mod song_artist;
 
-pub mod cache;
+pub mod image;
+pub mod type_enum;

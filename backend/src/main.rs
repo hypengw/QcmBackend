@@ -86,7 +86,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let listener = listen(args.port.unwrap_or(0)).await;
 
     let _ = reload_handle.modify(|f| {
-        *f = LevelFilter::DEBUG; //log_level;
+        *f = log_level;
     });
 
     let accept = |stream: TcpStream| {

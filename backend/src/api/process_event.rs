@@ -19,7 +19,7 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
                     async move {
                         match p.sync(&ctx).await {
                             Err(err) => {
-                                log::error!("{}", err);
+                                log::error!("{:?}", err);
                             }
                             _ => {}
                         }
