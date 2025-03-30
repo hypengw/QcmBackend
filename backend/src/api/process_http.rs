@@ -52,12 +52,8 @@ pub async fn process_http_get(
     ctx: &Arc<BackendContext>,
     req: Request<Incoming>,
 ) -> Result<Response<ResponseBody>, ProcessError> {
-    let path_segments: Vec<&str> = req
-        .uri()
-        .path()
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
+    log::warn!("url: {}", req.uri());
+    let path_segments: Vec<&str> = req.uri().path().split('/').skip(1).collect();
 
     match path_segments.as_slice() {
         ["image", library_id, item_id, image_id] => {
