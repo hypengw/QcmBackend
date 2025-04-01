@@ -22,13 +22,13 @@ pub enum Relation {
     #[sea_orm(
         belongs_to = "super::album::Entity",
         from = "Column::AlbumId",
-        to = "super::album::Column::ItemId"
+        to = "super::album::Column::Id"
     )]
     Album,
     #[sea_orm(
         belongs_to = "super::artist::Entity",
         from = "Column::ArtistId",
-        to = "super::artist::Column::ItemId"
+        to = "super::artist::Column::Id"
     )]
     Artist,
 }

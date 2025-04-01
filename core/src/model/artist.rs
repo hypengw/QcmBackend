@@ -30,6 +30,16 @@ impl Related<super::library::Entity> for Entity {
     }
 }
 
+impl Related<super::album::Entity> for Entity {
+    fn to() -> RelationDef {
+        super::rel_album_artist::Relation::Album.def()
+    }
+
+    fn via() -> Option<RelationDef> {
+        Some(super::rel_album_artist::Relation::Artist.def().rev())
+    }
+}
+
 impl ActiveModelBehavior for ActiveModel {}
 
 impl PartialEq for Column {
