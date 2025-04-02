@@ -9,13 +9,14 @@ pub struct Model {
     pub library_id: i64,
     pub name: String,
     #[sea_orm(nullable)]
-    pub album_id: i64,
+    pub album_id: Option<i64>,
     pub track_number: i32,
-    pub duration: DateTime,
+    pub disc_number: i32,
+    pub duration: f64,
     pub can_play: bool,
-    pub cover_url: String,
-    pub tags: String,
     pub popularity: f64,
+    pub publish_time: DateTimeUtc,
+    pub tags: Json,
     pub edit_time: DateTimeUtc,
 }
 
@@ -48,3 +49,9 @@ impl Related<super::album::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl PartialEq for Column {
+    fn eq(&self, other: &Self) -> bool {
+        self.default_as_str() == other.default_as_str()
+    }
+}

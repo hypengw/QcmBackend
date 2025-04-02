@@ -78,10 +78,95 @@ impl MigrationTrait for Migration {
                 rel_album_artist::Column::AlbumId,
                 rel_album_artist::Column::ArtistId
             ))
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(rel_song_artist::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::LibraryId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::SongId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::ArtistId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_song_artist_library")
+                            .from(
+                                rel_song_artist::Entity,
+                                rel_song_artist::Column::LibraryId,
+                            )
+                            .to(library::Entity, library::Column::LibraryId),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_song_artist_song")
+                            .from(rel_song_artist::Entity, rel_song_artist::Column::SongId)
+                            .to(song::Entity, song::Column::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_song_artist_artist")
+                            .from(rel_song_artist::Entity, rel_song_artist::Column::ArtistId)
+                            .to(artist::Entity, artist::Column::Id),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(unique_index!(
+                rel_song_artist::Entity,
+                rel_song_artist::Column::LibraryId,
+                rel_song_artist::Column::SongId,
+                rel_song_artist::Column::ArtistId
+            ))
             .await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_index(
+                Index::drop()
+                    .name(unique_index_name!(
+                        rel_song_artist::Entity,
+                        rel_song_artist::Column::LibraryId,
+                        rel_song_artist::Column::SongId,
+                        rel_song_artist::Column::ArtistId
+                    ))
+                    .table(rel_song_artist::Entity)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(rel_song_artist::Entity).to_owned())
+            .await?;
+
         manager
             .drop_index(
                 Index::drop()

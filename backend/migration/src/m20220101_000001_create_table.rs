@@ -223,7 +223,64 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(schema.create_table_from_entity(song::Entity))
+            .create_table(
+                Table::create()
+                    .table(song::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(song::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(song::Column::ItemId).string().not_null())
+                    .col(
+                        ColumnDef::new(song::Column::LibraryId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(song::Column::Name).string().not_null())
+                    .col(ColumnDef::new(song::Column::AlbumId).big_integer())
+                    .col(
+                        ColumnDef::new(song::Column::TrackNumber)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(song::Column::DiscNumber)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(song::Column::Duration).double().not_null())
+                    .col(ColumnDef::new(song::Column::CanPlay).boolean().not_null())
+                    .col(ColumnDef::new(song::Column::Tags).json().not_null())
+                    .col(ColumnDef::new(song::Column::Popularity).double().not_null())
+                    .col(
+                        ColumnDef::new(song::Column::PublishTime)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(song::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_song_library")
+                            .from(song::Entity, song::Column::LibraryId)
+                            .to(library::Entity, library::Column::LibraryId),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_song_album")
+                            .from(song::Entity, song::Column::AlbumId)
+                            .to(album::Entity, album::Column::Id),
+                    )
+                    .to_owned(),
+            )
             .await?;
         manager
             .create_index(unique_index!(
