@@ -61,6 +61,7 @@ pub async fn process_qcm(
                 return Err(ProcessError::MissingFields("auth_info".to_string()));
             }
         }
+        MessageType::GetAlbumReq => {}
         MessageType::GetAlbumsReq => {
             if let Some(Payload::GetAlbumsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
@@ -86,19 +87,17 @@ pub async fn process_qcm(
                     items.push(album.qcm_into());
 
                     let mut extra = prost_types::Struct::default();
-                    let mut artist_json = serde_json::Value::Array(vec![]);
+                    let mut artist_json: Vec<_> = Vec::new();
                     for artist in artists {
-                        artist_json.as_array_mut().unwrap().insert(
-                            0,
-                            serde_json::json!({
-                                "id": artist.id.to_string(),
-                                "name": artist.name,
-                            }),
-                        );
+                        artist_json.push(serde_json::json!({
+                            "id": artist.id.to_string(),
+                            "name": artist.name,
+                        }));
                     }
-                    extra
-                        .fields
-                        .insert("artists".to_string(), artist_json.to_string().into());
+                    extra.fields.insert(
+                        "artists".to_string(),
+                        serde_json::to_string(&artist_json).unwrap().into(),
+                    );
 
                     extras.push(extra);
                 }

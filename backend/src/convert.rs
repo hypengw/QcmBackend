@@ -261,4 +261,5 @@ impl_from_for_qcm_msg!(GetProviderMetasRsp);
 impl_from_for_qcm_msg!(TestRsp);
 impl_from_for_qcm_msg!(GetAlbumsRsp);
 impl_from_for_qcm_msg!(GetArtistsRsp);
+impl_from_for_qcm_msg!(GetAlbumRsp);
 impl_from_for_qcm_msg!(Rsp);

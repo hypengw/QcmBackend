@@ -24,11 +24,19 @@ pub enum Relation {
         to = "super::library::Column::LibraryId"
     )]
     Library,
+    #[sea_orm(has_many = "super::song::Entity")]
+    Song,
 }
 
 impl Related<super::library::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Library.def()
+    }
+}
+
+impl Related<super::song::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Song.def()
     }
 }
 
