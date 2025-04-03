@@ -135,7 +135,7 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
     fn qcm_from(v: proto::Album) -> Self {
         Self {
             id: v.id.parse().unwrap_or_default(),
-            item_id: v.item_id,
+            native_id: v.native_id,
             library_id: v.library_id.parse().unwrap_or_default(),
             name: v.name,
             publish_time: v.publish_time.unwrap_or_default().qcm_into(),
@@ -151,7 +151,7 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
     fn qcm_from(v: core::model::album::Model) -> Self {
         Self {
             id: v.id.to_string(),
-            item_id: v.item_id,
+            native_id: v.native_id,
             library_id: v.library_id.to_string(),
             name: v.name,
             publish_time: Some(v.publish_time.qcm_into()),
@@ -167,7 +167,7 @@ impl QcmFrom<proto::Artist> for core::model::artist::Model {
     fn qcm_from(v: proto::Artist) -> Self {
         Self {
             id: v.id.parse().unwrap_or_default(),
-            item_id: v.item_id,
+            native_id: v.native_id,
             name: v.name,
             library_id: v.library_id.parse().unwrap_or_default(),
             description: v.description,
@@ -182,7 +182,7 @@ impl QcmFrom<core::model::artist::Model> for proto::Artist {
     fn qcm_from(v: core::model::artist::Model) -> Self {
         Self {
             id: v.id.to_string(),
-            item_id: v.item_id,
+            native_id: v.native_id,
             name: v.name,
             library_id: v.library_id.to_string(),
             description: v.description,
@@ -197,7 +197,7 @@ impl QcmFrom<proto::Song> for core::model::song::Model {
     fn qcm_from(v: proto::Song) -> Self {
         Self {
             id: v.id.parse().unwrap_or_default(),
-            item_id: v.item_id,
+            native_id: v.native_id,
             library_id: v.library_id.parse().unwrap_or_default(),
             name: v.name,
             album_id: v.album_id.parse().ok(),
@@ -217,7 +217,7 @@ impl QcmFrom<core::model::song::Model> for proto::Song {
     fn qcm_from(v: core::model::song::Model) -> Self {
         Self {
             id: v.id.to_string(),
-            item_id: v.item_id,
+            native_id: v.native_id,
             library_id: v.library_id.to_string(),
             name: v.name,
             album_id: v.album_id.map(|id| id.to_string()).unwrap_or_default(),
@@ -265,9 +265,13 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::MissingFields(_) => msg::ErrorCode::MissingFields.into(),
                 ProcessError::NoSuchProviderType(_) => msg::ErrorCode::NoSuchProviderType.into(),
                 ProcessError::Db(_) => msg::ErrorCode::Db.into(),
+                ProcessError::WrongId(_) => msg::ErrorCode::WrongId.into(),
                 ProcessError::NoSuchLibrary(_) => msg::ErrorCode::NoSuchLibrary.into(),
                 ProcessError::NoSuchProvider(_) => msg::ErrorCode::NoSuchProvider.into(),
                 ProcessError::NoSuchAlbum(_) => msg::ErrorCode::NoSuchAlbum.into(),
+                ProcessError::NoSuchSong(_) => msg::ErrorCode::NoSuchSong.into(),
+                ProcessError::NoSuchItemType(_) => msg::ErrorCode::NoSuchItemType.into(),
+                ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),
                 ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
                 ProcessError::Infallible(_) => {
                     panic!("Got infallible error!")

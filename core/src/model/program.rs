@@ -5,17 +5,16 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub item_id: String,
-    pub library_id: i32,
+    pub library_id: i64, // foreign
+    pub native_id: String,
+    pub radio_id: i64, // foreign
     pub name: String,
     pub description: String,
-    pub duration: DateTime,
-    pub cover_url: String,
-    pub song_id: String,
-    pub create_time: DateTime,
+    pub duration: i64,
+    // pub song_id: String,
     pub serial_number: i32,
-    pub radio_id: String,
-    pub edit_time: DateTime,
+    pub create_time: DateTimeUtc,
+    pub edit_time: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

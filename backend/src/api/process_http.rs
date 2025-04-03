@@ -2,22 +2,21 @@ use super::process_qcm::process_qcm;
 use futures_util::{SinkExt, Stream, StreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, Limited, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
-use hyper::{Request, Response};
+use hyper::{Request, Response, StatusCode};
 pub use hyper_tungstenite::tungstenite::Message as WsMessage;
 use prost::{self, Message};
-use qcm_core::model as sql_model;
-use qcm_core::Result;
-use sea_orm::EntityTrait;
+use qcm_core::{anyhow, model as sqlm, model::type_enum::ItemType, Result};
+use sea_orm::{EntityTrait, QuerySelect};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 use crate::convert::QcmInto;
 use crate::error::{HttpError, ProcessError};
 use crate::event::BackendContext;
-use crate::media::server::media_get_image;
+use crate::media::server::{media_get_audio, media_get_image};
 use crate::msg::{self, QcmMessage, Rsp};
 use crate::reverse::body_type::ResponseBody;
-use qcm_core::anyhow;
 
 const SECURE_MAX_SIZE: usize = 64 * 1024;
 
@@ -55,27 +54,40 @@ pub async fn process_http_get(
     log::warn!("url: {}", req.uri());
     let path_segments: Vec<&str> = req.uri().path().split('/').skip(1).collect();
 
+    let parse_id = |id: &str| -> Result<i64, ProcessError> {
+        return id
+            .parse()
+            .map_err(|_| ProcessError::WrongId(id.to_string()));
+    };
+    let db = &ctx.provider_context.db;
+
     match path_segments.as_slice() {
-        ["image", library_id, item_id, image_type] => {
-            media_get_image(
-                ctx,
-                library_id
-                    .parse()
-                    .map_err(|_| ProcessError::NoSuchLibrary(library_id.to_string()))?,
-                item_id,
-                &image_type,
-            )
-            .await
-        }
-        ["audio", id] => {
+        // ["image", item_type, id, image_type] => {
+        //     // media_get_image(ctx, get_id(id), item_id, &image_type).await
+        // }
+        ["audio", item_type, id] => {
+            match ItemType::from_str(&item_type)
+                .map_err(|_| ProcessError::NoSuchItemType(item_type.to_string()))?
+            {
+                ItemType::Song => {
+                    let id = parse_id(id)?;
+                    let song = sqlm::song::Entity::find_by_id(id)
+                        .column(sqlm::song::Column::NativeId)
+                        .one(db)
+                        .await?
+                        .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
+
+                    media_get_audio(ctx, &song.native_id).await
+                }
+                _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
+            }
         }
         _ => {
-            // 404
-            Ok(Response::new(ResponseBody::Boxed(
-                Full::new(Bytes::from("404 Not Found"))
-                    .map_err(|e| e.into())
-                    .boxed(),
-            )))
+            let rsp = Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(ResponseBody::Empty)
+                .unwrap();
+            Ok(rsp)
         }
     }
 }

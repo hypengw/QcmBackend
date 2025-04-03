@@ -59,6 +59,7 @@ pub type UnboundedStreamBody = StreamBody<UnboundedReceiver<Result<Frame<Bytes>,
 /// - Boxed: a type that is generated from cache or synthetic response body, e.g.,, small byte object.
 /// - Streamed: another type that is generated from stream, e.g., large byte object.
 pub enum ResponseBody {
+    Empty,
     Incoming(Incoming),
     Boxed(BoxBody),
     UnboundedStreamed(UnboundedStreamBody),
@@ -73,6 +74,7 @@ impl Body for ResponseBody {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         match self.get_mut() {
+            ResponseBody::Empty => std::task::Poll::Ready(None),
             ResponseBody::Incoming(incoming) => {
                 Pin::new(incoming).poll_frame(cx).map_err(|e| e.into())
             }
@@ -80,6 +82,24 @@ impl Body for ResponseBody {
             ResponseBody::UnboundedStreamed(streamed) => {
                 Pin::new(streamed).poll_frame(cx).map_err(|e| e.into())
             }
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        match self {
+            ResponseBody::Empty => true,
+            ResponseBody::Incoming(incoming) => incoming.is_end_stream(),
+            ResponseBody::Boxed(boxed) => boxed.is_end_stream(),
+            ResponseBody::UnboundedStreamed(streamed) => streamed.is_end_stream(),
+        }
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        match self {
+            ResponseBody::Empty => hyper::body::SizeHint::with_exact(0),
+            ResponseBody::Incoming(incoming) => incoming.size_hint(),
+            ResponseBody::Boxed(boxed) => boxed.size_hint(),
+            ResponseBody::UnboundedStreamed(streamed) => hyper::body::Body::size_hint(streamed),
         }
     }
 }

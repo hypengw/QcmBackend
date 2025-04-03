@@ -25,14 +25,22 @@ pub enum ProcessError {
     NoSuchProviderType(String),
     #[error("Database error: {0}")]
     Db(#[from] orm_error::DbErr),
+    #[error("Hyper body error: {0}")]
+    HyperBody(#[from] hyper::Error),
+    #[error("Wrong id: {0}")]
+    WrongId(String),
     #[error("No such library: {0}")]
     NoSuchLibrary(String),
     #[error("No such provider: {0}")]
     NoSuchProvider(String),
     #[error("No such album: {0}")]
     NoSuchAlbum(String),
-    #[error("Hyper body error: {0}")]
-    HyperBody(#[from] hyper::Error),
+    #[error("No such song: {0}")]
+    NoSuchSong(String),
+    #[error("No such item type: {0}")]
+    NoSuchItemType(String),
+    #[error("Unsupported item type: {0}")]
+    UnsupportedItemType(String),
     #[error("Infallible")]
     Infallible(#[from] std::convert::Infallible),
     #[error("")]

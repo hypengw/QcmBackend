@@ -7,7 +7,7 @@ pub struct Model {
     pub id: i64,
     pub library_id: i64,
     pub name: String,
-    pub item_id: String,
+    pub native_id: String,
     pub track_count: i32,
     pub special_type: i32,
     pub description: String,

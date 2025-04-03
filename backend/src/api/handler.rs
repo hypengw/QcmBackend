@@ -14,7 +14,7 @@ use crate::{
 use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
-use hyper::{Request, Response};
+use hyper::{Request, Response, StatusCode};
 use hyper_tungstenite::HyperWebsocket;
 use prost::{self, Message};
 use qcm_core::anyhow;
@@ -51,10 +51,28 @@ pub async fn handle_request(
         let ctx = bglobal::context(1).unwrap();
 
         use hyper::Method;
-        match *request.method() {
-            Method::GET => Ok(process_http_get(&ctx, request).await?),
-            Method::POST => Ok(process_http_post(&ctx, request).await?),
-            _ => Err(anyhow!("Unsupported Method")),
+        let res = match *request.method() {
+            Method::GET => process_http_get(&ctx, request).await,
+            Method::POST => process_http_post(&ctx, request).await,
+            _ => {
+                let rsp = Response::builder()
+                    .status(StatusCode::METHOD_NOT_ALLOWED)
+                    .body(ResponseBody::Empty)
+                    .unwrap();
+                Ok(rsp)
+            }
+        };
+
+        match res {
+            Ok(rsp) => Ok(rsp),
+            Err(ProcessError::NoSuchItemType(_)) => {
+                let rsp = Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .body(ResponseBody::Empty)
+                    .unwrap();
+                Ok(rsp)
+            }
+            Err(err) => Err(err.into()),
         }
     }
 }

@@ -97,7 +97,7 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(album::Column::ItemId).string().not_null())
+                    .col(ColumnDef::new(album::Column::NativeId).string().not_null())
                     .col(
                         ColumnDef::new(album::Column::LibraryId)
                             .big_integer()
@@ -138,7 +138,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 album::Entity,
-                album::Column::ItemId,
+                album::Column::NativeId,
                 album::Column::LibraryId
             ))
             .await?;
@@ -155,7 +155,7 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(artist::Column::ItemId).string().not_null())
+                    .col(ColumnDef::new(artist::Column::NativeId).string().not_null())
                     .col(ColumnDef::new(artist::Column::Name).string().not_null())
                     .col(
                         ColumnDef::new(artist::Column::LibraryId)
@@ -195,7 +195,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 artist::Entity,
-                artist::Column::ItemId,
+                artist::Column::NativeId,
                 artist::Column::LibraryId
             ))
             .await?;
@@ -206,7 +206,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 mix::Entity,
-                mix::Column::ItemId,
+                mix::Column::NativeId,
                 mix::Column::LibraryId
             ))
             .await?;
@@ -217,7 +217,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 radio::Entity,
-                radio::Column::ItemId,
+                radio::Column::NativeId,
                 radio::Column::LibraryId
             ))
             .await?;
@@ -234,7 +234,7 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(song::Column::ItemId).string().not_null())
+                    .col(ColumnDef::new(song::Column::NativeId).string().not_null())
                     .col(
                         ColumnDef::new(song::Column::LibraryId)
                             .big_integer()
@@ -285,7 +285,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 song::Entity,
-                song::Column::ItemId,
+                song::Column::NativeId,
                 song::Column::LibraryId
             ))
             .await?;
@@ -296,7 +296,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 program::Entity,
-                program::Column::ItemId,
+                program::Column::NativeId,
                 program::Column::LibraryId
             ))
             .await
@@ -311,7 +311,7 @@ impl MigrationTrait for Migration {
                 Index::drop()
                     .name(unique_index_name!(
                         program::Entity,
-                        program::Column::ItemId,
+                        program::Column::NativeId,
                         program::Column::LibraryId
                     ))
                     .table(program::Entity)
@@ -323,7 +323,7 @@ impl MigrationTrait for Migration {
                 Index::drop()
                     .name(unique_index_name!(
                         song::Entity,
-                        song::Column::ItemId,
+                        song::Column::NativeId,
                         song::Column::LibraryId
                     ))
                     .table(song::Entity)
@@ -335,7 +335,7 @@ impl MigrationTrait for Migration {
                 Index::drop()
                     .name(unique_index_name!(
                         radio::Entity,
-                        radio::Column::ItemId,
+                        radio::Column::NativeId,
                         radio::Column::LibraryId
                     ))
                     .table(radio::Entity)
@@ -347,7 +347,7 @@ impl MigrationTrait for Migration {
                 Index::drop()
                     .name(unique_index_name!(
                         mix::Entity,
-                        mix::Column::ItemId,
+                        mix::Column::NativeId,
                         mix::Column::LibraryId
                     ))
                     .table(mix::Entity)
@@ -359,7 +359,7 @@ impl MigrationTrait for Migration {
                 Index::drop()
                     .name(unique_index_name!(
                         artist::Entity,
-                        artist::Column::ItemId,
+                        artist::Column::NativeId,
                         artist::Column::LibraryId
                     ))
                     .table(artist::Entity)
@@ -371,7 +371,7 @@ impl MigrationTrait for Migration {
                 Index::drop()
                     .name(unique_index_name!(
                         album::Entity,
-                        album::Column::ItemId,
+                        album::Column::NativeId,
                         album::Column::LibraryId
                     ))
                     .table(album::Entity)

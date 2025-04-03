@@ -59,3 +59,10 @@ pub async fn media_get_image(
         .unwrap();
     Ok(resp)
 }
+
+pub async fn media_get_audio(
+    ctx: &Arc<BackendContext>,
+    native_id: &str,
+) -> Result<Response<ResponseBody>, ProcessError> {
+    Err(ProcessError::None)
+}
