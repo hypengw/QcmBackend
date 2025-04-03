@@ -2,8 +2,11 @@ use prost::{self, Message};
 use qcm_core::{global, Result};
 use std::sync::Arc;
 
-use qcm_core::model as sql_model;
-use sea_orm::{sea_query, EntityTrait, LoaderTrait, PaginatorTrait};
+use qcm_core::model as sqlm;
+use sea_orm::{
+    sea_query, ColumnTrait, EntityTrait, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter,
+    TransactionTrait,
+};
 
 use crate::api::{self, pagination::PageParams};
 use crate::convert::QcmInto;
@@ -12,6 +15,31 @@ use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
     self, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp,
 };
+
+fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
+    let mut artist_json: Vec<_> = Vec::new();
+    for artist in artists {
+        artist_json.push(serde_json::json!({
+            "id": artist.id.to_string(),
+            "name": artist.name,
+        }));
+    }
+    extra.fields.insert(
+        "artists".to_string(),
+        serde_json::to_string(&artist_json).unwrap().into(),
+    );
+}
+
+fn extra_insert_album(extra: &mut prost_types::Struct, album: &sqlm::album::Model) {
+    let j = serde_json::json!({
+        "id": album.id.to_string(),
+        "name": album.name,
+    });
+    extra.fields.insert(
+        "album".to_string(),
+        serde_json::to_string(&j).unwrap().into(),
+    );
+}
 
 pub async fn process_qcm(
     ctx: &Arc<BackendContext>,
@@ -61,12 +89,55 @@ pub async fn process_qcm(
                 return Err(ProcessError::MissingFields("auth_info".to_string()));
             }
         }
-        MessageType::GetAlbumReq => {}
+        MessageType::GetAlbumReq => {
+            if let Some(Payload::GetAlbumReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                let album = sqlm::album::Entity::find_by_id(
+                    req.id
+                        .parse::<i64>()
+                        .map_err(|_| ProcessError::NoSuchAlbum(req.id.clone()))?,
+                )
+                .one(db)
+                .await?
+                .ok_or(ProcessError::NoSuchAlbum(req.id.clone()))?;
+
+                let artists = album.find_related(sqlm::artist::Entity).all(db).await?;
+
+                let mut songs = Vec::new();
+                let mut song_extras = Vec::new();
+
+                for (song, artists) in sqlm::song::Entity::find()
+                    .filter(sqlm::song::Column::AlbumId.eq(album.id))
+                    .find_with_related(sqlm::artist::Entity)
+                    .all(db)
+                    .await?
+                {
+                    songs.push(song.qcm_into());
+
+                    let mut extra = prost_types::Struct::default();
+                    extra_insert_artists(&mut extra, &artists);
+                    extra_insert_album(&mut extra, &album);
+                    song_extras.push(extra);
+                }
+
+                let mut extra = prost_types::Struct::default();
+                extra_insert_artists(&mut extra, &artists);
+
+                let rsp = msg::GetAlbumRsp {
+                    item: Some(album.qcm_into()),
+                    extra: Some(extra),
+                    songs,
+                    song_extras,
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
         MessageType::GetAlbumsReq => {
             if let Some(Payload::GetAlbumsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
 
-                let paginator = sql_model::album::Entity::find()
+                let paginator = sqlm::album::Entity::find()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
@@ -74,8 +145,8 @@ pub async fn process_qcm(
 
                 let artists = albums
                     .load_many_to_many(
-                        sql_model::artist::Entity,
-                        sql_model::rel_album_artist::Entity,
+                        sqlm::artist::Entity,
+                        sqlm::rel_album_artist::Entity,
                         &ctx.provider_context.db,
                     )
                     .await?;
@@ -87,18 +158,7 @@ pub async fn process_qcm(
                     items.push(album.qcm_into());
 
                     let mut extra = prost_types::Struct::default();
-                    let mut artist_json: Vec<_> = Vec::new();
-                    for artist in artists {
-                        artist_json.push(serde_json::json!({
-                            "id": artist.id.to_string(),
-                            "name": artist.name,
-                        }));
-                    }
-                    extra.fields.insert(
-                        "artists".to_string(),
-                        serde_json::to_string(&artist_json).unwrap().into(),
-                    );
-
+                    extra_insert_artists(&mut extra, &artists);
                     extras.push(extra);
                 }
 
@@ -115,7 +175,7 @@ pub async fn process_qcm(
             if let Some(Payload::GetArtistsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
 
-                let paginator = sql_model::artist::Entity::find()
+                let paginator = sqlm::artist::Entity::find()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;

@@ -2,6 +2,13 @@ use sea_orm::entity::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
+pub enum CacheType {
+    Image = 0,
+    Audio = 1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "i32", db_type = "Integer")]
 pub enum ImageType {
     Primary = 0,
     Backdrop = 1,

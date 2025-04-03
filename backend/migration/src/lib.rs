@@ -1,9 +1,11 @@
 pub use sea_orm_migration::prelude::*;
 
+mod cache;
 mod m20220101_000001_create_table;
 mod m20220101_000002_create_rel_table;
 
 pub struct Migrator;
+pub struct MigratorCacheDB;
 
 #[macro_export]
 macro_rules! unique_index_name {
@@ -34,5 +36,12 @@ impl MigratorTrait for Migrator {
             Box::new(m20220101_000001_create_table::Migration),
             Box::new(m20220101_000002_create_rel_table::Migration),
         ]
+    }
+}
+
+#[async_trait::async_trait]
+impl MigratorTrait for MigratorCacheDB {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        vec![Box::new(cache::m20220101_000001_create_table::Migration)]
     }
 }

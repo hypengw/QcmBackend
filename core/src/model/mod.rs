@@ -14,8 +14,8 @@ pub mod radio;
 pub mod song;
 
 pub mod image;
+pub mod cache;
 
 pub mod rel_album_artist;
 pub mod rel_mix_song;
-pub mod rel_radio_program;
 pub mod rel_song_artist;

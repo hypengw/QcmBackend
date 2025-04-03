@@ -40,13 +40,14 @@ pub async fn handle_request(
         // spawn to handle ws connect
         tokio::spawn(async move {
             if let Err(e) = handle_ws(websocket, db, oper).await {
-                eprintln!("Error in websocket connection: {e}");
+                log::error!("Error in websocket connection: {e}");
             }
         });
 
         // return upgrade rsp
         Ok(response.map(|b| ResponseBody::Boxed(b.map_err(|e| e.into()).boxed())))
     } else {
+        // TODO: support multiple backend
         let ctx = bglobal::context(1).unwrap();
 
         use hyper::Method;

@@ -86,6 +86,7 @@ pub trait Provider: ProviderSession + Send + Sync {
         &self,
         ctx: &Context,
         item_id: &str,
-        image_id: &str,
+        image_type: &str,
     ) -> Result<Response, ConnectError>;
+    async fn audio(&self, ctx: &Context, item_id: &str) -> Result<Response, ConnectError>;
 }

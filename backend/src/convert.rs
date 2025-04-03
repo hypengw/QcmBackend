@@ -193,6 +193,51 @@ impl QcmFrom<core::model::artist::Model> for proto::Artist {
     }
 }
 
+impl QcmFrom<proto::Song> for core::model::song::Model {
+    fn qcm_from(v: proto::Song) -> Self {
+        Self {
+            id: v.id.parse().unwrap_or_default(),
+            item_id: v.item_id,
+            library_id: v.library_id.parse().unwrap_or_default(),
+            name: v.name,
+            album_id: v.album_id.parse().ok(),
+            track_number: v.track_number,
+            disc_number: v.disc_number,
+            duration: v.duration as i64,
+            can_play: v.can_play,
+            popularity: v.popularity,
+            publish_time: v.publish_time.unwrap_or_default().qcm_into(),
+            tags: serde_json::Value::Array(v.tags.into_iter().map(|t| serde_json::Value::String(t)).collect()),
+            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+        }
+    }
+}
+
+impl QcmFrom<core::model::song::Model> for proto::Song {
+    fn qcm_from(v: core::model::song::Model) -> Self {
+        Self {
+            id: v.id.to_string(),
+            item_id: v.item_id,
+            library_id: v.library_id.to_string(),
+            name: v.name,
+            album_id: v.album_id.map(|id| id.to_string()).unwrap_or_default(),
+            track_number: v.track_number,
+            disc_number: v.disc_number,
+            duration: v.duration as f64,
+            can_play: v.can_play,
+            popularity: v.popularity,
+            publish_time: Some(v.publish_time.qcm_into()),
+            tags: v.tags.as_array()
+                .map(|arr| arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(String::from)
+                    .collect())
+                .unwrap_or_default(),
+            edit_time: Some(v.edit_time.qcm_into()),
+        }
+    }
+}
+
 impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
     fn qcm_from(v: core::provider::ProviderMeta) -> Self {
         Self {
@@ -222,6 +267,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::Db(_) => msg::ErrorCode::Db.into(),
                 ProcessError::NoSuchLibrary(_) => msg::ErrorCode::NoSuchLibrary.into(),
                 ProcessError::NoSuchProvider(_) => msg::ErrorCode::NoSuchProvider.into(),
+                ProcessError::NoSuchAlbum(_) => msg::ErrorCode::NoSuchAlbum.into(),
                 ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
                 ProcessError::Infallible(_) => {
                     panic!("Got infallible error!")

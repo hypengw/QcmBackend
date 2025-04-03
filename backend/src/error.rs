@@ -27,8 +27,10 @@ pub enum ProcessError {
     Db(#[from] orm_error::DbErr),
     #[error("No such library: {0}")]
     NoSuchLibrary(String),
-    #[error("No such library: {0}")]
+    #[error("No such provider: {0}")]
     NoSuchProvider(String),
+    #[error("No such album: {0}")]
+    NoSuchAlbum(String),
     #[error("Hyper body error: {0}")]
     HyperBody(#[from] hyper::Error),
     #[error("Infallible")]

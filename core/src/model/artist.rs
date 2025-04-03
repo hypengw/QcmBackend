@@ -40,10 +40,14 @@ impl Related<super::album::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {}
+impl Related<super::song::Entity> for Entity {
+    fn to() -> RelationDef {
+        super::rel_song_artist::Relation::Song.def()
+    }
 
-impl PartialEq for Column {
-    fn eq(&self, other: &Self) -> bool {
-        self.default_as_str() == other.default_as_str()
+    fn via() -> Option<RelationDef> {
+        Some(super::rel_song_artist::Relation::Artist.def().rev())
     }
 }
+
+impl ActiveModelBehavior for ActiveModel {}

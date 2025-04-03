@@ -56,16 +56,18 @@ pub async fn process_http_get(
     let path_segments: Vec<&str> = req.uri().path().split('/').skip(1).collect();
 
     match path_segments.as_slice() {
-        ["image", library_id, item_id, image_id] => {
+        ["image", library_id, item_id, image_type] => {
             media_get_image(
                 ctx,
                 library_id
                     .parse()
                     .map_err(|_| ProcessError::NoSuchLibrary(library_id.to_string()))?,
                 item_id,
-                &image_id,
+                &image_type,
             )
             .await
+        }
+        ["audio", id] => {
         }
         _ => {
             // 404

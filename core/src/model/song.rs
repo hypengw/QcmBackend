@@ -12,7 +12,7 @@ pub struct Model {
     pub album_id: Option<i64>,
     pub track_number: i32,
     pub disc_number: i32,
-    pub duration: f64,
+    pub duration: i64,
     pub can_play: bool,
     pub popularity: f64,
     pub publish_time: DateTimeUtc,
@@ -48,10 +48,14 @@ impl Related<super::album::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {}
+impl Related<super::artist::Entity> for Entity {
+    fn to() -> RelationDef {
+        super::rel_song_artist::Relation::Artist.def()
+    }
 
-impl PartialEq for Column {
-    fn eq(&self, other: &Self) -> bool {
-        self.default_as_str() == other.default_as_str()
+    fn via() -> Option<RelationDef> {
+        Some(super::rel_song_artist::Relation::Song.def().rev())
     }
 }
+
+impl ActiveModelBehavior for ActiveModel {}

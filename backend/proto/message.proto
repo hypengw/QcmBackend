@@ -49,7 +49,8 @@ enum ErrorCode {
   DB = 9;
   NO_SUCH_LIBRARY = 10;
   NO_SUCH_PROVIDER = 11;
-  HYPER_BODY = 12;
+  NO_SUCH_ALBUM = 12;
+  HYPER_BODY = 13;
 }
 
 message Rsp {
@@ -101,6 +102,7 @@ message GetAlbumRsp {
   qcm.msg.model.Album item = 1;
   google.protobuf.Struct extra = 2;
   repeated qcm.msg.model.Song songs = 3;
+  repeated google.protobuf.Struct song_extras = 4;
 }
 
 message GetArtistsReq {

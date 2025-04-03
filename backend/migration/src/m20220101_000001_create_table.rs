@@ -252,7 +252,7 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(song::Column::Duration).double().not_null())
+                    .col(ColumnDef::new(song::Column::Duration).big_integer().not_null())
                     .col(ColumnDef::new(song::Column::CanPlay).boolean().not_null())
                     .col(ColumnDef::new(song::Column::Tags).json().not_null())
                     .col(ColumnDef::new(song::Column::Popularity).double().not_null())

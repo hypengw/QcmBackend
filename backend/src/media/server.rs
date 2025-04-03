@@ -15,7 +15,7 @@ pub async fn media_get_image(
     ctx: &Arc<BackendContext>,
     library_id: i64,
     item_id: &str,
-    image_id: &str,
+    image_type: &str,
 ) -> Result<Response<ResponseBody>, ProcessError> {
     let library = sql_model::library::Entity::find_by_id(library_id)
         .one(&ctx.provider_context.db)
@@ -26,7 +26,7 @@ pub async fn media_get_image(
         ProcessError::NoSuchProvider(library.provider_id.to_string()),
     )?;
     let resp = provider
-        .image(&ctx.provider_context, item_id, image_id)
+        .image(&ctx.provider_context, item_id, image_type)
         .await?;
 
     let status = resp.status();
