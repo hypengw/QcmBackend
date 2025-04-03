@@ -5,8 +5,9 @@ use hyper::body::{Body, Bytes, Frame, Incoming};
 use hyper::{Request, Response, StatusCode};
 pub use hyper_tungstenite::tungstenite::Message as WsMessage;
 use prost::{self, Message};
+use qcm_core::model::type_enum::ImageType;
 use qcm_core::{anyhow, model as sqlm, model::type_enum::ItemType, Result};
-use sea_orm::{EntityTrait, QuerySelect};
+use sea_orm::{EntityTrait, FromQueryResult, QuerySelect, QueryTrait};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -62,22 +63,48 @@ pub async fn process_http_get(
     let db = &ctx.provider_context.db;
 
     match path_segments.as_slice() {
-        // ["image", item_type, id, image_type] => {
-        //     // media_get_image(ctx, get_id(id), item_id, &image_type).await
-        // }
+        ["image", item_type, id, image_type] => {
+            let image_type = ImageType::from_str(&image_type)
+                .map_err(|_| ProcessError::NoSuchImageType(image_type.to_string()))?;
+            match ItemType::from_str(&item_type)
+                .map_err(|_| ProcessError::NoSuchItemType(item_type.to_string()))?
+            {
+                ItemType::Album => {
+                    let id = parse_id(id)?;
+                    let (native_id, provider_id): (String, i64) =
+                        sqlm::album::Entity::find_by_id(id)
+                            .select_only()
+                            .column(sqlm::album::Column::NativeId)
+                            .column(sqlm::library::Column::ProviderId)
+                            .left_join(sqlm::library::Entity)
+                            .into_tuple()
+                            .one(db)
+                            .await?
+                            .ok_or(ProcessError::NoSuchAlbum(id.to_string()))?;
+
+                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                }
+                _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
+            }
+        }
         ["audio", item_type, id] => {
             match ItemType::from_str(&item_type)
                 .map_err(|_| ProcessError::NoSuchItemType(item_type.to_string()))?
             {
                 ItemType::Song => {
                     let id = parse_id(id)?;
-                    let song = sqlm::song::Entity::find_by_id(id)
-                        .column(sqlm::song::Column::NativeId)
-                        .one(db)
-                        .await?
-                        .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
+                    let (native_id, provider_id): (String, i64) =
+                        sqlm::song::Entity::find_by_id(id)
+                            .select_only()
+                            .column(sqlm::album::Column::NativeId)
+                            .column(sqlm::library::Column::ProviderId)
+                            .left_join(sqlm::library::Entity)
+                            .into_tuple()
+                            .one(db)
+                            .await?
+                            .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
 
-                    media_get_audio(ctx, &song.native_id).await
+                    media_get_audio(ctx, provider_id, &native_id).await
                 }
                 _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
             }

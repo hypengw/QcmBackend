@@ -39,6 +39,8 @@ pub enum ProcessError {
     NoSuchSong(String),
     #[error("No such item type: {0}")]
     NoSuchItemType(String),
+    #[error("No such image type: {0}")]
+    NoSuchImageType(String),
     #[error("Unsupported item type: {0}")]
     UnsupportedItemType(String),
     #[error("Infallible")]

@@ -1,5 +1,5 @@
 use sea_orm::entity::prelude::*;
-use strum_macros::EnumString;
+use strum_macros::{EnumString, Display};
 
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, EnumString, DeriveActiveEnum)]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
@@ -8,14 +8,19 @@ pub enum CacheType {
     Audio = 1,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, EnumString, DeriveActiveEnum)]
+#[derive(Debug, Clone, Display, PartialEq, Eq, EnumIter, EnumString, DeriveActiveEnum)]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 #[strum(ascii_case_insensitive)]
 pub enum ImageType {
+    #[strum(to_string = "Primary")]
     Primary = 0,
+    #[strum(to_string = "Backdrop")]
     Backdrop = 1,
+    #[strum(to_string = "Banner")]
     Banner = 2,
+    #[strum(to_string = "Thumb")]
     Thumb = 3,
+    #[strum(to_string = "Logo")]
     Logo = 4,
 }
 

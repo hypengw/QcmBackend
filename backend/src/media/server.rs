@@ -2,8 +2,7 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, Limited, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
 use hyper::{Request, Response};
-use qcm_core::model as sql_model;
-use qcm_core::Result;
+use qcm_core::{model as sql_model, model::type_enum::ImageType, Result};
 use sea_orm::EntityTrait;
 use std::sync::Arc;
 
@@ -13,18 +12,12 @@ use crate::reverse::body_type::ResponseBody;
 
 pub async fn media_get_image(
     ctx: &Arc<BackendContext>,
-    library_id: i64,
+    provider_id: i64,
     item_id: &str,
-    image_type: &str,
+    image_type: ImageType,
 ) -> Result<Response<ResponseBody>, ProcessError> {
-    let library = sql_model::library::Entity::find_by_id(library_id)
-        .one(&ctx.provider_context.db)
-        .await?
-        .ok_or(ProcessError::NoSuchLibrary(library_id.to_string()))?;
-
-    let provider = qcm_core::global::provider(library.provider_id).ok_or(
-        ProcessError::NoSuchProvider(library.provider_id.to_string()),
-    )?;
+    let provider = qcm_core::global::provider(provider_id)
+        .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
     let resp = provider
         .image(&ctx.provider_context, item_id, image_type)
         .await?;
@@ -62,6 +55,7 @@ pub async fn media_get_image(
 
 pub async fn media_get_audio(
     ctx: &Arc<BackendContext>,
+    provider_id: i64,
     native_id: &str,
 ) -> Result<Response<ResponseBody>, ProcessError> {
     Err(ProcessError::None)

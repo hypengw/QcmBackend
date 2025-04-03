@@ -1,4 +1,4 @@
-use crate::{error::ConnectError, event::Event, http, Result, model::type_enum::ItemType};
+use crate::{error::ConnectError, event::Event, http, model::type_enum::{ImageType, ItemType}, Result};
 use reqwest::Response;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -87,7 +87,7 @@ pub trait Provider: ProviderSession + Send + Sync {
         &self,
         ctx: &Context,
         item_id: &str,
-        image_type: &str,
+        image_type: ImageType,
     ) -> Result<Response, ConnectError>;
 
     async fn audio(

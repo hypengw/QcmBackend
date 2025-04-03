@@ -271,6 +271,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::NoSuchAlbum(_) => msg::ErrorCode::NoSuchAlbum.into(),
                 ProcessError::NoSuchSong(_) => msg::ErrorCode::NoSuchSong.into(),
                 ProcessError::NoSuchItemType(_) => msg::ErrorCode::NoSuchItemType.into(),
+                ProcessError::NoSuchImageType(_) => msg::ErrorCode::NoSuchImageType.into(),
                 ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),
                 ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
                 ProcessError::Infallible(_) => {
