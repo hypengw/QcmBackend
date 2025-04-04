@@ -12,7 +12,7 @@ pub struct Model {
     pub special_type: i32,
     pub description: String,
     // pub user_id: String,
-    pub tags: String,
+    pub tags: Json,
 
     pub create_time: DateTimeUtc,
     pub update_time: DateTimeUtc,

@@ -195,6 +195,50 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
+        MessageType::GetMixsReq => {
+            if let Some(Payload::GetMixsReq(req)) = payload {
+                let page_params = PageParams::new(req.page, req.page_size);
+
+                let paginator = sqlm::mix::Entity::find()
+                    .paginate(&ctx.provider_context.db, page_params.page_size);
+
+                let total = paginator.num_items().await?;
+                let mixes = paginator
+                    .fetch_page(page_params.page)
+                    .await?
+                    .into_iter()
+                    .map(|m| m.qcm_into())
+                    .collect();
+
+                let rsp = msg::GetMixsRsp {
+                    items: mixes,
+                    extras: Vec::new(),
+                    total: total as i32,
+                    has_more: page_params.has_more(total),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetMixReq => {
+            if let Some(Payload::GetMixReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                let mix = sqlm::mix::Entity::find_by_id(
+                    req.id
+                        .parse::<i64>()
+                        .map_err(|_| ProcessError::NoSuchMix(req.id.clone()))?,
+                )
+                .one(db)
+                .await?
+                .ok_or(ProcessError::NoSuchMix(req.id.clone()))?;
+
+                let rsp = msg::GetMixRsp {
+                    item: Some(mix.qcm_into()),
+                    extra: None,
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
         MessageType::TestReq => {
             if let Some(Payload::TestReq(req)) = payload {
                 let rsp = TestRsp {

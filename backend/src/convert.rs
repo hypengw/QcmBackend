@@ -247,6 +247,42 @@ impl QcmFrom<core::model::song::Model> for proto::Song {
     }
 }
 
+impl QcmFrom<proto::Mix> for core::model::mix::Model {
+    fn qcm_from(v: proto::Mix) -> Self {
+        Self {
+            id: v.id,
+            native_id: v.native_id,
+            library_id: v.library_id,
+            name: v.name,
+            track_count: v.track_count,
+            special_type: v.special_type,
+            description: v.description,
+            create_time: v.create_time.unwrap_or_default().qcm_into(),
+            update_time: v.update_time.unwrap_or_default().qcm_into(),
+            tags: serde_json::Value::String(v.tags),
+            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+        }
+    }
+}
+
+impl QcmFrom<core::model::mix::Model> for proto::Mix {
+    fn qcm_from(v: core::model::mix::Model) -> Self {
+        Self {
+            id: v.id,
+            native_id: v.native_id,
+            library_id: v.library_id,
+            name: v.name,
+            track_count: v.track_count,
+            special_type: v.special_type,
+            description: v.description,
+            create_time: Some(v.create_time.qcm_into()),
+            update_time: Some(v.update_time.qcm_into()),
+            tags: v.tags.as_str().unwrap_or_default().to_string(),
+            edit_time: Some(v.edit_time.qcm_into()),
+        }
+    }
+}
+
 impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
     fn qcm_from(v: core::provider::ProviderMeta) -> Self {
         Self {
@@ -280,6 +316,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::NoSuchAlbum(_) => msg::ErrorCode::NoSuchAlbum.into(),
                 ProcessError::NoSuchSong(_) => msg::ErrorCode::NoSuchSong.into(),
                 ProcessError::NoSuchArtist(_) => msg::ErrorCode::NoSuchArtist.into(),
+                ProcessError::NoSuchMix(_) => msg::ErrorCode::NoSuchMix.into(),
                 ProcessError::NoSuchItemType(_) => msg::ErrorCode::NoSuchItemType.into(),
                 ProcessError::NoSuchImageType(_) => msg::ErrorCode::NoSuchImageType.into(),
                 ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),
@@ -320,7 +357,14 @@ impl_from_for_qcm_msg!(ProviderMetaStatusMsg);
 impl_from_for_qcm_msg!(ProviderStatusMsg);
 impl_from_for_qcm_msg!(GetProviderMetasRsp);
 impl_from_for_qcm_msg!(TestRsp);
-impl_from_for_qcm_msg!(GetAlbumsRsp);
-impl_from_for_qcm_msg!(GetArtistsRsp);
-impl_from_for_qcm_msg!(GetAlbumRsp);
 impl_from_for_qcm_msg!(Rsp);
+
+impl_from_for_qcm_msg!(GetAlbumsRsp);
+impl_from_for_qcm_msg!(GetAlbumRsp);
+
+impl_from_for_qcm_msg!(GetArtistsRsp);
+impl_from_for_qcm_msg!(GetArtistRsp);
+impl_from_for_qcm_msg!(GetArtistAlbumRsp);
+
+impl_from_for_qcm_msg!(GetMixsRsp);
+impl_from_for_qcm_msg!(GetMixRsp);

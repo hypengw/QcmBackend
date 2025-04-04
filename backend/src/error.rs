@@ -37,8 +37,10 @@ pub enum ProcessError {
     NoSuchAlbum(String),
     #[error("No such song: {0}")]
     NoSuchSong(String),
-    #[error("No such song: {0}")]
+    #[error("No such artist: {0}")]
     NoSuchArtist(String),
+    #[error("No such mix: {0}")]
+    NoSuchMix(String),
     #[error("No such item type: {0}")]
     NoSuchItemType(String),
     #[error("No such image type: {0}")]
