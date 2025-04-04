@@ -20,6 +20,36 @@ pub enum Relation {
         to = "super::library::Column::LibraryId"
     )]
     Library,
+    #[sea_orm(
+        belongs_to = "super::mix::Entity",
+        from = "Column::MixId",
+        to = "super::mix::Column::Id"
+    )]
+    Mix,
+    #[sea_orm(
+        belongs_to = "super::song::Entity",
+        from = "Column::SongId",
+        to = "super::song::Column::Id"
+    )]
+    Song,
+}
+
+impl Related<super::library::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Library.def()
+    }
+}
+
+impl Related<super::mix::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Mix.def()
+    }
+}
+
+impl Related<super::song::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Song.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

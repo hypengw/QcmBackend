@@ -58,4 +58,14 @@ impl Related<super::artist::Entity> for Entity {
     }
 }
 
+impl Related<super::mix::Entity> for Entity {
+    fn to() -> RelationDef {
+        super::rel_mix_song::Relation::Mix.def()
+    }
+
+    fn via() -> Option<RelationDef> {
+        Some(super::rel_mix_song::Relation::Song.def().rev())
+    }
+}
+
 impl ActiveModelBehavior for ActiveModel {}

@@ -134,9 +134,9 @@ impl QcmFrom<core::provider::AuthInfo> for proto::AuthInfo {
 impl QcmFrom<proto::Album> for core::model::album::Model {
     fn qcm_from(v: proto::Album) -> Self {
         Self {
-            id: v.id.parse().unwrap_or_default(),
+            id: v.id,
             native_id: v.native_id,
-            library_id: v.library_id.parse().unwrap_or_default(),
+            library_id: v.library_id,
             name: v.name,
             publish_time: v.publish_time.unwrap_or_default().qcm_into(),
             track_count: v.track_count,
@@ -150,9 +150,9 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
 impl QcmFrom<core::model::album::Model> for proto::Album {
     fn qcm_from(v: core::model::album::Model) -> Self {
         Self {
-            id: v.id.to_string(),
+            id: v.id,
             native_id: v.native_id,
-            library_id: v.library_id.to_string(),
+            library_id: v.library_id,
             name: v.name,
             publish_time: Some(v.publish_time.qcm_into()),
             track_count: v.track_count,
@@ -166,10 +166,10 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
 impl QcmFrom<proto::Artist> for core::model::artist::Model {
     fn qcm_from(v: proto::Artist) -> Self {
         Self {
-            id: v.id.parse().unwrap_or_default(),
+            id: v.id,
             native_id: v.native_id,
             name: v.name,
-            library_id: v.library_id.parse().unwrap_or_default(),
+            library_id: v.library_id,
             description: v.description,
             album_count: v.album_count,
             music_count: v.music_count,
@@ -181,10 +181,10 @@ impl QcmFrom<proto::Artist> for core::model::artist::Model {
 impl QcmFrom<core::model::artist::Model> for proto::Artist {
     fn qcm_from(v: core::model::artist::Model) -> Self {
         Self {
-            id: v.id.to_string(),
+            id: v.id,
             native_id: v.native_id,
             name: v.name,
-            library_id: v.library_id.to_string(),
+            library_id: v.library_id,
             description: v.description,
             album_count: v.album_count,
             music_count: v.music_count,
@@ -196,18 +196,23 @@ impl QcmFrom<core::model::artist::Model> for proto::Artist {
 impl QcmFrom<proto::Song> for core::model::song::Model {
     fn qcm_from(v: proto::Song) -> Self {
         Self {
-            id: v.id.parse().unwrap_or_default(),
+            id: v.id,
             native_id: v.native_id,
-            library_id: v.library_id.parse().unwrap_or_default(),
+            library_id: v.library_id,
             name: v.name,
-            album_id: v.album_id.parse().ok(),
+            album_id: Some(v.album_id),
             track_number: v.track_number,
             disc_number: v.disc_number,
             duration: v.duration as i64,
             can_play: v.can_play,
             popularity: v.popularity,
             publish_time: v.publish_time.unwrap_or_default().qcm_into(),
-            tags: serde_json::Value::Array(v.tags.into_iter().map(|t| serde_json::Value::String(t)).collect()),
+            tags: serde_json::Value::Array(
+                v.tags
+                    .into_iter()
+                    .map(|t| serde_json::Value::String(t))
+                    .collect(),
+            ),
             edit_time: v.edit_time.unwrap_or_default().qcm_into(),
         }
     }
@@ -216,22 +221,26 @@ impl QcmFrom<proto::Song> for core::model::song::Model {
 impl QcmFrom<core::model::song::Model> for proto::Song {
     fn qcm_from(v: core::model::song::Model) -> Self {
         Self {
-            id: v.id.to_string(),
+            id: v.id,
             native_id: v.native_id,
-            library_id: v.library_id.to_string(),
+            library_id: v.library_id,
             name: v.name,
-            album_id: v.album_id.map(|id| id.to_string()).unwrap_or_default(),
+            album_id: v.album_id.unwrap_or_default(),
             track_number: v.track_number,
             disc_number: v.disc_number,
             duration: v.duration as f64,
             can_play: v.can_play,
             popularity: v.popularity,
             publish_time: Some(v.publish_time.qcm_into()),
-            tags: v.tags.as_array()
-                .map(|arr| arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .map(String::from)
-                    .collect())
+            tags: v
+                .tags
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(String::from)
+                        .collect()
+                })
                 .unwrap_or_default(),
             edit_time: Some(v.edit_time.qcm_into()),
         }
@@ -270,6 +279,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::NoSuchProvider(_) => msg::ErrorCode::NoSuchProvider.into(),
                 ProcessError::NoSuchAlbum(_) => msg::ErrorCode::NoSuchAlbum.into(),
                 ProcessError::NoSuchSong(_) => msg::ErrorCode::NoSuchSong.into(),
+                ProcessError::NoSuchArtist(_) => msg::ErrorCode::NoSuchArtist.into(),
                 ProcessError::NoSuchItemType(_) => msg::ErrorCode::NoSuchItemType.into(),
                 ProcessError::NoSuchImageType(_) => msg::ErrorCode::NoSuchImageType.into(),
                 ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),

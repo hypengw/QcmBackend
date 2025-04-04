@@ -2,9 +2,11 @@ use super::process_qcm::process_qcm;
 use futures_util::{SinkExt, Stream, StreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, Limited, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
+use hyper::header::HeaderName;
 use hyper::{Request, Response, StatusCode};
 pub use hyper_tungstenite::tungstenite::Message as WsMessage;
 use prost::{self, Message};
+use qcm_core::http;
 use qcm_core::model::type_enum::ImageType;
 use qcm_core::{anyhow, model as sqlm, model::type_enum::ItemType, Result};
 use sea_orm::{EntityTrait, FromQueryResult, QuerySelect, QueryTrait};
@@ -20,6 +22,7 @@ use crate::msg::{self, QcmMessage, Rsp};
 use crate::reverse::body_type::ResponseBody;
 
 const SECURE_MAX_SIZE: usize = 64 * 1024;
+const HEADER_ICY: HeaderName = HeaderName::from_static("icy-metadata");
 
 pub async fn process_http_post(
     ctx: &Arc<BackendContext>,
@@ -84,6 +87,36 @@ pub async fn process_http_get(
 
                     media_get_image(ctx, provider_id, &native_id, image_type).await
                 }
+                ItemType::Song => {
+                    let id = parse_id(id)?;
+                    let (native_id, provider_id): (String, i64) =
+                        sqlm::song::Entity::find_by_id(id)
+                            .select_only()
+                            .column(sqlm::song::Column::NativeId)
+                            .column(sqlm::library::Column::ProviderId)
+                            .left_join(sqlm::library::Entity)
+                            .into_tuple()
+                            .one(db)
+                            .await?
+                            .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
+
+                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                }
+                ItemType::Artist => {
+                    let id = parse_id(id)?;
+                    let (native_id, provider_id): (String, i64) =
+                        sqlm::artist::Entity::find_by_id(id)
+                            .select_only()
+                            .column(sqlm::artist::Column::NativeId)
+                            .column(sqlm::library::Column::ProviderId)
+                            .left_join(sqlm::library::Entity)
+                            .into_tuple()
+                            .one(db)
+                            .await?
+                            .ok_or(ProcessError::NoSuchArtist(id.to_string()))?;
+
+                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                }
                 _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
             }
         }
@@ -96,7 +129,7 @@ pub async fn process_http_get(
                     let (native_id, provider_id): (String, i64) =
                         sqlm::song::Entity::find_by_id(id)
                             .select_only()
-                            .column(sqlm::album::Column::NativeId)
+                            .column(sqlm::song::Column::NativeId)
                             .column(sqlm::library::Column::ProviderId)
                             .left_join(sqlm::library::Entity)
                             .into_tuple()
@@ -104,7 +137,23 @@ pub async fn process_http_get(
                             .await?
                             .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
 
-                    media_get_audio(ctx, provider_id, &native_id).await
+                    let mut headers = http::HeaderMap::new();
+
+                    use reqwest::header;
+                    req.headers()
+                        .iter()
+                        .filter(|(k, _)| match **k {
+                            header::CONTENT_RANGE => true,
+                            header::ACCEPT => true,
+                            header::RANGE => true,
+                            header::CONNECTION => true,
+                            _ => *k == &HEADER_ICY,
+                        })
+                        .for_each(|(k, v)| {
+                            headers.insert(k, v.clone());
+                        });
+
+                    media_get_audio(ctx, provider_id, &native_id, headers).await
                 }
                 _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
             }
