@@ -195,6 +195,26 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
+        MessageType::GetArtistReq => {
+            if let Some(Payload::GetArtistReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                let artist = sqlm::artist::Entity::find_by_id(
+                    req.id
+                        .parse::<i64>()
+                        .map_err(|_| ProcessError::NoSuchArtist(req.id.clone()))?,
+                )
+                .one(db)
+                .await?
+                .ok_or(ProcessError::NoSuchArtist(req.id.clone()))?;
+
+                let rsp = msg::GetArtistRsp {
+                    item: Some(artist.qcm_into()),
+                    extra: None,
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
         MessageType::GetMixsReq => {
             if let Some(Payload::GetMixsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);

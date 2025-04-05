@@ -49,7 +49,7 @@ message Program {
 message Mix {
   int64 id = 1;
   string native_id = 2;
-  int64 library_id = 3;
+  int64 provider_id = 3;
   string name = 4;
   int32 track_count = 6;
   int32 special_type = 7;

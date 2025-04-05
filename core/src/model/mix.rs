@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub library_id: i64,
+    pub provider_id: i64,
     pub name: String,
     pub native_id: String,
     pub track_count: i32,
@@ -22,16 +22,16 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::library::Entity",
-        from = "Column::LibraryId",
-        to = "super::library::Column::LibraryId"
+        belongs_to = "super::provider::Entity",
+        from = "Column::ProviderId",
+        to = "super::provider::Column::ProviderId"
     )]
-    Library,
+    Provider,
 }
 
 impl Related<super::library::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Library.def()
+        Relation::Provider.def()
     }
 }
 

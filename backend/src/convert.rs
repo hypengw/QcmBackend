@@ -252,7 +252,7 @@ impl QcmFrom<proto::Mix> for core::model::mix::Model {
         Self {
             id: v.id,
             native_id: v.native_id,
-            library_id: v.library_id,
+            provider_id: v.provider_id,
             name: v.name,
             track_count: v.track_count,
             special_type: v.special_type,
@@ -270,7 +270,7 @@ impl QcmFrom<core::model::mix::Model> for proto::Mix {
         Self {
             id: v.id,
             native_id: v.native_id,
-            library_id: v.library_id,
+            provider_id: v.provider_id,
             name: v.name,
             track_count: v.track_count,
             special_type: v.special_type,

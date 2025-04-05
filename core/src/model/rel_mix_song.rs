@@ -8,7 +8,7 @@ pub struct Model {
     pub library_id: i64,
     pub song_id: i64,
     pub mix_id: i64,
-    pub order_idx: i32,
+    pub order_idx: i64,
     pub edit_time: DateTimeUtc,
 }
 

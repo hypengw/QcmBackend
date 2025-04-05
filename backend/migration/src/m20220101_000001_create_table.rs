@@ -201,26 +201,76 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(schema.create_table_from_entity(mix::Entity))
+            .create_table(
+                Table::create()
+                    .table(mix::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(mix::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(mix::Column::ProviderId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(mix::Column::Name).string().not_null())
+                    .col(ColumnDef::new(mix::Column::NativeId).string().not_null())
+                    .col(ColumnDef::new(mix::Column::TrackCount).integer().not_null())
+                    .col(
+                        ColumnDef::new(mix::Column::SpecialType)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(mix::Column::Description).string().not_null())
+                    .col(ColumnDef::new(mix::Column::Tags).json().not_null())
+                    .col(
+                        ColumnDef::new(mix::Column::CreateTime)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(mix::Column::UpdateTime)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(mix::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_mix_provider")
+                            .from(mix::Entity, mix::Column::ProviderId)
+                            .to(provider::Entity, provider::Column::ProviderId),
+                    )
+                    .to_owned(),
+            )
             .await?;
+
         manager
             .create_index(unique_index!(
                 mix::Entity,
                 mix::Column::NativeId,
-                mix::Column::LibraryId
+                mix::Column::ProviderId
             ))
             .await?;
 
-        manager
-            .create_table(schema.create_table_from_entity(radio::Entity))
-            .await?;
-        manager
-            .create_index(unique_index!(
-                radio::Entity,
-                radio::Column::NativeId,
-                radio::Column::LibraryId
-            ))
-            .await?;
+        //        manager
+        //            .create_table(schema.create_table_from_entity(radio::Entity))
+        //            .await?;
+        //        manager
+        //            .create_index(unique_index!(
+        //                radio::Entity,
+        //                radio::Column::NativeId,
+        //                radio::Column::LibraryId
+        //            ))
+        //            .await?;
 
         manager
             .create_table(
@@ -252,7 +302,11 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(song::Column::Duration).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(song::Column::Duration)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(song::Column::CanPlay).boolean().not_null())
                     .col(ColumnDef::new(song::Column::Tags).json().not_null())
                     .col(ColumnDef::new(song::Column::Popularity).double().not_null())
@@ -290,16 +344,16 @@ impl MigrationTrait for Migration {
             ))
             .await?;
 
-        manager
-            .create_table(schema.create_table_from_entity(program::Entity))
-            .await?;
-        manager
-            .create_index(unique_index!(
-                program::Entity,
-                program::Column::NativeId,
-                program::Column::LibraryId
-            ))
-            .await
+        // manager
+        //     .create_table(schema.create_table_from_entity(program::Entity))
+        //     .await?;
+        // manager
+        //     .create_index(unique_index!(
+        //         program::Entity,
+        //         program::Column::NativeId,
+        //         program::Column::LibraryId
+        //     ))
+        //     .await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -330,18 +384,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        radio::Entity,
-                        radio::Column::NativeId,
-                        radio::Column::LibraryId
-                    ))
-                    .table(radio::Entity)
-                    .to_owned(),
-            )
-            .await?;
+
         manager
             .drop_index(
                 Index::drop()
@@ -379,16 +422,31 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        //        manager
+        //            .drop_index(
+        //                Index::drop()
+        //                    .name(unique_index_name!(
+        //                        radio::Entity,
+        //                        radio::Column::NativeId,
+        //                        radio::Column::LibraryId
+        //                    ))
+        //                    .table(radio::Entity)
+        //                    .to_owned(),
+        //            )
+        //            .await?;
+
+        // manager
+        //     .drop_table(Table::drop().table(program::Entity).to_owned())
+        //     .await?;
+        // manager
+        //     .drop_table(Table::drop().table(radio::Entity).to_owned())
+        //     .await?;
+
         // Drop tables
-        manager
-            .drop_table(Table::drop().table(program::Entity).to_owned())
-            .await?;
         manager
             .drop_table(Table::drop().table(song::Entity).to_owned())
             .await?;
-        manager
-            .drop_table(Table::drop().table(radio::Entity).to_owned())
-            .await?;
+
         manager
             .drop_table(Table::drop().table(mix::Entity).to_owned())
             .await?;

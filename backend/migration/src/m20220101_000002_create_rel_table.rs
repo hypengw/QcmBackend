@@ -74,7 +74,6 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 rel_album_artist::Entity,
-                rel_album_artist::Column::LibraryId,
                 rel_album_artist::Column::AlbumId,
                 rel_album_artist::Column::ArtistId
             ))
@@ -116,10 +115,7 @@ impl MigrationTrait for Migration {
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_rel_song_artist_library")
-                            .from(
-                                rel_song_artist::Entity,
-                                rel_song_artist::Column::LibraryId,
-                            )
+                            .from(rel_song_artist::Entity, rel_song_artist::Column::LibraryId)
                             .to(library::Entity, library::Column::LibraryId),
                     )
                     .foreign_key(
@@ -141,9 +137,77 @@ impl MigrationTrait for Migration {
         manager
             .create_index(unique_index!(
                 rel_song_artist::Entity,
-                rel_song_artist::Column::LibraryId,
                 rel_song_artist::Column::SongId,
                 rel_song_artist::Column::ArtistId
+            ))
+            .await?;
+
+        // Add rel_mix_song table creation
+        manager
+            .create_table(
+                Table::create()
+                    .table(rel_mix_song::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::LibraryId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::SongId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::MixId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::OrderIdx)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_mix_song_library")
+                            .from(rel_mix_song::Entity, rel_mix_song::Column::LibraryId)
+                            .to(library::Entity, library::Column::LibraryId),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_mix_song_song")
+                            .from(rel_mix_song::Entity, rel_mix_song::Column::SongId)
+                            .to(song::Entity, song::Column::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_mix_song_mix")
+                            .from(rel_mix_song::Entity, rel_mix_song::Column::MixId)
+                            .to(mix::Entity, mix::Column::Id),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(unique_index!(
+                rel_mix_song::Entity,
+                rel_mix_song::Column::MixId,
+                rel_mix_song::Column::SongId
             ))
             .await
     }
@@ -154,7 +218,6 @@ impl MigrationTrait for Migration {
                 Index::drop()
                     .name(unique_index_name!(
                         rel_song_artist::Entity,
-                        rel_song_artist::Column::LibraryId,
                         rel_song_artist::Column::SongId,
                         rel_song_artist::Column::ArtistId
                     ))
@@ -182,6 +245,23 @@ impl MigrationTrait for Migration {
 
         manager
             .drop_table(Table::drop().table(rel_album_artist::Entity).to_owned())
+            .await?;
+
+        manager
+            .drop_index(
+                Index::drop()
+                    .name(unique_index_name!(
+                        rel_mix_song::Entity,
+                        rel_mix_song::Column::MixId,
+                        rel_mix_song::Column::SongId
+                    ))
+                    .table(rel_mix_song::Entity)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(rel_mix_song::Entity).to_owned())
             .await
     }
 }
