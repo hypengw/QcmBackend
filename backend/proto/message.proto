@@ -103,7 +103,7 @@ message ProviderStatusMsg {
 }
 
 message GetAlbumsReq {
-  repeated string library_id = 1;
+  repeated int64 library_id = 1;
   int32 page = 2;
   int32 page_size = 3;
   // sort
@@ -117,7 +117,7 @@ message GetAlbumsRsp {
   bool has_more = 4;
 }
 
-message GetAlbumReq { string id = 1; }
+message GetAlbumReq { int64 id = 1; }
 
 message GetAlbumRsp {
   qcm.msg.model.Album item = 1;
@@ -127,7 +127,7 @@ message GetAlbumRsp {
 }
 
 message GetArtistsReq {
-  repeated string library_id = 1;
+  repeated int64 library_id = 1;
   int32 page = 2;
   int32 page_size = 3;
   // sort
@@ -141,7 +141,7 @@ message GetArtistsRsp {
   bool has_more = 4;
 }
 
-message GetArtistReq { string id = 1; }
+message GetArtistReq { int64 id = 1; }
 
 message GetArtistRsp {
   qcm.msg.model.Artist item = 1;
@@ -149,7 +149,7 @@ message GetArtistRsp {
 }
 
 message GetArtistAlbumReq {
-  string id = 1;
+  int64 id = 1;
   int32 page = 2;
   int32 page_size = 3;
 }
@@ -162,7 +162,7 @@ message GetArtistAlbumRsp {
 }
 
 message GetMixsReq {
-  repeated string library_id = 1;
+  repeated int64 library_id = 1;
   int32 page = 2;
   int32 page_size = 3;
   // sort

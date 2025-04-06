@@ -93,14 +93,10 @@ pub async fn process_qcm(
             if let Some(Payload::GetAlbumReq(req)) = payload {
                 let db = &ctx.provider_context.db;
 
-                let album = sqlm::album::Entity::find_by_id(
-                    req.id
-                        .parse::<i64>()
-                        .map_err(|_| ProcessError::NoSuchAlbum(req.id.clone()))?,
-                )
-                .one(db)
-                .await?
-                .ok_or(ProcessError::NoSuchAlbum(req.id.clone()))?;
+                let album = sqlm::album::Entity::find_by_id(req.id)
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchAlbum(req.id.to_string()))?;
 
                 let artists = album.find_related(sqlm::artist::Entity).all(db).await?;
 
@@ -199,14 +195,10 @@ pub async fn process_qcm(
             if let Some(Payload::GetArtistReq(req)) = payload {
                 let db = &ctx.provider_context.db;
 
-                let artist = sqlm::artist::Entity::find_by_id(
-                    req.id
-                        .parse::<i64>()
-                        .map_err(|_| ProcessError::NoSuchArtist(req.id.clone()))?,
-                )
-                .one(db)
-                .await?
-                .ok_or(ProcessError::NoSuchArtist(req.id.clone()))?;
+                let artist = sqlm::artist::Entity::find_by_id(req.id)
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchArtist(req.id.to_string()))?;
 
                 let rsp = msg::GetArtistRsp {
                     item: Some(artist.qcm_into()),

@@ -342,18 +342,7 @@ impl MigrationTrait for Migration {
                 song::Column::NativeId,
                 song::Column::LibraryId
             ))
-            .await?;
-
-        // manager
-        //     .create_table(schema.create_table_from_entity(program::Entity))
-        //     .await?;
-        // manager
-        //     .create_index(unique_index!(
-        //         program::Entity,
-        //         program::Column::NativeId,
-        //         program::Column::LibraryId
-        //     ))
-        //     .await
+            .await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
