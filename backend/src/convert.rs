@@ -131,6 +131,30 @@ impl QcmFrom<core::provider::AuthInfo> for proto::AuthInfo {
     }
 }
 
+impl QcmFrom<proto::Library> for core::model::library::Model {
+    fn qcm_from(v: proto::Library) -> Self {
+        Self {
+            provider_id: v.provider_id,
+            native_id: v.native_id,
+            library_id: v.library_id,
+            name: v.name,
+            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+        }
+    }
+}
+
+impl QcmFrom<core::model::library::Model> for proto::Library {
+    fn qcm_from(v: core::model::library::Model) -> Self {
+        Self {
+            provider_id: v.provider_id,
+            native_id: v.native_id,
+            library_id: v.library_id,
+            name: v.name,
+            edit_time: Some(v.edit_time.qcm_into()),
+        }
+    }
+}
+
 impl QcmFrom<proto::Album> for core::model::album::Model {
     fn qcm_from(v: proto::Album) -> Self {
         Self {

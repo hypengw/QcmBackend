@@ -1,7 +1,11 @@
 use crate::event::{BackendContext, BackendEvent, Event};
+use qcm_core::model as sqlm;
 use qcm_core::provider::Provider;
 use qcm_core::{self, provider};
 use qcm_core::{global, Result};
+use sea_orm::{EntityTrait, QueryFilter, QuerySelect};
+use std::collections::BTreeMap;
+use std::os::linux::raw::stat;
 use std::sync::Arc;
 
 use crate::convert::*;
@@ -76,18 +80,30 @@ async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {
 }
 
 async fn send_provider_status(ctx: &BackendContext) -> Result<Vec<Arc<dyn Provider>>> {
+    let db = &ctx.provider_context.db;
     let providers = global::providers();
     let msg: Option<QcmMessage> = {
         let mut msg = ProviderStatusMsg::default();
+
+        let libraries = sqlm::library::Entity::find().all(db).await?;
+
         msg.statuses = providers
             .iter()
             .map(|p| {
                 let mut status = ProviderStatus::default();
-                status.id = p.id().map_or(String::new(), |i| i.to_string());
+                status.id = p.id().unwrap_or(-1);
                 status.name = p.name();
+                status.type_name = p.type_name().to_string();
+
+                for lib in &libraries {
+                    if Some(lib.provider_id) == p.id() {
+                        status.libraries.push(lib.clone().qcm_into());
+                    }
+                }
                 return status;
             })
             .collect();
+
         msg.full = true;
         if msg.statuses.len() > 0 {
             Some(msg.qcm_into())
