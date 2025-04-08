@@ -117,6 +117,19 @@ pub async fn process_http_get(
 
                     media_get_image(ctx, provider_id, &native_id, image_type).await
                 }
+                ItemType::Mix => {
+                    let id = parse_id(id)?;
+                    let (native_id, provider_id): (String, i64) = sqlm::mix::Entity::find_by_id(id)
+                        .select_only()
+                        .column(sqlm::mix::Column::NativeId)
+                        .column(sqlm::mix::Column::ProviderId)
+                        .into_tuple()
+                        .one(db)
+                        .await?
+                        .ok_or(ProcessError::NoSuchMix(id.to_string()))?;
+
+                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                }
                 _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
             }
         }

@@ -235,18 +235,54 @@ pub async fn process_qcm(
             if let Some(Payload::GetMixReq(req)) = payload {
                 let db = &ctx.provider_context.db;
 
-                let mix = sqlm::mix::Entity::find_by_id(
-                    req.id
-                        .parse::<i64>()
-                        .map_err(|_| ProcessError::NoSuchMix(req.id.clone()))?,
-                )
-                .one(db)
-                .await?
-                .ok_or(ProcessError::NoSuchMix(req.id.clone()))?;
+                let mix = sqlm::mix::Entity::find_by_id(req.id)
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchMix(req.id.to_string()))?;
 
                 let rsp = msg::GetMixRsp {
                     item: Some(mix.qcm_into()),
                     extra: None,
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetArtistAlbumReq => {
+            if let Some(Payload::GetArtistAlbumReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+                let page_params = PageParams::new(req.page, req.page_size);
+
+                let artist = sqlm::artist::Entity::find_by_id(req.id)
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchArtist(req.id.to_string()))?;
+
+                let albums_query = artist.find_related(sqlm::album::Entity);
+                let paginator = albums_query.paginate(db, page_params.page_size);
+
+                let total = paginator.num_items().await?;
+                let albums = paginator.fetch_page(page_params.page).await?;
+
+                let artists = albums
+                    .load_many_to_many(sqlm::artist::Entity, sqlm::rel_album_artist::Entity, db)
+                    .await?;
+
+                let mut items = Vec::new();
+                let mut extras = Vec::new();
+
+                for (album, artists) in albums.into_iter().zip(artists.into_iter()) {
+                    items.push(album.qcm_into());
+
+                    let mut extra = prost_types::Struct::default();
+                    extra_insert_artists(&mut extra, &artists);
+                    extras.push(extra);
+                }
+
+                let rsp = msg::GetArtistAlbumRsp {
+                    items,
+                    extras,
+                    total: total as i32,
+                    has_more: page_params.has_more(total),
                 };
                 return Ok(rsp.qcm_into());
             }
