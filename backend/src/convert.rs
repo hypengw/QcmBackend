@@ -379,6 +379,7 @@ macro_rules! impl_from_for_qcm_msg {
 }
 impl_from_for_qcm_msg!(ProviderMetaStatusMsg);
 impl_from_for_qcm_msg!(ProviderStatusMsg);
+impl_from_for_qcm_msg!(ProviderSyncStatusMsg);
 impl_from_for_qcm_msg!(GetProviderMetasRsp);
 impl_from_for_qcm_msg!(TestRsp);
 impl_from_for_qcm_msg!(Rsp);
@@ -392,3 +393,5 @@ impl_from_for_qcm_msg!(GetArtistAlbumRsp);
 
 impl_from_for_qcm_msg!(GetMixsRsp);
 impl_from_for_qcm_msg!(GetMixRsp);
+
+impl_from_for_qcm_msg!(SyncRsp);

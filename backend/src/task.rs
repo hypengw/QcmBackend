@@ -63,9 +63,9 @@ impl TaskManagerOper {
         let _ = self.sender.send(TaskManagerEvent::Stop);
     }
 
-    pub fn spawn<F>(&self, future: F) -> i64
+    pub fn spawn<Fut>(&self, future: impl FnOnce(i64) -> Fut + Send + 'static) -> i64
     where
-        F: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = ()> + Send,
     {
         let task_id = self.gen_id();
         let (tx, rx) = oneshot::channel();
@@ -73,7 +73,7 @@ impl TaskManagerOper {
 
         let handle = tokio::spawn(async move {
             tokio::select! {
-                _ = future => {},
+                _ = future(task_id) => {},
                 one = rx => match one {
                     Ok(_) => {}
                     Err(_) => {}

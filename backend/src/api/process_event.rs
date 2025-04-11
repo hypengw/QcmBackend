@@ -1,4 +1,6 @@
 use crate::event::{BackendContext, BackendEvent, Event};
+use qcm_core::event::Event as CoreEvent;
+use qcm_core::event::SyncCommit;
 use qcm_core::model as sqlm;
 use qcm_core::provider::Provider;
 use qcm_core::{self, provider};
@@ -14,27 +16,74 @@ use crate::msg::{
     QcmMessage,
 };
 
-pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> {
-    match ev {
-        Event::ProviderSync { id } => {
-            if let Some(p) = global::provider(id) {
-                ctx.oper.spawn({
-                    let ctx = ctx.provider_context.clone();
-                    async move {
-                        match p.sync(&ctx).await {
-                            Err(err) => {
-                                log::error!("{:?}", err);
-                            }
-                            _ => {}
-                        }
-                        log::info!("sync ok");
-                    }
-                });
-            }
+pub struct ProcessEventContext {
+    sync_status: BTreeMap<i64, msg::model::ProviderSyncStatus>,
+}
+
+impl ProcessEventContext {
+    pub fn new() -> Self {
+        Self {
+            sync_status: BTreeMap::new(),
         }
-        Event::End => return Ok(true),
     }
-    return Ok(false);
+
+    pub async fn process_event(&mut self, ev: Event, ctx: Arc<BackendContext>) -> Result<bool> {
+        match ev {
+            Event::ProviderSync { id } => {
+                if let Some(p) = global::provider(id) {
+                    ctx.oper.spawn({
+                        let ctx = ctx.provider_context.clone();
+                        log::warn!("spawn sync");
+                        |_| async move {
+                            log::warn!("start sync");
+                            let id = p.id().unwrap();
+                            let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
+                                id,
+                                commit: SyncCommit::Start,
+                            });
+
+                            match p.sync(&ctx).await {
+                                Err(err) => {
+                                    log::error!("{:?}", err);
+                                }
+                                _ => {}
+                            }
+                            log::warn!("sync end");
+                            let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
+                                id,
+                                commit: SyncCommit::End,
+                            });
+                        }
+                    });
+                }
+            }
+            Event::SyncCommit { id, commit } => {
+                let status = {
+                    match self.sync_status.get_mut(&id) {
+                        Some(v) => {
+                            merge_sync_status(v, commit);
+                            v.clone()
+                        }
+                        None => {
+                            let mut p = msg::model::ProviderSyncStatus::default();
+                            merge_sync_status(&mut p, commit);
+                            p.id = id;
+                            self.sync_status.insert(id, p);
+                            p
+                        }
+                    }
+                };
+                let msg: QcmMessage = msg::ProviderSyncStatusMsg {
+                    status: Some(status),
+                    statuses: Vec::new(),
+                }
+                .qcm_into();
+                ctx.ws_sender.send(msg.qcm_try_into()?).await?;
+            }
+            Event::End => return Ok(true),
+        }
+        return Ok(false);
+    }
 }
 
 pub async fn process_backend_event(ev: BackendEvent, ctx: Arc<BackendContext>) -> Result<bool> {
@@ -56,6 +105,29 @@ pub async fn process_backend_event(ev: BackendEvent, ctx: Arc<BackendContext>) -
         BackendEvent::End => return Ok(true),
     }
     return Ok(false);
+}
+
+fn merge_sync_status(v: &mut msg::model::ProviderSyncStatus, m: SyncCommit) {
+    match m {
+        SyncCommit::Start => {
+            let id = v.id;
+            *v = msg::model::ProviderSyncStatus::default();
+            v.id = id;
+            v.state = msg::model::SyncState::Syncing as i32;
+        }
+        SyncCommit::End => {
+            v.state = msg::model::SyncState::Finished as i32;
+        }
+        SyncCommit::AddAlbum(n) => {
+            v.album += n;
+        }
+        SyncCommit::AddArtist(n) => {
+            v.artist += n;
+        }
+        SyncCommit::AddSong(n) => {
+            v.song += n;
+        }
+    }
 }
 
 async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {

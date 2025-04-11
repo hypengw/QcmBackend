@@ -31,10 +31,6 @@ pub struct AuthInfo {
     pub method: AuthMethod,
 }
 
-pub trait SyncState {
-    fn commit(&self, finished: i32, total: i32);
-}
-
 /// Creator for provider
 ///
 /// # Parameters

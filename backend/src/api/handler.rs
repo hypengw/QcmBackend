@@ -26,7 +26,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::mpsc as async_mpsc;
 
-use super::process_event::{process_backend_event, process_event};
+use super::process_event::{process_backend_event, ProcessEventContext};
 
 pub async fn handle_request(
     mut request: Request<Incoming>,
@@ -120,8 +120,9 @@ async fn handle_ws(
     tokio::spawn({
         let ctx = ctx.clone();
         async move {
+            let mut process_event_ctx = ProcessEventContext::new();
             while let Some(ev) = ev_receiver.recv().await {
-                match process_event(ev, ctx.clone()).await {
+                match process_event_ctx.process_event(ev, ctx.clone()).await {
                     Ok(true) => break,
                     Err(err) => log::error!("{}", err),
                     _ => (),

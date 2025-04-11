@@ -1,5 +1,5 @@
 use prost::{self, Message};
-use qcm_core::{global, Result};
+use qcm_core::{event::Event as CoreEvent, global, Result};
 use std::sync::Arc;
 
 use qcm_core::model as sqlm;
@@ -13,7 +13,8 @@ use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
-    self, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, TestRsp,
+    self, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, SyncRsp,
+    TestRsp,
 };
 
 fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
@@ -284,6 +285,18 @@ pub async fn process_qcm(
                     total: total as i32,
                     has_more: page_params.has_more(total),
                 };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::SyncReq => {
+            if let Some(Payload::SyncReq(req)) = payload {
+                ctx.provider_context
+                    .ev_sender
+                    .send(CoreEvent::ProviderSync {
+                        id: req.provider_id,
+                    })
+                    .await?;
+                let rsp = SyncRsp { handle: 0 };
                 return Ok(rsp.qcm_into());
             }
         }
