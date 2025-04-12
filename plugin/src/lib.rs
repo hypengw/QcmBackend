@@ -6,6 +6,8 @@ pub fn init() {
     {
         use qcm_plugin_jellyfin::plugin::JellyfinPlugin;
         qg::add_plugin(Box::new(JellyfinPlugin::new()));
+        use qcm_plugin_lua::plugin::LuaPlugin;
+        qg::add_plugin(Box::new(LuaPlugin::new()));
     }
 
     let metas = qg::with_plugins(|plugins| {

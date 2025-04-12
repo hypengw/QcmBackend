@@ -5,4 +5,19 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mlua = { version = "0.10", features = ["lua54", "vendored"] }
+qcm-core = { git = "https://github.com/hypengw/QcmBackend.git" }
+log = "0.4"
+sea-orm = { version = "1" }
+serde_json = { version = "1.0" }
+chrono = { version = "0.4" }
+reqwest = { version = "0.12" }
+async-trait = "0.1"
+
+mlua = { version = "0.10", features = [
+    "lua54",
+    "vendored",
+    "async",
+    "send",
+    "error-send",
+    "serialize",
+] }
