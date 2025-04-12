@@ -1,4 +1,10 @@
-use crate::{error::ConnectError, event::Event, http, model::type_enum::{ImageType, ItemType}, Result};
+use crate::{
+    error::ConnectError,
+    event::Event,
+    http,
+    model::type_enum::{ImageType, ItemType},
+    Result,
+};
 use reqwest::Response;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -37,7 +43,7 @@ pub struct AuthInfo {
 /// - `name`: provider name
 /// - `device_id`: device id
 ///
-pub type Creator = dyn Fn(Option<i64>, &str, &str) -> Arc<dyn Provider> + Send + Sync;
+pub type Creator = dyn Fn(Option<i64>, &str, &str) -> Result<Arc<dyn Provider>> + Send + Sync;
 
 #[derive(Clone)]
 pub struct ProviderMeta {

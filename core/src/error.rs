@@ -12,6 +12,8 @@ pub enum ConnectError {
     Request(#[from] reqwest::Error),
     #[error("Request error: {0}")]
     Uuid(#[from] uuid::Error),
+    #[error("Not Implemented")]
+    NotImplemented,
     #[error("Infallible")]
     Infallible(#[from] std::convert::Infallible),
 }

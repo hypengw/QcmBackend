@@ -9,6 +9,7 @@ use qcm_core::{
     provider::{AuthInfo, Context, Provider},
     Result,
 };
+use reqwest::Response;
 use sea_orm::*;
 use std::{
     path::{Path, PathBuf},
@@ -19,6 +20,7 @@ struct LuaProviderInner {
     client: qcm_core::http::HttpClient,
     id: Option<i64>,
     name: String,
+    device_id: String,
     lua: Lua,
     provider_table: Option<LuaTable>,
 }
@@ -29,7 +31,7 @@ pub struct LuaProvider {
 }
 
 impl LuaProvider {
-    pub fn new(id: Option<i64>, name: &str, script_path: &Path) -> Result<Self> {
+    pub fn new(id: Option<i64>, name: &str, device_id: &str, script_path: &Path) -> Result<Self> {
         let jar = Arc::new(CookieStoreRwLock::default());
 
         // Create new Lua instance
@@ -59,6 +61,7 @@ impl LuaProvider {
                     .unwrap(),
                 id,
                 name: name.to_string(),
+                device_id: device_id.to_string(),
                 lua,
                 provider_table: None,
             }),
@@ -104,8 +107,8 @@ impl Provider for LuaProvider {
         let inner = self.inner.write().unwrap();
         if let Some(provider_table) = &inner.provider_table {
             // Call Lua from_model function if it exists
-            if let Ok(from_model) = provider_table.get::<_, LuaFunction>("from_model") {
-                from_model.call::<_, ()>(model.custom.clone())?;
+            if let Ok(from_model) = provider_table.get::<LuaFunction>("from_model") {
+                from_model.call::<()>(model.custom.clone())?;
             }
         }
         Ok(())
@@ -114,8 +117,8 @@ impl Provider for LuaProvider {
     fn to_model(&self) -> sqlm::provider::ActiveModel {
         let inner = self.inner.read().unwrap();
         let custom = if let Some(provider_table) = &inner.provider_table {
-            if let Ok(to_model) = provider_table.get::<_, LuaFunction>("to_model") {
-                to_model.call::<_, String>(()).unwrap_or_default()
+            if let Ok(to_model) = provider_table.get::<LuaFunction>("to_model") {
+                to_model.call::<String>(()).unwrap_or_default()
             } else {
                 String::new()
             }
@@ -140,28 +143,28 @@ impl Provider for LuaProvider {
     async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()> {
         let inner = self.inner.read().unwrap();
         if let Some(provider_table) = &inner.provider_table {
-            if let Ok(login) = provider_table.get::<_, LuaFunction>("login") {
+            if let Ok(login) = provider_table.get::<LuaFunction>("login") {
                 // Convert AuthInfo to Lua table
                 let auth_table = inner.lua.create_table()?;
                 auth_table.set("server_url", info.server_url.clone())?;
                 // Add other auth info fields as needed
 
-                login.call::<_, ()>(auth_table)?;
+                login.call::<()>(auth_table)?;
                 return Ok(());
             }
         }
-        Err(anyhow::anyhow!("Login not implemented"))
+        Err(anyhow!("Login not implemented"))
     }
 
     async fn sync(&self, ctx: &Context) -> Result<()> {
         let inner = self.inner.read().unwrap();
         if let Some(provider_table) = &inner.provider_table {
-            if let Ok(sync) = provider_table.get::<_, LuaFunction>("sync") {
-                sync.call::<_, ()>(())?;
+            if let Ok(sync) = provider_table.get::<LuaFunction>("sync") {
+                sync.call::<()>(())?;
                 return Ok(());
             }
         }
-        Err(anyhow::anyhow!("Sync not implemented"))
+        Err(anyhow!("Sync not implemented"))
     }
 
     async fn image(
@@ -172,11 +175,10 @@ impl Provider for LuaProvider {
     ) -> Result<Response, ConnectError> {
         let inner = self.inner.read().unwrap();
         if let Some(provider_table) = &inner.provider_table {
-            if let Ok(get_image) = provider_table.get::<_, LuaFunction>("get_image") {
-                // Convert the response from Lua to reqwest Response
-                // This is a placeholder - you'll need to implement proper conversion
-                let response = get_image.call::<_, LuaTable>((item_id, image_type.to_string()))?;
-                // Convert Lua response to reqwest Response
+            if let Ok(get_image) = provider_table.get::<LuaFunction>("get_image") {
+                let response = get_image
+                    .call::<LuaTable>((item_id, image_type.to_string()))
+                    .map_err(|e| anyhow!(e))?;
                 unimplemented!("Need to implement response conversion");
             }
         }
@@ -191,11 +193,10 @@ impl Provider for LuaProvider {
     ) -> Result<Response, ConnectError> {
         let inner = self.inner.read().unwrap();
         if let Some(provider_table) = &inner.provider_table {
-            if let Ok(get_audio) = provider_table.get::<_, LuaFunction>("get_audio") {
-                // Convert the response from Lua to reqwest Response
-                // This is a placeholder - you'll need to implement proper conversion
-                let response = get_audio.call::<_, LuaTable>((item_id,))?;
-                // Convert Lua response to reqwest Response
+            if let Ok(get_audio) = provider_table.get::<LuaFunction>("get_audio") {
+                let response = get_audio
+                    .call::<LuaTable>((item_id,))
+                    .map_err(|e| anyhow!(e))?;
                 unimplemented!("Need to implement response conversion");
             }
         }
