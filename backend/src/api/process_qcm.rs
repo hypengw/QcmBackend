@@ -1,11 +1,12 @@
 use prost::{self, Message};
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use std::sync::Arc;
+use tokio::sync::oneshot;
 
 use qcm_core::model as sqlm;
 use sea_orm::{
     sea_query, ColumnTrait, EntityTrait, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter,
-    TransactionTrait,
+    QueryOrder, TransactionTrait,
 };
 
 use crate::api::{self, pagination::PageParams};
@@ -106,6 +107,7 @@ pub async fn process_qcm(
 
                 for (song, artists) in sqlm::song::Entity::find()
                     .filter(sqlm::song::Column::AlbumId.eq(album.id))
+                    .order_by_asc(sqlm::song::Column::TrackNumber)
                     .find_with_related(sqlm::artist::Entity)
                     .all(db)
                     .await?
@@ -135,6 +137,7 @@ pub async fn process_qcm(
                 let page_params = PageParams::new(req.page, req.page_size);
 
                 let paginator = sqlm::album::Entity::find()
+                    .order_by_asc(sqlm::album::Column::Id)
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
@@ -290,13 +293,18 @@ pub async fn process_qcm(
         }
         MessageType::SyncReq => {
             if let Some(Payload::SyncReq(req)) = payload {
+                let (tx, rx) = oneshot::channel::<i64>();
                 ctx.provider_context
                     .ev_sender
                     .send(CoreEvent::ProviderSync {
                         id: req.provider_id,
+                        oneshot: Some(tx),
                     })
                     .await?;
-                let rsp = SyncRsp { handle: 0 };
+                let task_id = rx.await;
+                let rsp = SyncRsp {
+                    handle: task_id.unwrap_or(-1),
+                };
                 return Ok(rsp.qcm_into());
             }
         }

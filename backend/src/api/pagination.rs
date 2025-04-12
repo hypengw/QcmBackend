@@ -12,10 +12,6 @@ impl PageParams {
         }
     }
 
-    pub fn offset(&self) -> u64 {
-        (self.page - 1) * self.page_size
-    }
-
     pub fn has_more(&self, total: u64) -> bool {
         self.page * self.page_size < total
     }

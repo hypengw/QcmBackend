@@ -15,7 +15,7 @@ struct Task {
     handle: JoinHandle<()>,
     sender: Option<oneshot::Sender<TaskOneshotEvent>>,
     name: Option<String>,
-    // status: TaskStatus,
+    waiters: Vec<oneshot::Sender<()>>, // status: TaskStatus,
 }
 
 enum TaskManagerEvent {
@@ -24,7 +24,7 @@ enum TaskManagerEvent {
     Cancel { id: i64 },
     End { id: i64 },
     Stop,
-    // Wait,
+    Wait { id: i64, tx: oneshot::Sender<()> },
     // Pause,
 }
 pub struct TaskOper {
@@ -53,6 +53,12 @@ impl TaskManagerOper {
 
     fn add(&self, task: Task) {
         let _ = self.sender.send(TaskManagerEvent::Add(task));
+    }
+
+    pub async fn wait(&self, id: i64) {
+        let (tx, rx) = oneshot::channel::<()>();
+        let _ = self.sender.send(TaskManagerEvent::Wait { id, tx: tx });
+        let _ = rx.await;
     }
 
     pub fn canel(&self, id: i64) {
@@ -88,6 +94,7 @@ impl TaskManagerOper {
             handle,
             sender: Some(tx),
             name: None,
+            waiters: Vec::new(),
         };
         self.add(task);
         task_id
@@ -139,7 +146,20 @@ impl TaskManager {
                     }
                 }
                 TaskManagerEvent::End { id } => {
+                    if let Some(t) = self.tasks.get_mut(&id) {
+                        while let Some(w) = t.waiters.pop() {
+                            let _ = w.send(());
+                        }
+                    }
                     self.tasks.remove(&id);
+                }
+                TaskManagerEvent::Wait { id, tx } => {
+                    if let Some(t) = self.tasks.get_mut(&id) {
+                        t.waiters.push(tx);
+                    } else {
+                        log::warn!("task not found: {}", id);
+                        let _ = tx.send(());
+                    }
                 }
                 TaskManagerEvent::Progress => {}
                 TaskManagerEvent::Stop => {

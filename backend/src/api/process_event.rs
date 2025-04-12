@@ -9,6 +9,7 @@ use sea_orm::{EntityTrait, QueryFilter, QuerySelect};
 use std::collections::BTreeMap;
 use std::os::linux::raw::stat;
 use std::sync::Arc;
+use tokio::sync::oneshot;
 
 use crate::convert::*;
 use crate::msg::{
@@ -16,91 +17,116 @@ use crate::msg::{
     QcmMessage,
 };
 
-pub struct ProcessEventContext {
+pub struct ProcessContext {
     sync_status: BTreeMap<i64, msg::model::ProviderSyncStatus>,
 }
 
-impl ProcessEventContext {
+impl ProcessContext {
     pub fn new() -> Self {
         Self {
             sync_status: BTreeMap::new(),
         }
     }
-
-    pub async fn process_event(&mut self, ev: Event, ctx: Arc<BackendContext>) -> Result<bool> {
-        match ev {
-            Event::ProviderSync { id } => {
-                if let Some(p) = global::provider(id) {
-                    ctx.oper.spawn({
-                        let ctx = ctx.provider_context.clone();
-                        log::warn!("spawn sync");
-                        |_| async move {
-                            log::warn!("start sync");
-                            let id = p.id().unwrap();
-                            let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
-                                id,
-                                commit: SyncCommit::Start,
-                            });
-
-                            match p.sync(&ctx).await {
-                                Err(err) => {
-                                    log::error!("{:?}", err);
-                                }
-                                _ => {}
-                            }
-                            log::warn!("sync end");
-                            let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
-                                id,
-                                commit: SyncCommit::End,
-                            });
-                        }
-                    });
-                }
-            }
-            Event::SyncCommit { id, commit } => {
-                let status = {
-                    match self.sync_status.get_mut(&id) {
-                        Some(v) => {
-                            merge_sync_status(v, commit);
-                            v.clone()
-                        }
-                        None => {
-                            let mut p = msg::model::ProviderSyncStatus::default();
-                            merge_sync_status(&mut p, commit);
-                            p.id = id;
-                            self.sync_status.insert(id, p);
-                            p
-                        }
-                    }
-                };
-                let msg: QcmMessage = msg::ProviderSyncStatusMsg {
-                    status: Some(status),
-                    statuses: Vec::new(),
-                }
-                .qcm_into();
-                ctx.ws_sender.send(msg.qcm_try_into()?).await?;
-            }
-            Event::End => return Ok(true),
-        }
-        return Ok(false);
-    }
 }
 
-pub async fn process_backend_event(ev: BackendEvent, ctx: Arc<BackendContext>) -> Result<bool> {
+pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> {
+    match ev {
+        Event::ProviderSync { id, oneshot } => {
+            if let Some(p) = global::provider(id) {
+                ctx.oper.spawn({
+                    let ctx = ctx.provider_context.clone();
+                    log::warn!("spawn sync");
+                    |tid| async move {
+                        log::warn!("start sync");
+                        if let Some(tx) = oneshot {
+                            let _ = tx.send(tid);
+                        }
+                        let id = p.id().unwrap();
+                        let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
+                            id,
+                            commit: SyncCommit::Start,
+                        });
+
+                        match p.sync(&ctx).await {
+                            Err(err) => {
+                                log::error!("{:?}", err);
+                            }
+                            _ => {}
+                        }
+                        log::warn!("sync end");
+                        let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
+                            id,
+                            commit: SyncCommit::End,
+                        });
+                    }
+                });
+            }
+        }
+        Event::SyncCommit { id, commit } => {
+            let _ = ctx
+                .bk_ev_sender
+                .try_send(BackendEvent::SyncCommit { id, commit });
+        }
+        Event::End => return Ok(true),
+    }
+    return Ok(false);
+}
+
+pub async fn process_backend_event(
+    ev: BackendEvent,
+    ctx: Arc<BackendContext>,
+    pctx: &mut ProcessContext,
+) -> Result<bool> {
     let ev_sender = &ctx.provider_context.ev_sender;
     match ev {
         BackendEvent::Frist => {
             send_provider_meta_status(ctx.as_ref()).await?;
-            let providers = send_provider_status(ctx.as_ref()).await?;
-            for p in providers {
-                if let Some(id) = p.id() {
-                    ev_sender.send(Event::ProviderSync { id: id }).await?;
-                }
-            }
+            let _ = send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+            // for p in providers {
+            //     if let Some(id) = p.id() {
+            //         ev_sender.send(Event::ProviderSync { id: id }).await?;
+            //     }
+            // }
         }
         BackendEvent::NewProvider { id } => {
-            send_provider_status(ctx.as_ref()).await?;
-            ev_sender.send(Event::ProviderSync { id }).await?;
+            send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+            let (tx, rx) = oneshot::channel::<i64>();
+            ev_sender
+                .send(Event::ProviderSync {
+                    id,
+                    oneshot: Some(tx),
+                })
+                .await?;
+            let sync_status = pctx.sync_status.clone();
+            tokio::spawn(async move {
+                if let Ok(id) = rx.await {
+                    ctx.oper.wait(id).await;
+                    let _ = send_provider_status(ctx.as_ref(), &sync_status).await;
+                }
+            });
+        }
+        BackendEvent::SyncCommit { id, commit } => {
+            let status = {
+                match pctx.sync_status.get_mut(&id) {
+                    Some(v) => {
+                        merge_sync_status(v, commit);
+                        v.clone()
+                    }
+                    None => {
+                        let mut p = msg::model::ProviderSyncStatus::default();
+                        merge_sync_status(&mut p, commit);
+                        p.id = id;
+                        pctx.sync_status.insert(id, p);
+                        p
+                    }
+                }
+            };
+            let msg: QcmMessage = msg::ProviderSyncStatusMsg {
+                status: Some(status),
+                statuses: Vec::new(),
+            }
+            .qcm_into();
+            ctx.ws_sender.send(msg.qcm_try_into()?).await?;
         }
         BackendEvent::End => return Ok(true),
     }
@@ -151,10 +177,13 @@ async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {
     Ok(())
 }
 
-async fn send_provider_status(ctx: &BackendContext) -> Result<Vec<Arc<dyn Provider>>> {
+async fn send_provider_status(
+    ctx: &BackendContext,
+    sync_status: &BTreeMap<i64, msg::model::ProviderSyncStatus>,
+) -> Result<Vec<Arc<dyn Provider>>> {
     let db = &ctx.provider_context.db;
     let providers = global::providers();
-    let msg: Option<QcmMessage> = {
+    let msg: QcmMessage = {
         let mut msg = ProviderStatusMsg::default();
 
         let libraries = sqlm::library::Entity::find().all(db).await?;
@@ -172,19 +201,16 @@ async fn send_provider_status(ctx: &BackendContext) -> Result<Vec<Arc<dyn Provid
                         status.libraries.push(lib.clone().qcm_into());
                     }
                 }
+                if let Some(s) = sync_status.get(&status.id) {
+                    status.sync_status = Some(s.clone());
+                }
                 return status;
             })
             .collect();
 
         msg.full = true;
-        if msg.statuses.len() > 0 {
-            Some(msg.qcm_into())
-        } else {
-            None
-        }
+        msg.qcm_into()
     };
-    if let Some(msg) = msg {
-        ctx.ws_sender.send(msg.qcm_try_into()?).await?;
-    }
+    ctx.ws_sender.send(msg.qcm_try_into()?).await?;
     Ok(providers)
 }
