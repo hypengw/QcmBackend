@@ -70,7 +70,7 @@ pub async fn process_qcm(
             if let Some(Payload::AddProviderReq(req)) = payload {
                 if let Some(auth_info) = &req.auth_info {
                     if let Some(meta) = qcm_core::global::provider_meta(&req.type_name) {
-                        let provider = (meta.creator)(None, &req.name, &global::device_id());
+                        let provider = (meta.creator)(None, &req.name, &global::device_id())?;
                         provider
                             .login(&ctx.provider_context, &auth_info.clone().qcm_into())
                             .await?;

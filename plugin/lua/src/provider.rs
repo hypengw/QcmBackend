@@ -16,55 +16,96 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::crypto::create_crypto_module;
+use crate::http::LuaClient;
+
 struct LuaProviderInner {
     client: qcm_core::http::HttpClient,
     id: Option<i64>,
     name: String,
     device_id: String,
-    lua: Lua,
-    provider_table: Option<LuaTable>,
+}
+
+struct LuaImpl {
+    login: LuaFunction,
+    sync: LuaFunction,
+    image: LuaFunction,
+    audio: LuaFunction,
 }
 
 pub struct LuaProvider {
     jar: Arc<CookieStoreRwLock>,
-    inner: RwLock<LuaProviderInner>,
+    inner: Arc<RwLock<LuaProviderInner>>,
+    funcs: LuaImpl,
+    lua: Lua,
 }
 
 impl LuaProvider {
     pub fn new(id: Option<i64>, name: &str, device_id: &str, script_path: &Path) -> Result<Self> {
         let jar = Arc::new(CookieStoreRwLock::default());
 
-        // Create new Lua instance
         let lua = Lua::new();
 
-        // setup_http_client(&lua)?;
+        let client = qcm_core::http::client_builder_with_jar(jar.clone())
+            .build()
+            .unwrap();
+        let inner = Arc::new(RwLock::new(LuaProviderInner {
+            client: client.clone(),
+            id,
+            name: name.to_string(),
+            device_id: device_id.to_string(),
+        }));
+        {
+            // set package.path
+            let package = lua.globals().get::<LuaTable>("package")?;
+            package.set(
+                "path",
+                script_path
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .map(|p| format!("{}/?.lua", p)),
+            )?;
+
+            lua.globals().set("http", LuaClient(client))?;
+            lua.globals().set("ssl", create_crypto_module(&lua)?)?;
+            lua.globals().set(
+                "rust_json_encode",
+                lua.create_function(|_, v: mlua::Value| {
+                    serde_json::to_string(&v).map_err(|e| mlua::Error::external(e))
+                })?,
+            )?;
+            lua.globals().set(
+                "rust_json_decode",
+                lua.create_function(|lua, str: String| {
+                    let v: serde_json::Value =
+                        serde_json::from_str(&str).map_err(|e| mlua::Error::external(e))?;
+                    lua.to_value(&v)
+                })?,
+            )?;
+        }
 
         // Load the provider script
-        lua.load(script_path).exec()?;
+        let func = lua.load(script_path).into_function()?;
+        let provider_table = func.call::<LuaTable>(())?;
 
-        // Get provider table
-        // let provider_table = provider
-        //     .inner
-        //     .read()
-        //     .unwrap()
-        //     .lua
-        //     .globals()
-        //     .get("provider")?;
-        // provider.inner.write().unwrap().provider_table = Some(provider_table);
-
-        // Create provider instance
         let provider = Self {
             jar: jar.clone(),
-            inner: RwLock::new(LuaProviderInner {
-                client: qcm_core::http::client_builder_with_jar(jar.clone())
-                    .build()
-                    .unwrap(),
-                id,
-                name: name.to_string(),
-                device_id: device_id.to_string(),
-                lua,
-                provider_table: None,
-            }),
+            inner,
+            funcs: LuaImpl {
+                login: provider_table
+                    .get::<LuaFunction>("login")
+                    .map_err(|_| anyhow!("login func not found"))?,
+                sync: provider_table
+                    .get::<LuaFunction>("sync")
+                    .map_err(|_| anyhow!("sync func not found"))?,
+                image: provider_table
+                    .get::<LuaFunction>("image")
+                    .map_err(|_| anyhow!("image func not found"))?,
+                audio: provider_table
+                    .get::<LuaFunction>("audio")
+                    .map_err(|_| anyhow!("audio func not found"))?,
+            },
+            lua,
         };
         Ok(provider)
     }
@@ -104,27 +145,27 @@ impl Provider for LuaProvider {
     }
 
     fn from_model(&self, model: &sqlm::provider::Model) -> Result<()> {
-        let inner = self.inner.write().unwrap();
-        if let Some(provider_table) = &inner.provider_table {
-            // Call Lua from_model function if it exists
-            if let Ok(from_model) = provider_table.get::<LuaFunction>("from_model") {
-                from_model.call::<()>(model.custom.clone())?;
-            }
-        }
+        // let inner = self.inner.write().unwrap();
+        // if let Some(provider_table) = &inner.provider_table {
+        //     // Call Lua from_model function if it exists
+        //     if let Ok(from_model) = provider_table.get::<LuaFunction>("from_model") {
+        //         from_model.call::<()>(model.custom.clone())?;
+        //     }
+        // }
         Ok(())
     }
 
     fn to_model(&self) -> sqlm::provider::ActiveModel {
-        let inner = self.inner.read().unwrap();
-        let custom = if let Some(provider_table) = &inner.provider_table {
-            if let Ok(to_model) = provider_table.get::<LuaFunction>("to_model") {
-                to_model.call::<String>(()).unwrap_or_default()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        // let inner = self.inner.read().unwrap();
+        // let custom = if let Some(provider_table) = &inner.provider_table {
+        //     if let Ok(to_model) = provider_table.get::<LuaFunction>("to_model") {
+        //         to_model.call::<String>(()).unwrap_or_default()
+        //     } else {
+        //         String::new()
+        //     }
+        // } else {
+        //     String::new()
+        // };
 
         sqlm::provider::ActiveModel {
             provider_id: match self.id() {
@@ -135,36 +176,19 @@ impl Provider for LuaProvider {
             type_: Set(self.type_name().to_string()),
             base_url: Set(String::new()),
             cookie: Set(String::new()),
-            custom: Set(custom),
+            custom: Set(String::new()),
             edit_time: Set(chrono::Local::now().naive_local()),
         }
     }
 
     async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()> {
-        let inner = self.inner.read().unwrap();
-        if let Some(provider_table) = &inner.provider_table {
-            if let Ok(login) = provider_table.get::<LuaFunction>("login") {
-                // Convert AuthInfo to Lua table
-                let auth_table = inner.lua.create_table()?;
-                auth_table.set("server_url", info.server_url.clone())?;
-                // Add other auth info fields as needed
-
-                login.call::<()>(auth_table)?;
-                return Ok(());
-            }
-        }
-        Err(anyhow!("Login not implemented"))
+        self.funcs.login.call_async(()).await?;
+        Ok(())
     }
 
     async fn sync(&self, ctx: &Context) -> Result<()> {
-        let inner = self.inner.read().unwrap();
-        if let Some(provider_table) = &inner.provider_table {
-            if let Ok(sync) = provider_table.get::<LuaFunction>("sync") {
-                sync.call::<()>(())?;
-                return Ok(());
-            }
-        }
-        Err(anyhow!("Sync not implemented"))
+        self.funcs.sync.call_async(()).await?;
+        Ok(())
     }
 
     async fn image(
@@ -173,15 +197,12 @@ impl Provider for LuaProvider {
         item_id: &str,
         image_type: ImageType,
     ) -> Result<Response, ConnectError> {
-        let inner = self.inner.read().unwrap();
-        if let Some(provider_table) = &inner.provider_table {
-            if let Ok(get_image) = provider_table.get::<LuaFunction>("get_image") {
-                let response = get_image
-                    .call::<LuaTable>((item_id, image_type.to_string()))
-                    .map_err(|e| anyhow!(e))?;
-                unimplemented!("Need to implement response conversion");
-            }
-        }
+        let response = self
+            .funcs
+            .image
+            .call_async::<LuaTable>((item_id,))
+            .await
+            .map_err(|e| anyhow!(e))?;
         Err(ConnectError::NotImplemented)
     }
 
@@ -191,15 +212,12 @@ impl Provider for LuaProvider {
         item_id: &str,
         headers: Option<HeaderMap>,
     ) -> Result<Response, ConnectError> {
-        let inner = self.inner.read().unwrap();
-        if let Some(provider_table) = &inner.provider_table {
-            if let Ok(get_audio) = provider_table.get::<LuaFunction>("get_audio") {
-                let response = get_audio
-                    .call::<LuaTable>((item_id,))
-                    .map_err(|e| anyhow!(e))?;
-                unimplemented!("Need to implement response conversion");
-            }
-        }
+        let response = self
+            .funcs
+            .audio
+            .call_async::<LuaTable>((item_id,))
+            .await
+            .map_err(|e| anyhow!(e))?;
         Err(ConnectError::NotImplemented)
     }
 }

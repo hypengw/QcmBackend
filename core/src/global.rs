@@ -78,10 +78,17 @@ pub async fn load_from_db(db: &DatabaseConnection) {
                 &provider_model.name,
                 &global.setting.device_id,
             );
-            // TODO: not ignore
-            let _ = provider.from_model(&provider_model);
-            if let Some(id) = provider.id() {
-                global.providers.insert(id, provider.clone());
+            match provider {
+                Ok(provider) => {
+                    // TODO: not ignore
+                    let _ = provider.from_model(&provider_model);
+                    if let Some(id) = provider.id() {
+                        global.providers.insert(id, provider.clone());
+                    }
+                }
+                Err(e) => {
+                    log::error!("{}", e);
+                }
             }
         }
     }

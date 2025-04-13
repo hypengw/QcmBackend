@@ -29,7 +29,7 @@ fn table_to_header_map(table: &LuaTable) -> Result<HeaderMap> {
     Ok(header_map)
 }
 
-struct LuaResponse(Option<Response>);
+pub struct LuaResponse(Option<Response>);
 
 impl UserData for LuaResponse {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -64,7 +64,7 @@ impl UserData for LuaResponse {
     }
 }
 
-struct LuaClient(HttpClient);
+pub struct LuaClient(pub HttpClient);
 
 impl UserData for LuaClient {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -96,7 +96,7 @@ impl UserData for LuaClient {
     }
 }
 
-struct LuaRequest(reqwest::RequestBuilder);
+pub struct LuaRequest(reqwest::RequestBuilder);
 
 impl LuaRequest {
     fn build(
@@ -149,7 +149,3 @@ impl UserData for LuaRequest {
     }
 }
 
-fn setup_http_client(lua: &Lua, client: HttpClient) -> Result<()> {
-    lua.globals().set("http", LuaClient(client))?;
-    Ok(())
-}

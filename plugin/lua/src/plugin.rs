@@ -1,6 +1,6 @@
 use super::provider::LuaProvider;
-use qcm_core::plugin::Plugin;
 use qcm_core::provider::{Creator, Provider, ProviderMeta};
+use qcm_core::{plugin::Plugin, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -10,7 +10,6 @@ use std::sync::Arc;
 #[derive(Deserialize, Serialize)]
 struct PluginJson {
     name: String,
-    type_name: String,
     script_path: PathBuf,
     svg_path: PathBuf,
 }
@@ -30,33 +29,40 @@ impl LuaPlugin {
         }
 
         #[cfg(target_os = "linux")]
-        plugin_dirs.push("/usr/share/QcmPlugins".to_string());
+        plugin_dirs.push("/usr/share/QcmPlugin".to_string());
 
         Self {
             plugins_dir: plugin_dirs,
         }
     }
 
-    fn load_plugin_json(&self, path: &Path) -> Option<PluginJson> {
+    fn load_plugin_json(&self, path: &Path) -> Option<(PluginJson, String)> {
         if let Ok(content) = fs::read_to_string(path.join("plugin.json")) {
-            if let Ok(mut plugin_json) = serde_json::from_str::<PluginJson>(&content) {
-                // Read the SVG file
+            if let Ok(plugin_json) = serde_json::from_str::<PluginJson>(&content) {
                 if let Ok(svg_content) = fs::read_to_string(path.join(&plugin_json.svg_path)) {
-                    return Some(plugin_json);
+                    return Some((plugin_json, svg_content));
                 }
             }
         }
         None
     }
 
-    fn create_provider(&self, plugin_json: PluginJson, svg_content: String) -> ProviderMeta {
-        let script_path = plugin_json.script_path.clone();
+    fn provider_creator(
+        &self,
+        path: &Path,
+        plugin_json: PluginJson,
+        svg_content: String,
+    ) -> ProviderMeta {
+        let script_path = path.join(plugin_json.script_path);
         let creator: Arc<Creator> =
             Arc::new(move |id, name, device_id| -> Result<Arc<dyn Provider>> {
-                LuaProvider::new(id, name, device_id, &script_path).map(|p| Arc::new(p))
+                LuaProvider::new(id, name, device_id, &script_path).map(|p| {
+                    let p: Arc<dyn Provider> = Arc::new(p);
+                    p
+                })
             });
 
-        ProviderMeta::new(&plugin_json.type_name, Arc::new(svg_content), creator)
+        ProviderMeta::new("lua", Arc::new(svg_content), creator)
     }
 }
 
@@ -73,12 +79,9 @@ impl Plugin for LuaPlugin {
         for plugins_dir in &self.plugins_dir {
             if let Ok(entries) = fs::read_dir(plugins_dir) {
                 for entry in entries.flatten() {
-                    if let Some(plugin_json) = self.load_plugin_json(&entry.path()) {
-                        if let Ok(svg_content) =
-                            fs::read_to_string(entry.path().join(&plugin_json.svg_path))
-                        {
-                            metas.push(self.create_provider(plugin_json, svg_content));
-                        }
+                    let path = entry.path();
+                    if let Some((plugin_json, svg_content)) = self.load_plugin_json(&path) {
+                        metas.push(self.provider_creator(&path, plugin_json, svg_content));
                     }
                 }
             }
