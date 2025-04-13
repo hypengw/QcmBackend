@@ -26,6 +26,16 @@ struct LuaProviderInner {
     device_id: String,
 }
 
+struct LuaInner(Arc<RwLock<LuaProviderInner>>);
+
+impl LuaUserData for LuaInner {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("device_id", |_, this, _: ()| {
+            Ok(this.0.read().unwrap().device_id.clone())
+        });
+    }
+}
+
 struct LuaImpl {
     login: LuaFunction,
     sync: LuaFunction,
@@ -66,22 +76,26 @@ impl LuaProvider {
                     .map(|p| format!("{}/?.lua", p)),
             )?;
 
-            lua.globals().set("http", LuaClient(client))?;
-            lua.globals().set("ssl", create_crypto_module(&lua)?)?;
-            lua.globals().set(
-                "rust_json_encode",
+            // qcm table
+            let qcm_table = lua.create_table()?;
+            qcm_table.set("inner", LuaInner(inner.clone()))?;
+            qcm_table.set("http", LuaClient(client))?;
+            qcm_table.set("ssl", create_crypto_module(&lua)?)?;
+            qcm_table.set(
+                "json_encode",
                 lua.create_function(|_, v: mlua::Value| {
                     serde_json::to_string(&v).map_err(|e| mlua::Error::external(e))
                 })?,
             )?;
-            lua.globals().set(
-                "rust_json_decode",
+            qcm_table.set(
+                "json_decode",
                 lua.create_function(|lua, str: String| {
                     let v: serde_json::Value =
                         serde_json::from_str(&str).map_err(|e| mlua::Error::external(e))?;
                     lua.to_value(&v)
                 })?,
             )?;
+            lua.globals().set("qcm", qcm_table)?;
         }
 
         // Load the provider script

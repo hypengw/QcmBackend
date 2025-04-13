@@ -1,8 +1,8 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use openssl::hash::Hasher;
 pub use openssl::hash::MessageDigest;
-pub use openssl::rsa::{Padding, Rsa};
 pub use openssl::pkey;
+pub use openssl::rsa::{Padding, Rsa};
 pub use openssl::symm::Cipher;
 use openssl::symm::{Crypter, Mode};
 use std::error::Error;
@@ -33,8 +33,37 @@ pub fn decrypt(cipher: Cipher, key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec
     Ok(output)
 }
 
+// with 64 '\n'
 pub fn encode(data: &[u8]) -> Result<Vec<u8>> {
-    Ok(BASE64.encode(data).into_bytes())
+    let block = BASE64.encode(data);
+    let block_bytes = block.as_bytes();
+    let len = block.len();
+    let block_len = len / 64;
+    let last_line_len = len % 64;
+    let fin = {
+        let end = (last_line_len > 0) as usize;
+        len + block_len + end
+    };
+    let mut out: Vec<u8> = Vec::new();
+    out.resize(fin, 0);
+
+    for i in 0..block_len {
+        let out_prefix = i * 65;
+        let in_prefix = i * 64;
+        for j in 0..64 {
+            out[out_prefix + j] = block_bytes[in_prefix + j];
+        }
+        out[out_prefix + 64] = '\n' as u8;
+    }
+    if last_line_len > 0 {
+        let out_prefix = block_len * 65;
+        let in_prefix = block_len * 64;
+        for i in 0..last_line_len {
+            out[out_prefix + i] = block_bytes[in_prefix + i];
+        }
+        out[out_prefix + last_line_len] = '\n' as u8;
+    }
+    Ok(out)
 }
 
 pub fn decode(data: &[u8]) -> Result<Vec<u8>> {
