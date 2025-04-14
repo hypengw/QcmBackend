@@ -1,6 +1,7 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "provider")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -9,10 +10,11 @@ pub struct Model {
     #[sea_orm(column_name = "type")]
     pub type_: String,
     pub base_url: String,
+    pub auth_method: Option<Json>,
     pub cookie: String,
     pub custom: String,
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub edit_time: DateTime,
+    pub edit_time: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

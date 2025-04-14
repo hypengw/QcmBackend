@@ -54,15 +54,16 @@ impl LuaPlugin {
         svg_content: String,
     ) -> ProviderMeta {
         let script_path = path.join(plugin_json.script_path);
+        let type_name = plugin_json.name.clone();
         let creator: Arc<Creator> =
             Arc::new(move |id, name, device_id| -> Result<Arc<dyn Provider>> {
-                LuaProvider::new(id, name, device_id, &script_path).map(|p| {
+                LuaProvider::new(id, name, device_id, &type_name, &script_path).map(|p| {
                     let p: Arc<dyn Provider> = Arc::new(p);
                     p
                 })
             });
 
-        ProviderMeta::new("lua", Arc::new(svg_content), creator)
+        ProviderMeta::new(&plugin_json.name, Arc::new(svg_content), creator)
     }
 }
 

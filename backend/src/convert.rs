@@ -324,11 +324,24 @@ impl QcmFrom<AuthResult> for msg::model::AuthResult {
     fn qcm_from(v: AuthResult) -> Self {
         match v {
             AuthResult::Ok => Self::Ok,
-            AuthResult::Failed => Self::Failed,
+            AuthResult::Failed(_) => Self::Failed,
             AuthResult::WrongPassword => Self::WrongPassword,
             AuthResult::NoSuchEmail => Self::NoSuchEmail,
             AuthResult::NoSuchPhone => Self::NoSuchPhone,
             AuthResult::NoSuchUsername => Self::NoSuchUsername,
+        }
+    }
+}
+
+impl QcmFrom<AuthResult> for msg::AddProviderRsp {
+    fn qcm_from(v: AuthResult) -> Self {
+        let (code, detail) = match v {
+            AuthResult::Failed(reason) => (msg::model::AuthResult::Failed, reason),
+            r => (r.qcm_into(), String::new()),
+        };
+        Self {
+            code: code.into(),
+            detail: detail,
         }
     }
 }

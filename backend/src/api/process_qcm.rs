@@ -93,8 +93,7 @@ pub async fn process_qcm(
                                 rsp.code = msg::model::AuthResult::Ok.into();
                             }
                             e => {
-                                let code: msg::model::AuthResult = e.qcm_into();
-                                rsp.code = code.into();
+                                rsp = e.qcm_into();
                             }
                         };
                         return Ok(rsp.qcm_into());

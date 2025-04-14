@@ -46,11 +46,11 @@ fn save_(jar: Arc<CookieStoreRwLock>) -> String {
 }
 
 impl<T: HasCookieJar> ProviderSession for T {
-    fn load(&self, data: &str) {
+    fn load_cookie(&self, data: &str) {
         load_(self.jar(), data);
     }
 
-    fn save(&self) -> String {
+    fn save_cookie(&self) -> String {
         save_(self.jar())
     }
 }

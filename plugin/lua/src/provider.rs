@@ -1,7 +1,7 @@
 use crate::error::FromLuaError;
 use mlua::prelude::*;
 use qcm_core::model as sqlm;
-use qcm_core::provider::AuthResult;
+use qcm_core::provider::{AuthResult, HasCommonData, ProviderCommonData, ProviderSession};
 use qcm_core::{
     anyhow,
     error::ProviderError,
@@ -13,6 +13,7 @@ use qcm_core::{
 };
 use reqwest::Response;
 use sea_orm::*;
+use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -22,23 +23,25 @@ use crate::crypto::create_crypto_module;
 use crate::http::LuaClient;
 
 struct LuaProviderInner {
+    common: ProviderCommonData,
     client: qcm_core::http::HttpClient,
-    id: Option<i64>,
-    name: String,
-    device_id: String,
+    jar: Arc<CookieStoreRwLock>,
 }
 
-struct LuaInner(Arc<RwLock<LuaProviderInner>>);
+struct LuaInner(Arc<LuaProviderInner>);
 
 impl LuaUserData for LuaInner {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("device_id", |_, this, _: ()| {
-            Ok(this.0.read().unwrap().device_id.clone())
+            Ok(this.0.common.device_id.clone())
         });
     }
 }
 
 struct LuaImpl {
+    load: LuaFunction,
+    save: LuaFunction,
+    check: LuaFunction,
     login: LuaFunction,
     sync: LuaFunction,
     image: LuaFunction,
@@ -46,14 +49,19 @@ struct LuaImpl {
 }
 
 pub struct LuaProvider {
-    jar: Arc<CookieStoreRwLock>,
-    inner: Arc<RwLock<LuaProviderInner>>,
+    inner: Arc<LuaProviderInner>,
     funcs: LuaImpl,
     lua: Lua,
 }
 
 impl LuaProvider {
-    pub fn new(id: Option<i64>, name: &str, device_id: &str, script_path: &Path) -> Result<Self> {
+    pub fn new(
+        id: Option<i64>,
+        name: &str,
+        device_id: &str,
+        meta_type: &str,
+        script_path: &Path,
+    ) -> Result<Self> {
         let jar = Arc::new(CookieStoreRwLock::default());
 
         let lua = Lua::new();
@@ -61,12 +69,11 @@ impl LuaProvider {
         let client = qcm_core::http::client_builder_with_jar(jar.clone())
             .build()
             .unwrap();
-        let inner = Arc::new(RwLock::new(LuaProviderInner {
+        let inner = Arc::new(LuaProviderInner {
+            common: ProviderCommonData::new(id, name, device_id, meta_type),
             client: client.clone(),
-            id,
-            name: name.to_string(),
-            device_id: device_id.to_string(),
-        }));
+            jar: jar,
+        });
         {
             // set package.path
             let package = lua.globals().get::<LuaTable>("package")?;
@@ -81,9 +88,14 @@ impl LuaProvider {
             // qcm table
             let qcm_table = lua.create_table()?;
             qcm_table.set("inner", LuaInner(inner.clone()))?;
-            qcm_table.set("http", LuaClient(client))?;
             qcm_table.set("crypto", create_crypto_module(&lua)?)?;
             qcm_table.set("json", create_json_module(&lua)?)?;
+
+            let inner = inner.clone();
+            qcm_table.set(
+                "get_http_client",
+                lua.create_function(move |_, ()| Ok(LuaClient(inner.client.clone())))?,
+            )?;
             qcm_table.set(
                 "debug",
                 lua.create_function(
@@ -104,9 +116,17 @@ impl LuaProvider {
         let provider_table = func.call::<LuaTable>(())?;
 
         let provider = Self {
-            jar: jar.clone(),
             inner,
             funcs: LuaImpl {
+                save: provider_table
+                    .get::<LuaFunction>("save")
+                    .map_err(|_| anyhow!("save func not found"))?,
+                load: provider_table
+                    .get::<LuaFunction>("load")
+                    .map_err(|_| anyhow!("load func not found"))?,
+                check: provider_table
+                    .get::<LuaFunction>("check")
+                    .map_err(|_| anyhow!("check func not found"))?,
                 login: provider_table
                     .get::<LuaFunction>("login")
                     .map_err(|_| anyhow!("login func not found"))?,
@@ -130,98 +150,62 @@ impl LuaProvider {
     }
 
     pub fn client(&self) -> HttpClient {
-        return self.inner.read().unwrap().client.clone();
+        return self.inner.client.clone();
     }
 }
 
 impl HasCookieJar for LuaProvider {
     fn jar(&self) -> Arc<CookieStoreRwLock> {
-        self.jar.clone()
+        self.inner.jar.clone()
+    }
+}
+
+impl HasCommonData for LuaProvider {
+    fn common<'a>(&'a self) -> &'a ProviderCommonData {
+        &self.inner.common
     }
 }
 
 #[async_trait::async_trait]
 impl Provider for LuaProvider {
-    fn id(&self) -> Option<i64> {
-        self.inner.read().unwrap().id
+    fn load(&self, data: &str) {
+        let _ = self.funcs.load.call::<()>(data.to_string());
     }
 
-    fn set_id(&self, id: Option<i64>) {
-        let mut inner = self.inner.write().unwrap();
-        inner.id = id;
+    fn save(&self) -> String {
+        self.funcs.save.call::<String>(()).unwrap_or_default()
     }
 
-    fn name(&self) -> String {
-        self.inner.read().unwrap().name.clone()
+    async fn check(&self, _ctx: &Context) -> Result<(), ProviderError> {
+        self.funcs
+            .check
+            .call_async::<()>(())
+            .await
+            .map_err(ProviderError::from_err)
     }
 
-    fn type_name(&self) -> &str {
-        LuaProvider::type_name()
-    }
-
-    fn from_model(&self, model: &sqlm::provider::Model) -> Result<()> {
-        // let inner = self.inner.write().unwrap();
-        // if let Some(provider_table) = &inner.provider_table {
-        //     // Call Lua from_model function if it exists
-        //     if let Ok(from_model) = provider_table.get::<LuaFunction>("from_model") {
-        //         from_model.call::<()>(model.custom.clone())?;
-        //     }
-        // }
-        Ok(())
-    }
-
-    fn to_model(&self) -> sqlm::provider::ActiveModel {
-        // let inner = self.inner.read().unwrap();
-        // let custom = if let Some(provider_table) = &inner.provider_table {
-        //     if let Ok(to_model) = provider_table.get::<LuaFunction>("to_model") {
-        //         to_model.call::<String>(()).unwrap_or_default()
-        //     } else {
-        //         String::new()
-        //     }
-        // } else {
-        //     String::new()
-        // };
-
-        sqlm::provider::ActiveModel {
-            provider_id: match self.id() {
-                Some(id) => Set(id),
-                None => NotSet,
-            },
-            name: Set(self.name()),
-            type_: Set(self.type_name().to_string()),
-            base_url: Set(String::new()),
-            cookie: Set(String::new()),
-            custom: Set(String::new()),
-            edit_time: Set(chrono::Local::now().naive_local()),
-        }
-    }
-    async fn check(&self, ctx: &Context) -> Result<(), ProviderError> {
-        Ok(())
-    }
-
-    async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError> {
+    async fn auth(&self, _ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError> {
         self.funcs
             .login
-            .call_async(self.lua.to_value(info))
+            .call_async::<LuaValue>(self.lua.to_value(info))
             .await
-            .map_err(ProviderError::from_err)?;
-        Ok(AuthResult::Failed)
+            .and_then(|v| self.lua.from_value(v))
+            .map_err(ProviderError::from_err)
     }
 
-    async fn sync(&self, ctx: &Context) -> Result<(), ProviderError> {
+    async fn sync(&self, _ctx: &Context) -> Result<(), ProviderError> {
         self.funcs
             .sync
-            .call_async(())
+            .call_async::<()>(())
             .await
-            .map_err(ProviderError::from_err)?;
-        Ok(())
+            .map_err(ProviderError::from_err)
     }
 
     async fn image(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         item_id: &str,
-        image_type: ImageType,
+        _image_type: ImageType,
     ) -> Result<Response, ProviderError> {
         let response = self
             .funcs
@@ -234,9 +218,9 @@ impl Provider for LuaProvider {
 
     async fn audio(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         item_id: &str,
-        headers: Option<HeaderMap>,
+        _headers: Option<HeaderMap>,
     ) -> Result<Response, ProviderError> {
         let response = self
             .funcs

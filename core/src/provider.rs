@@ -15,7 +15,7 @@ use tokio::sync::mpsc::Sender;
 #[serde(tag = "type")]
 pub enum AuthResult {
     Ok,
-    Failed,
+    Failed(String),
     WrongPassword,
     NoSuchUsername,
     NoSuchEmail,
@@ -81,18 +81,24 @@ impl ProviderMeta {
 }
 
 pub trait ProviderSession {
-    fn load(&self, data: &str);
-    fn save(&self) -> String;
+    fn load_cookie(&self, data: &str);
+    fn save_cookie(&self) -> String;
 }
 
-#[async_trait::async_trait]
-pub trait Provider: ProviderSession + Send + Sync {
+pub trait ProviderCommon {
     fn id(&self) -> Option<i64>;
     fn set_id(&self, id: Option<i64>);
     fn name(&self) -> String;
-    fn type_name(&self) -> &str;
-    fn from_model(&self, model: &crate::model::provider::Model) -> Result<()>;
-    fn to_model(&self) -> crate::model::provider::ActiveModel;
+    fn type_name(&self) -> String;
+    fn base_url(&self) -> String;
+    fn auth_method(&self) -> Option<AuthMethod>;
+    fn load_auth_info(&self, base_url: &str, auth_method: Option<AuthMethod>);
+}
+
+#[async_trait::async_trait]
+pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
+    fn load(&self, data: &str);
+    fn save(&self) -> String;
 
     async fn check(&self, ctx: &Context) -> Result<(), ProviderError>;
     async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError>;
@@ -111,4 +117,63 @@ pub trait Provider: ProviderSession + Send + Sync {
         item_id: &str,
         headers: Option<http::HeaderMap>,
     ) -> Result<Response, ProviderError>;
+}
+
+struct ProviderCommonDataInner {
+    id: Option<i64>,
+    name: String,
+    base_url: String,
+    auth_method: Option<AuthMethod>,
+}
+
+pub struct ProviderCommonData {
+    pub device_id: String,
+    meta_type: String,
+    inner: std::sync::RwLock<ProviderCommonDataInner>,
+}
+
+impl ProviderCommonData {
+    pub fn new(id: Option<i64>, name: &str, device_id: &str, meta_type: &str) -> Self {
+        Self {
+            device_id: device_id.to_string(),
+            meta_type: meta_type.to_string(),
+            inner: std::sync::RwLock::new(ProviderCommonDataInner {
+                id: id,
+                name: name.to_string(),
+                base_url: String::new(),
+                auth_method: None,
+            }),
+        }
+    }
+}
+
+pub trait HasCommonData {
+    fn common<'a>(&'a self) -> &'a ProviderCommonData;
+}
+
+impl<T: HasCommonData> ProviderCommon for T {
+    fn id(&self) -> Option<i64> {
+        self.common().inner.read().unwrap().id
+    }
+    fn set_id(&self, id: Option<i64>) {
+        let mut inner = self.common().inner.write().unwrap();
+        inner.id = id;
+    }
+    fn name(&self) -> String {
+        self.common().inner.read().unwrap().name.clone()
+    }
+    fn type_name(&self) -> String {
+        self.common().meta_type.clone()
+    }
+    fn base_url(&self) -> String {
+        self.common().inner.read().unwrap().base_url.clone()
+    }
+    fn auth_method(&self) -> Option<AuthMethod> {
+        self.common().inner.read().unwrap().auth_method.clone()
+    }
+    fn load_auth_info(&self, base_url: &str, auth_method: Option<AuthMethod>) {
+        let mut inner = self.common().inner.write().unwrap();
+        inner.base_url = base_url.to_string();
+        inner.auth_method = auth_method;
+    }
 }

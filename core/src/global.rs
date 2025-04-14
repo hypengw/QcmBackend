@@ -81,7 +81,7 @@ pub async fn load_from_db(db: &DatabaseConnection) {
             match provider {
                 Ok(provider) => {
                     // TODO: not ignore
-                    let _ = provider.from_model(&provider_model);
+                    let _ = provider.load(&provider_model.custom);
                     if let Some(id) = provider.id() {
                         global.providers.insert(id, provider.clone());
                     }
