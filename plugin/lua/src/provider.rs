@@ -1,8 +1,10 @@
+use crate::error::FromLuaError;
 use mlua::prelude::*;
 use qcm_core::model as sqlm;
+use qcm_core::provider::AuthResult;
 use qcm_core::{
     anyhow,
-    error::ConnectError,
+    error::ProviderError,
     event::Event as CoreEvent,
     http::{CookieStoreRwLock, HasCookieJar, HeaderMap, HttpClient},
     model::type_enum::ImageType,
@@ -80,20 +82,19 @@ impl LuaProvider {
             let qcm_table = lua.create_table()?;
             qcm_table.set("inner", LuaInner(inner.clone()))?;
             qcm_table.set("http", LuaClient(client))?;
-            qcm_table.set("ssl", create_crypto_module(&lua)?)?;
+            qcm_table.set("crypto", create_crypto_module(&lua)?)?;
+            qcm_table.set("json", create_json_module(&lua)?)?;
             qcm_table.set(
-                "json_encode",
-                lua.create_function(|_, v: mlua::Value| {
-                    serde_json::to_string(&v).map_err(|e| mlua::Error::external(e))
-                })?,
-            )?;
-            qcm_table.set(
-                "json_decode",
-                lua.create_function(|lua, str: String| {
-                    let v: serde_json::Value =
-                        serde_json::from_str(&str).map_err(|e| mlua::Error::external(e))?;
-                    lua.to_value(&v)
-                })?,
+                "debug",
+                lua.create_function(
+                    |_, val: LuaValue| match serde_json::to_string_pretty(&val) {
+                        Ok(val) => {
+                            log::info!("{}", val);
+                            Ok(())
+                        }
+                        Err(e) => Err(mlua::Error::external(e)),
+                    },
+                )?,
             )?;
             lua.globals().set("qcm", qcm_table)?;
         }
@@ -194,14 +195,25 @@ impl Provider for LuaProvider {
             edit_time: Set(chrono::Local::now().naive_local()),
         }
     }
-
-    async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()> {
-        self.funcs.login.call_async(()).await?;
+    async fn check(&self, ctx: &Context) -> Result<(), ProviderError> {
         Ok(())
     }
 
-    async fn sync(&self, ctx: &Context) -> Result<()> {
-        self.funcs.sync.call_async(()).await?;
+    async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError> {
+        self.funcs
+            .login
+            .call_async(self.lua.to_value(info))
+            .await
+            .map_err(ProviderError::from_err)?;
+        Ok(AuthResult::Failed)
+    }
+
+    async fn sync(&self, ctx: &Context) -> Result<(), ProviderError> {
+        self.funcs
+            .sync
+            .call_async(())
+            .await
+            .map_err(ProviderError::from_err)?;
         Ok(())
     }
 
@@ -210,14 +222,14 @@ impl Provider for LuaProvider {
         ctx: &Context,
         item_id: &str,
         image_type: ImageType,
-    ) -> Result<Response, ConnectError> {
+    ) -> Result<Response, ProviderError> {
         let response = self
             .funcs
             .image
             .call_async::<LuaTable>((item_id,))
             .await
             .map_err(|e| anyhow!(e))?;
-        Err(ConnectError::NotImplemented)
+        Err(ProviderError::NotImplemented)
     }
 
     async fn audio(
@@ -225,13 +237,32 @@ impl Provider for LuaProvider {
         ctx: &Context,
         item_id: &str,
         headers: Option<HeaderMap>,
-    ) -> Result<Response, ConnectError> {
+    ) -> Result<Response, ProviderError> {
         let response = self
             .funcs
             .audio
             .call_async::<LuaTable>((item_id,))
             .await
             .map_err(|e| anyhow!(e))?;
-        Err(ConnectError::NotImplemented)
+        Err(ProviderError::NotImplemented)
     }
+}
+
+fn create_json_module(lua: &Lua) -> LuaResult<LuaTable> {
+    let t = lua.create_table()?;
+    t.set(
+        "encode",
+        lua.create_function(|_, v: mlua::Value| {
+            serde_json::to_string(&v).map_err(|e| mlua::Error::external(e))
+        })?,
+    )?;
+    t.set(
+        "decode",
+        lua.create_function(|lua, str: String| {
+            let v: serde_json::Value =
+                serde_json::from_str(&str).map_err(|e| mlua::Error::external(e))?;
+            lua.to_value(&v)
+        })?,
+    )?;
+    Ok(t)
 }

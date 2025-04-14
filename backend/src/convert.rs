@@ -7,6 +7,7 @@ use chrono::Timelike;
 use prost::{DecodeError, EncodeError, Message};
 use qcm_core as core;
 use qcm_core::db::values::StringVec;
+use qcm_core::provider::AuthResult;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 pub trait QcmFrom<T>: Sized {
@@ -319,6 +320,19 @@ impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
     }
 }
 
+impl QcmFrom<AuthResult> for msg::model::AuthResult {
+    fn qcm_from(v: AuthResult) -> Self {
+        match v {
+            AuthResult::Ok => Self::Ok,
+            AuthResult::Failed => Self::Failed,
+            AuthResult::WrongPassword => Self::WrongPassword,
+            AuthResult::NoSuchEmail => Self::NoSuchEmail,
+            AuthResult::NoSuchPhone => Self::NoSuchPhone,
+            AuthResult::NoSuchUsername => Self::NoSuchUsername,
+        }
+    }
+}
+
 impl QcmFrom<ProcessError> for msg::Rsp {
     fn qcm_from(v: ProcessError) -> Self {
         Self {
@@ -380,6 +394,7 @@ macro_rules! impl_from_for_qcm_msg {
 impl_from_for_qcm_msg!(ProviderMetaStatusMsg);
 impl_from_for_qcm_msg!(ProviderStatusMsg);
 impl_from_for_qcm_msg!(ProviderSyncStatusMsg);
+impl_from_for_qcm_msg!(AddProviderRsp);
 impl_from_for_qcm_msg!(GetProviderMetasRsp);
 impl_from_for_qcm_msg!(TestRsp);
 impl_from_for_qcm_msg!(Rsp);

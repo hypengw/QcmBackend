@@ -149,3 +149,12 @@ message ProviderStatus {
   ProviderSyncStatus sync_status = 4;
   repeated Library libraries = 5;
 }
+
+enum AuthResult {
+  Ok = 0;
+  Failed = 1;
+  WrongPassword = 2;
+  NoSuchUsername = 3;
+  NoSuchEmail = 4;
+  NoSuchPhone = 5;
+}

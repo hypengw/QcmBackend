@@ -1,4 +1,5 @@
 use prost::{self, Message};
+use qcm_core::provider::AuthResult;
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -14,8 +15,8 @@ use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
-    self, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType, QcmMessage, Rsp, SyncRsp,
-    TestRsp,
+    self, AddProviderRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType,
+    QcmMessage, Rsp, SyncRsp, TestRsp,
 };
 
 fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
@@ -71,21 +72,34 @@ pub async fn process_qcm(
                 if let Some(auth_info) = &req.auth_info {
                     if let Some(meta) = qcm_core::global::provider_meta(&req.type_name) {
                         let provider = (meta.creator)(None, &req.name, &global::device_id())?;
-                        provider
-                            .login(&ctx.provider_context, &auth_info.clone().qcm_into())
-                            .await?;
+                        let mut rsp = AddProviderRsp::default();
+                        match provider
+                            .auth(&ctx.provider_context, &auth_info.clone().qcm_into())
+                            .await?
+                        {
+                            AuthResult::Ok => {
+                                let id = api::db::add_provider(
+                                    &ctx.provider_context.db,
+                                    provider.clone(),
+                                )
+                                .await?;
+                                provider.set_id(Some(id));
 
-                        let id = api::db::add_provider(&ctx.provider_context.db, provider.clone())
-                            .await?;
-                        provider.set_id(Some(id));
+                                global::add_provider(provider.clone());
 
-                        global::add_provider(provider.clone());
-
-                        ctx.bk_ev_sender
-                            .send(BackendEvent::NewProvider { id })
-                            .await?;
-                        return Ok(Rsp::default().qcm_into());
+                                ctx.bk_ev_sender
+                                    .send(BackendEvent::NewProvider { id })
+                                    .await?;
+                                rsp.code = msg::model::AuthResult::Ok.into();
+                            }
+                            e => {
+                                let code: msg::model::AuthResult = e.qcm_into();
+                                rsp.code = code.into();
+                            }
+                        };
+                        return Ok(rsp.qcm_into());
                     }
+
                     return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));
                 }
                 return Err(ProcessError::MissingFields("auth_info".to_string()));

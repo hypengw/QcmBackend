@@ -62,11 +62,11 @@ where
     }
 }
 
-impl From<qcm_core::error::ConnectError> for ProcessError {
-    fn from(e: qcm_core::error::ConnectError) -> Self {
-        use qcm_core::error::ConnectError;
+impl From<qcm_core::error::ProviderError> for ProcessError {
+    fn from(e: qcm_core::error::ProviderError) -> Self {
+        use qcm_core::error::ProviderError;
         match e {
-            ConnectError::Infallible(e) => ProcessError::Infallible(e),
+            ProviderError::Infallible(e) => ProcessError::Infallible(e),
             e => ProcessError::Internal(e.into()),
         }
     }

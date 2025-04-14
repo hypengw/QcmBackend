@@ -1,5 +1,5 @@
 use crate::{
-    error::ConnectError,
+    error::ProviderError,
     event::Event,
     http,
     model::type_enum::{ImageType, ItemType},
@@ -12,6 +12,18 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AuthResult {
+    Ok,
+    Failed,
+    WrongPassword,
+    NoSuchUsername,
+    NoSuchEmail,
+    NoSuchPhone,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum AuthMethod {
     Username { username: String, pw: String },
     Phone { phone: String, pw: String },
@@ -82,20 +94,21 @@ pub trait Provider: ProviderSession + Send + Sync {
     fn from_model(&self, model: &crate::model::provider::Model) -> Result<()>;
     fn to_model(&self) -> crate::model::provider::ActiveModel;
 
-    async fn login(&self, ctx: &Context, info: &AuthInfo) -> Result<()>;
-    async fn sync(&self, ctx: &Context) -> Result<()>;
+    async fn check(&self, ctx: &Context) -> Result<(), ProviderError>;
+    async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError>;
+    async fn sync(&self, ctx: &Context) -> Result<(), ProviderError>;
 
     async fn image(
         &self,
         ctx: &Context,
         item_id: &str,
         image_type: ImageType,
-    ) -> Result<Response, ConnectError>;
+    ) -> Result<Response, ProviderError>;
 
     async fn audio(
         &self,
         ctx: &Context,
         item_id: &str,
         headers: Option<http::HeaderMap>,
-    ) -> Result<Response, ConnectError>;
+    ) -> Result<Response, ProviderError>;
 }
