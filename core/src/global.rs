@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::plugin::Plugin;
-use crate::provider::{Provider, ProviderMeta};
+use crate::provider::{AuthMethod, Provider, ProviderMeta};
 
 pub const APP_NAME: &str = "QcmBackend";
 pub const APP_VERSION: &str = "0.1.0";
@@ -80,6 +80,11 @@ pub async fn load_from_db(db: &DatabaseConnection) {
             );
             match provider {
                 Ok(provider) => {
+                    let auth_method = provider_model
+                        .auth_method
+                        .clone()
+                        .and_then(|a| AuthMethod::deserialize(a).ok());
+                    provider.load_auth_info(&provider_model.base_url, auth_method);
                     // TODO: not ignore
                     let _ = provider.load(&provider_model.custom);
                     if let Some(id) = provider.id() {

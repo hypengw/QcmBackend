@@ -66,7 +66,6 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     let db = prepare_db(args.data).await?;
-    qcm_core::global::load_from_db(&db).await;
 
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
 
@@ -88,6 +87,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let _ = reload_handle.modify(|f| {
         *f = log_level;
     });
+
+    qcm_core::global::load_from_db(&db).await;
 
     let accept = |stream: TcpStream| {
         let addr = stream

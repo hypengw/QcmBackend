@@ -65,10 +65,11 @@ pub struct ProviderMeta {
     pub mutable: bool,
     pub is_script: bool,
     pub has_server_url: bool,
+    pub auth_types: Vec<i32>,
 }
 
 impl ProviderMeta {
-    pub fn new(type_name: &str, svg: Arc<String>, f: Arc<Creator>) -> Self {
+    pub fn new(type_name: &str, auth_types: &[i32], svg: Arc<String>, f: Arc<Creator>) -> Self {
         ProviderMeta {
             type_name: type_name.to_string(),
             svg,
@@ -76,6 +77,7 @@ impl ProviderMeta {
             mutable: false,
             is_script: false,
             has_server_url: true,
+            auth_types: auth_types.to_vec(),
         }
     }
 }

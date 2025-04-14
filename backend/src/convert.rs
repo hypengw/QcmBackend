@@ -316,6 +316,7 @@ impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
             mutable: v.mutable,
             is_script: v.is_script,
             has_server_url: v.has_server_url,
+            auth_types: v.auth_types
         }
     }
 }

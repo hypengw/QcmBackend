@@ -12,6 +12,8 @@ struct PluginJson {
     name: String,
     script_path: PathBuf,
     svg_path: PathBuf,
+    has_server_url: Option<bool>,
+    auth_types: Vec<i32>,
 }
 
 pub struct LuaPlugin {
@@ -63,7 +65,9 @@ impl LuaPlugin {
                 })
             });
 
-        ProviderMeta::new(&plugin_json.name, Arc::new(svg_content), creator)
+        let mut meta = ProviderMeta::new(&plugin_json.name, &plugin_json.auth_types, Arc::new(svg_content), creator);
+        meta.has_server_url = plugin_json.has_server_url.unwrap_or(true);
+        return meta;
     }
 }
 

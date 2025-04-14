@@ -1,6 +1,6 @@
-use sea_orm::*;
 use qcm_core::model as sqlm;
 use qcm_core::provider::Provider;
+use sea_orm::*;
 use sea_orm::{sea_query, DatabaseConnection, EntityTrait};
 use std::sync::Arc;
 
@@ -28,7 +28,9 @@ pub async fn add_provider(
         .on_conflict(
             sea_query::OnConflict::column(sqlm::provider::Column::ProviderId)
                 .update_columns([
+                    sqlm::provider::Column::BaseUrl,
                     sqlm::provider::Column::Custom,
+                    sqlm::provider::Column::AuthMethod,
                     sqlm::provider::Column::Cookie,
                     sqlm::provider::Column::EditTime,
                 ])

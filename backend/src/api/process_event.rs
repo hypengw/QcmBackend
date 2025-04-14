@@ -161,7 +161,8 @@ async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {
         let mut msg = ProviderMetaStatusMsg::default();
         global::with_provider_metas(|metas| {
             for (_, v) in metas {
-                msg.metas.push(v.clone().qcm_into());
+                let m:msg::model::ProviderMeta = v.clone().qcm_into();
+                msg.metas.push(m);
             }
         });
         msg.full = true;
