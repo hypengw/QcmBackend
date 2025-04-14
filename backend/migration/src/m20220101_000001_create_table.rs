@@ -33,6 +33,7 @@ impl MigrationTrait for Migration {
                             .string()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(provider::Column::AuthMethod).json())
                     .col(ColumnDef::new(provider::Column::Cookie).string().not_null())
                     .col(ColumnDef::new(provider::Column::Custom).string().not_null())
                     .col(

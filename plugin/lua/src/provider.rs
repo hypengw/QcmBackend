@@ -94,7 +94,9 @@ impl LuaProvider {
             let inner = inner.clone();
             qcm_table.set(
                 "get_http_client",
-                lua.create_function(move |_, ()| Ok(LuaClient(inner.client.clone())))?,
+                lua.create_function(move |_, ()| {
+                    Ok(LuaClient(inner.client.clone(), inner.jar.clone()))
+                })?,
             )?;
             qcm_table.set(
                 "debug",

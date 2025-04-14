@@ -1,11 +1,12 @@
 use mlua::prelude::*;
 use mlua::{ExternalResult, Lua, Result, UserData, UserDataMethods};
-use qcm_core::http::HttpClient;
-use reqwest::header::HeaderName;
+use qcm_core::http::{CookieStoreTrait, HttpClient};
+use reqwest::header::{self, HeaderName};
 use reqwest::{header::HeaderMap, Response};
-use serde_json::Value;
+use serde_json::{StreamDeserializer, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 
 fn header_map_to_table(lua: &Lua, headers: &HeaderMap) -> Result<LuaTable> {
     let table = lua.create_table()?;
@@ -64,39 +65,52 @@ impl UserData for LuaResponse {
     }
 }
 
-pub struct LuaClient(pub HttpClient);
+pub struct LuaClient(pub HttpClient, pub Arc<dyn CookieStoreTrait>);
 
 impl UserData for LuaClient {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("get", |_, this, url: String| async move {
             let b = this.0.get(url);
-            Ok(LuaRequestBuilder(Some(b)))
+            Ok(LuaRequestBuilder(Some(b), this.1.clone()))
         });
 
         methods.add_async_method("post", |_, this, url: String| async move {
             let b = this.0.post(url);
-            Ok(LuaRequestBuilder(Some(b)))
+            Ok(LuaRequestBuilder(Some(b), this.1.clone()))
         });
 
         methods.add_async_method("put", |_, this, url: String| async move {
             let b = this.0.put(url);
-            Ok(LuaRequestBuilder(Some(b)))
+            Ok(LuaRequestBuilder(Some(b), this.1.clone()))
         });
 
         methods.add_async_method("delete", |_, this, url: String| async move {
             let b = this.0.delete(url);
-            Ok(LuaRequestBuilder(Some(b)))
+            Ok(LuaRequestBuilder(Some(b), this.1.clone()))
         });
     }
 }
 
-pub struct LuaRequestBuilder(Option<reqwest::RequestBuilder>);
+pub struct LuaRequestBuilder(Option<reqwest::RequestBuilder>, Arc<dyn CookieStoreTrait>);
 
 impl UserData for LuaRequestBuilder {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method_mut("send", |_, mut this, ()| async move {
             let b = this.0.take().ok_or(mlua::Error::UserDataBorrowError)?;
-            let response = b.send().await.map_err(mlua::Error::external)?;
+            let (client, req) = b.build_split();
+            let mut req = req.map_err(mlua::Error::external)?;
+            let url = req.url().clone();
+            let headers = req.headers_mut();
+            if let Some(req_cookie) = headers.get_mut(header::COOKIE) {
+                if let Some(stored_cookie) = this.1.cookies(&url) {
+                    let req_cookie_str = req_cookie.to_str().map_err(mlua::Error::external)?;
+                    let stored_cookie_str =
+                        stored_cookie.to_str().map_err(mlua::Error::external)?;
+                    let merged_cookie = merge_cookies(stored_cookie_str, req_cookie_str);
+                    *req_cookie = merged_cookie.parse().map_err(mlua::Error::external)?;
+                }
+            }
+            let response = client.execute(req).await.map_err(mlua::Error::external)?;
             Ok(LuaResponse(Some(response)))
         });
 
@@ -228,4 +242,29 @@ pub struct LuaRequest(reqwest::Request);
 
 impl UserData for LuaRequest {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {}
+}
+
+fn merge_cookies(stored_cookie: &str, req_cookie_str: &str) -> String {
+    let mut cookie_map = HashMap::new();
+
+    // Add stored cookies first
+    for cookie in stored_cookie.split(';') {
+        if let Some((key, value)) = cookie.trim().split_once('=') {
+            cookie_map.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+
+    // Add request cookies with priority
+    for cookie in req_cookie_str.split(';') {
+        if let Some((key, value)) = cookie.trim().split_once('=') {
+            cookie_map.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+
+    // Create new cookie string
+    cookie_map
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
