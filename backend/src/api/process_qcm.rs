@@ -1,5 +1,5 @@
 use prost::{self, Message};
-use qcm_core::provider::AuthResult;
+use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -16,7 +16,7 @@ use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
     self, AddProviderRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType,
-    QcmMessage, Rsp, SyncRsp, TestRsp,
+    QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
 
 fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
@@ -71,7 +71,23 @@ pub async fn process_qcm(
             if let Some(Payload::AddProviderReq(req)) = payload {
                 if let Some(auth_info) = &req.auth_info {
                     if let Some(meta) = qcm_core::global::provider_meta(&req.type_name) {
-                        let provider = (meta.creator)(None, &req.name, &global::device_id())?;
+                        let provider = match auth_info.method {
+                            Some(msg::model::auth_info::Method::Qr(_)) => {
+                                let p = match global::get_tmp_provider() {
+                                    Some(tmp) if tmp.type_name() == req.type_name => tmp,
+                                    _ => {
+                                        let provider =
+                                            (meta.creator)(None, "", &global::device_id())?;
+                                        global::set_tmp_provider(Some(provider.clone()));
+                                        provider
+                                    }
+                                };
+                                p.set_name(&req.name);
+                                p
+                            }
+                            _ => (meta.creator)(None, &req.name, &global::device_id())?,
+                        };
+
                         let mut rsp = AddProviderRsp::default();
                         match provider
                             .auth(&ctx.provider_context, &auth_info.clone().qcm_into())
@@ -86,6 +102,7 @@ pub async fn process_qcm(
                                 provider.set_id(Some(id));
 
                                 global::add_provider(provider.clone());
+                                global::set_tmp_provider(None);
 
                                 ctx.bk_ev_sender
                                     .send(BackendEvent::NewProvider { id })
@@ -102,6 +119,29 @@ pub async fn process_qcm(
                     return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));
                 }
                 return Err(ProcessError::MissingFields("auth_info".to_string()));
+            }
+        }
+        MessageType::QrAuthUrlReq => {
+            if let Some(Payload::QrAuthUrlReq(req)) = payload {
+                let provider = {
+                    match global::get_tmp_provider() {
+                        Some(tmp) if tmp.type_name() == req.provider_meta => tmp,
+                        _ => {
+                            let meta = global::provider_meta(&req.provider_meta).ok_or(
+                                ProcessError::NoSuchProviderType(req.provider_meta.clone()),
+                            )?;
+                            let provider = (meta.creator)(None, "", &global::device_id())?;
+                            global::set_tmp_provider(Some(provider.clone()));
+                            provider
+                        }
+                    }
+                };
+                let info = provider.qr(&ctx.provider_context).await?;
+                let rsp = QrAuthUrlRsp {
+                    key: info.key,
+                    url: info.url,
+                };
+                return Ok(rsp.qcm_into());
             }
         }
         MessageType::GetAlbumReq => {

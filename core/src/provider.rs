@@ -12,14 +12,23 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", content = "message")]
 pub enum AuthResult {
     Ok,
-    Failed(String),
+    Failed {
+        message: String,
+    },
     WrongPassword,
     NoSuchUsername,
     NoSuchEmail,
     NoSuchPhone,
+    QrExpired,
+    QrWaitScan,
+    QrWaitComform {
+        name: String,
+        avatar_url: String,
+        message: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -28,6 +37,7 @@ pub enum AuthMethod {
     Username { username: String, pw: String },
     Phone { phone: String, pw: String },
     Email { email: String, pw: String },
+    Qr { key: String },
     None,
 }
 
@@ -47,6 +57,12 @@ pub struct Context {
 pub struct AuthInfo {
     pub server_url: String,
     pub method: AuthMethod,
+}
+
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct QrInfo {
+    pub key: String,
+    pub url: String,
 }
 
 /// Creator for provider
@@ -91,6 +107,7 @@ pub trait ProviderCommon {
     fn id(&self) -> Option<i64>;
     fn set_id(&self, id: Option<i64>);
     fn name(&self) -> String;
+    fn set_name(&self, name: &str);
     fn type_name(&self) -> String;
     fn base_url(&self) -> String;
     fn auth_method(&self) -> Option<AuthMethod>;
@@ -105,6 +122,10 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
     async fn check(&self, ctx: &Context) -> Result<(), ProviderError>;
     async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError>;
     async fn sync(&self, ctx: &Context) -> Result<(), ProviderError>;
+
+    async fn qr(&self, _ctx: &Context) -> Result<QrInfo, ProviderError> {
+        Err(ProviderError::NotImplemented)
+    }
 
     async fn image(
         &self,
@@ -163,6 +184,10 @@ impl<T: HasCommonData> ProviderCommon for T {
     }
     fn name(&self) -> String {
         self.common().inner.read().unwrap().name.clone()
+    }
+    fn set_name(&self, name: &str) {
+        let mut inner = self.common().inner.write().unwrap();
+        inner.name = name.to_string();
     }
     fn type_name(&self) -> String {
         self.common().meta_type.clone()

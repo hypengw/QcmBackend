@@ -87,6 +87,7 @@ impl QcmFrom<proto::auth_info::Method> for core::provider::AuthMethod {
                 email: au.email,
                 pw: au.pw,
             },
+            Method::Qr(au) => Self::Qr { key: au.key },
         }
     }
 }
@@ -118,6 +119,7 @@ impl QcmFrom<core::provider::AuthMethod> for Option<proto::auth_info::Method> {
             }
             AuthMethod::Phone { phone, pw } => Some(Method::Phone(proto::PhoneAuth { phone, pw })),
             AuthMethod::Email { email, pw } => Some(Method::Email(proto::EmailAuth { email, pw })),
+            AuthMethod::Qr { key } => Some(Method::Qr(proto::QrAuth { key })),
             AuthMethod::None => None,
         }
     }
@@ -316,7 +318,7 @@ impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
             mutable: v.mutable,
             is_script: v.is_script,
             has_server_url: v.has_server_url,
-            auth_types: v.auth_types
+            auth_types: v.auth_types,
         }
     }
 }
@@ -325,24 +327,48 @@ impl QcmFrom<AuthResult> for msg::model::AuthResult {
     fn qcm_from(v: AuthResult) -> Self {
         match v {
             AuthResult::Ok => Self::Ok,
-            AuthResult::Failed(_) => Self::Failed,
+            AuthResult::Failed { message: _ } => Self::Failed,
             AuthResult::WrongPassword => Self::WrongPassword,
             AuthResult::NoSuchEmail => Self::NoSuchEmail,
             AuthResult::NoSuchPhone => Self::NoSuchPhone,
             AuthResult::NoSuchUsername => Self::NoSuchUsername,
+            AuthResult::QrExpired => Self::QrExpired,
+            AuthResult::QrWaitScan => Self::QrWaitScan,
+            AuthResult::QrWaitComform {
+                name: _,
+                avatar_url: _,
+                message: _,
+            } => Self::QrWaitComform,
         }
     }
 }
 
 impl QcmFrom<AuthResult> for msg::AddProviderRsp {
     fn qcm_from(v: AuthResult) -> Self {
-        let (code, detail) = match v {
-            AuthResult::Failed(reason) => (msg::model::AuthResult::Failed, reason),
-            r => (r.qcm_into(), String::new()),
+        let (code, message, qr_name, qr_avatar_url) = match v {
+            AuthResult::Failed { message } => (
+                msg::model::AuthResult::Failed,
+                message,
+                String::new(),
+                String::new(),
+            ),
+            AuthResult::QrWaitComform {
+                name,
+                avatar_url,
+                message,
+            } => (
+                msg::model::AuthResult::QrWaitComform,
+                message,
+                name,
+                avatar_url,
+            ),
+            r => (r.qcm_into(), String::new(), String::new(), String::new()),
         };
         Self {
             code: code.into(),
-            detail: detail,
+            message,
+            qr_name,
+            qr_avatar_url,
         }
     }
 }
@@ -410,6 +436,7 @@ impl_from_for_qcm_msg!(ProviderStatusMsg);
 impl_from_for_qcm_msg!(ProviderSyncStatusMsg);
 impl_from_for_qcm_msg!(AddProviderRsp);
 impl_from_for_qcm_msg!(GetProviderMetasRsp);
+impl_from_for_qcm_msg!(QrAuthUrlRsp);
 impl_from_for_qcm_msg!(TestRsp);
 impl_from_for_qcm_msg!(Rsp);
 

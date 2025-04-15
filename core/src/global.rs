@@ -31,6 +31,7 @@ pub struct Global {
     pub plugins: BTreeMap<String, Box<dyn Plugin>>,
     pub provider_metas: BTreeMap<String, ProviderMeta>,
     pub providers: BTreeMap<i64, Arc<dyn Provider>>,
+    pub temp_provider: Option<Arc<dyn Provider>>,
     setting: Setting,
 }
 
@@ -40,6 +41,7 @@ impl Global {
             plugins: BTreeMap::new(),
             provider_metas: BTreeMap::new(),
             providers: BTreeMap::new(),
+            temp_provider: None,
             setting: Setting::new(),
         }
     }
@@ -168,4 +170,14 @@ pub fn providers() -> Vec<Arc<dyn Provider>> {
 pub fn add_provider(p: Arc<dyn Provider>) {
     let mut g = GLOBAL.lock().unwrap();
     g.providers.insert(p.id().unwrap(), p);
+}
+
+pub fn get_tmp_provider() -> Option<Arc<dyn Provider>> {
+    let g = GLOBAL.lock().unwrap();
+    g.temp_provider.clone()
+}
+
+pub fn set_tmp_provider(p: Option<Arc<dyn Provider>>) {
+    let mut g = GLOBAL.lock().unwrap();
+    g.temp_provider = p;
 }

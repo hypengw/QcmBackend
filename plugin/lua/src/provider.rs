@@ -1,7 +1,9 @@
 use crate::error::FromLuaError;
 use mlua::prelude::*;
 use qcm_core::model as sqlm;
-use qcm_core::provider::{AuthResult, HasCommonData, ProviderCommonData, ProviderSession};
+use qcm_core::provider::{
+    AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, ProviderSession, QrInfo,
+};
 use qcm_core::{
     anyhow,
     error::ProviderError,
@@ -44,6 +46,7 @@ struct LuaImpl {
     check: LuaFunction,
     login: LuaFunction,
     sync: LuaFunction,
+    qr: Option<LuaFunction>,
     image: LuaFunction,
     audio: LuaFunction,
 }
@@ -135,6 +138,7 @@ impl LuaProvider {
                 sync: provider_table
                     .get::<LuaFunction>("sync")
                     .map_err(|_| anyhow!("sync func not found"))?,
+                qr: provider_table.get::<LuaFunction>("qr").ok(),
                 image: provider_table
                     .get::<LuaFunction>("image")
                     .map_err(|_| anyhow!("image func not found"))?,
@@ -187,12 +191,18 @@ impl Provider for LuaProvider {
     }
 
     async fn auth(&self, _ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError> {
-        self.funcs
+        let res = self
+            .funcs
             .login
             .call_async::<LuaValue>(self.lua.to_value(info))
             .await
             .and_then(|v| self.lua.from_value(v))
-            .map_err(ProviderError::from_err)
+            .map_err(ProviderError::from_err);
+
+        if let Ok(AuthResult::Ok) = &res {
+            self.load_auth_info(&info.server_url, Some(info.method.clone()));
+        }
+        res
     }
 
     async fn sync(&self, _ctx: &Context) -> Result<(), ProviderError> {
@@ -200,6 +210,18 @@ impl Provider for LuaProvider {
             .sync
             .call_async::<()>(())
             .await
+            .map_err(ProviderError::from_err)
+    }
+
+    async fn qr(&self, _ctx: &Context) -> Result<QrInfo, ProviderError> {
+        let func = self
+            .funcs
+            .qr
+            .as_ref()
+            .ok_or(ProviderError::NotImplemented)?;
+        func.call_async::<LuaValue>(())
+            .await
+            .and_then(|v| self.lua.from_value(v))
             .map_err(ProviderError::from_err)
     }
 
