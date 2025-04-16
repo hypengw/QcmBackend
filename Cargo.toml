@@ -8,3 +8,7 @@ edition = "2021"
 
 [patch.'https://github.com/hypengw/QcmBackend.git']
 qcm-core = { path = "./core" }
+
+[profile.release]
+lto = "fat"
+strip = "debuginfo"
