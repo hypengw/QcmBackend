@@ -82,6 +82,9 @@ pub async fn load_from_db(db: &DatabaseConnection) {
             );
             match provider {
                 Ok(provider) => {
+                    if !provider_model.cookie.is_empty() {
+                        provider.load_cookie(&provider_model.cookie);
+                    }
                     let auth_method = provider_model
                         .auth_method
                         .clone()

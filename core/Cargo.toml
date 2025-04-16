@@ -15,6 +15,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 strum = "0.27"
 strum_macros = "0.27"
+chrono = "0.4"
 # crypto
 openssl = "0.10"
 hex = "0.4"
@@ -25,7 +26,7 @@ thiserror = "2.0"
 # concurrent
 crossbeam-channel = "0.5"
 # async
-async-trait = "0"
+async-trait = "0.1"
 tokio = { version = "1", features = [
     "rt-multi-thread",
     "macros",
@@ -35,7 +36,8 @@ tokio = { version = "1", features = [
 ] }
 # client
 reqwest = { version = "0.12", features = ["json", "cookies", "stream"] }
-reqwest_cookie_store = { version = "0.8" }
+cookie_store = "0.21"
+reqwest_cookie_store = "0.8"
 # orm
 sea-orm = { version = "1.1", features = [
     "sqlx-sqlite",

@@ -1,6 +1,6 @@
 use anyhow;
 use clap::{self, Parser};
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
 use task::TaskManager;
 
 use hyper::{body::Incoming, Request};
@@ -145,7 +145,12 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
     // TODO: add journal_mode=wal support
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
-    let db = Database::connect(&db_url).await?;
+    let mut opt = sea_orm::ConnectOptions::new(db_url);
+    opt.sqlx_logging(true)
+        .sqlx_logging_level(log::LevelFilter::Debug)
+        .sqlx_slow_statements_logging_settings(log::LevelFilter::Debug, Duration::from_secs(1));
+
+    let db = Database::connect(opt).await?;
 
     Migrator::up(&db, None).await?;
 

@@ -1,6 +1,7 @@
-use sea_orm::entity::prelude::*;
+use sea_orm::{entity::prelude::*, sqlx::types::time::UtcOffset};
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "library")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -8,6 +9,8 @@ pub struct Model {
     pub name: String,
     pub provider_id: i64,
     pub native_id: String,
+    #[serde(default = "chrono::Utc::now")]
+    #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub edit_time: DateTimeUtc,
 }
 

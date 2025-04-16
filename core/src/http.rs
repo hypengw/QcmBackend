@@ -1,12 +1,15 @@
+use cookie_store::Cookie;
 pub use reqwest::cookie::CookieStore as CookieStoreTrait;
 pub use reqwest::header::{HeaderMap, HeaderValue};
 pub use reqwest::Client as HttpClient;
 pub use reqwest::ClientBuilder as HttpClientBuilder;
 pub use reqwest_cookie_store::{CookieStore, CookieStoreRwLock};
+use serde::Deserialize;
 
 use crate::provider::ProviderSession;
 use log;
 use std::io::Cursor;
+use std::ops::Deref;
 use std::sync::Arc;
 
 fn wrap_iter<'a, T, I>(iter: I) -> impl Iterator<Item = Result<T, i32>> + 'a
@@ -22,25 +25,21 @@ pub trait HasCookieJar {
 }
 
 fn load_(jar: Arc<CookieStoreRwLock>, data: &str) {
-    let mut cursor = Cursor::new(data);
-    match CookieStore::load_all(&mut cursor, |cookies| serde_json::from_str(cookies)) {
+    match cookie_store::serde::json::load_all(Cursor::new(data)) {
         Ok(loaded) => {
             let mut jar = jar.write().unwrap();
             jar.clear();
-            if let Ok(loaded) = CookieStore::from_cookies(wrap_iter(loaded.iter_any()), true) {
-                *jar = loaded;
-            }
+            *jar = loaded;
         }
-        Err(err) => {
-            log::error!("{}", err);
+        Err(e) => {
+            log::error!("Failed to parse cookie data: {}", e);
         }
     }
 }
 fn save_(jar: Arc<CookieStoreRwLock>) -> String {
     let jar = jar.read().unwrap();
-
     let mut cursor = Cursor::new(Vec::new());
-    jar.save_incl_expired_and_nonpersistent(&mut cursor, ::serde_json::to_string_pretty)
+    cookie_store::serde::json::save_incl_expired_and_nonpersistent(&jar, &mut cursor)
         .expect("Failed to save cookies to string");
 
     String::from_utf8(cursor.into_inner()).unwrap_or_default()

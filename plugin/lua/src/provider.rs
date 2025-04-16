@@ -205,10 +205,10 @@ impl Provider for LuaProvider {
         res
     }
 
-    async fn sync(&self, _ctx: &Context) -> Result<(), ProviderError> {
+    async fn sync(&self, ctx: &Context) -> Result<(), ProviderError> {
         self.funcs
             .sync
-            .call_async::<()>(())
+            .call_async::<()>(LuaContext(ctx.clone()))
             .await
             .map_err(ProviderError::from_err)
     }
@@ -273,4 +273,20 @@ fn create_json_module(lua: &Lua) -> LuaResult<LuaTable> {
         })?,
     )?;
     Ok(t)
+}
+
+struct LuaContext(Context);
+
+impl LuaUserData for LuaContext {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_async_method(
+            "sync_library",
+            |lua, this, (models): (LuaValue)| async move {
+                let models: sqlm::library::Model = lua.from_value(models)?;
+                log::warn!("library: {}", models.name.clone());
+                let m: sqlm::library::ActiveModel = models.into();
+                Ok(())
+            },
+        );
+    }
 }
