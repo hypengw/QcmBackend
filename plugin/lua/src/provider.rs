@@ -33,6 +33,9 @@ struct LuaProviderInner {
 struct LuaInner(Arc<LuaProviderInner>);
 
 impl LuaUserData for LuaInner {
+    fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("id", |_, this| Ok(this.0.common.id()));
+    }
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("device_id", |_, this, _: ()| {
             Ok(this.0.common.device_id.clone())
@@ -282,9 +285,7 @@ impl LuaUserData for LuaContext {
         methods.add_async_method(
             "sync_library",
             |lua, this, (models): (LuaValue)| async move {
-                let models: sqlm::library::Model = lua.from_value(models)?;
-                log::warn!("library: {}", models.name.clone());
-                let m: sqlm::library::ActiveModel = models.into();
+                let models: Vec<sqlm::library::Model> = lua.from_value(models)?;
                 Ok(())
             },
         );

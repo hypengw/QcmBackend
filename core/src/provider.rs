@@ -168,6 +168,13 @@ impl ProviderCommonData {
             }),
         }
     }
+    pub fn id(&self) -> Option<i64> {
+        self.inner.read().unwrap().id
+    }
+    fn set_id(&self, id: Option<i64>) {
+        let mut inner = self.inner.write().unwrap();
+        inner.id = id;
+    }
 }
 
 pub trait HasCommonData {
@@ -176,11 +183,10 @@ pub trait HasCommonData {
 
 impl<T: HasCommonData> ProviderCommon for T {
     fn id(&self) -> Option<i64> {
-        self.common().inner.read().unwrap().id
+        self.common().id()
     }
     fn set_id(&self, id: Option<i64>) {
-        let mut inner = self.common().inner.write().unwrap();
-        inner.id = id;
+        self.common().set_id(id);
     }
     fn name(&self) -> String {
         self.common().inner.read().unwrap().name.clone()
