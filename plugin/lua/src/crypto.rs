@@ -19,6 +19,14 @@ impl LuaUserData for LuaRsa {
     }
 }
 
+fn get_cipher(cipher_name: &str) -> Option<Cipher> {
+    match cipher_name {
+        "aes-128-cbc" => Some(Cipher::aes_128_cbc()),
+        "aes-128-ecb" => Some(Cipher::aes_128_ecb()),
+        _ => None,
+    }
+}
+
 pub fn create_crypto_module(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
 
@@ -26,11 +34,8 @@ pub fn create_crypto_module(lua: &Lua) -> LuaResult<LuaTable> {
         "encrypt",
         lua.create_function(
             |lua, (cipher_name, key, iv, data): (String, LuaString, LuaString, LuaString)| {
-                let cipher = match cipher_name.as_str() {
-                    "aes-128-cbc" => Cipher::aes_128_cbc(),
-                    "aes-128-ecb" => Cipher::aes_128_ecb(),
-                    _ => return Err(LuaError::RuntimeError("Unsupported cipher".to_string())),
-                };
+                let cipher = get_cipher(cipher_name.as_str())
+                    .ok_or_else(|| LuaError::RuntimeError("Unsupported cipher".to_string()))?;
                 encrypt(cipher, &key.as_bytes(), &iv.as_bytes(), &data.as_bytes())
                     .map_err(|e| LuaError::RuntimeError(e.to_string()))
                     .map(|b| lua.create_string(b))
@@ -42,11 +47,8 @@ pub fn create_crypto_module(lua: &Lua) -> LuaResult<LuaTable> {
         "decrypt",
         lua.create_function(
             |lua, (cipher_name, key, iv, data): (String, LuaString, LuaString, LuaString)| {
-                let cipher = match cipher_name.as_str() {
-                    "aes-128-cbc" => Cipher::aes_128_cbc(),
-                    "aes-128-ecb" => Cipher::aes_128_ecb(),
-                    _ => return Err(LuaError::RuntimeError("Unsupported cipher".to_string())),
-                };
+                let cipher = get_cipher(cipher_name.as_str())
+                    .ok_or_else(|| LuaError::RuntimeError("Unsupported cipher".to_string()))?;
                 decrypt(cipher, &key.as_bytes(), &iv.as_bytes(), &data.as_bytes())
                     .map_err(|e| LuaError::RuntimeError(e.to_string()))
                     .map(|b| lua.create_string(b))

@@ -4,6 +4,10 @@ authors = ["hypengw <hypengwip@gmail.com>"]
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "QcmBackend"
+path = "src/main.rs"
+
 [dependencies]
 qcm-core = { path = "../core" }
 anyhow = "1.0"
