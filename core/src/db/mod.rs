@@ -1,5 +1,10 @@
 pub mod values;
 pub use const_chunks::IteratorConstChunks;
+use sea_orm::{
+    sea_query::{self, IntoIden, IntoIndexColumn},
+    ActiveModelTrait, DatabaseTransaction, EntityTrait, InsertResult, TryInsertResult,
+};
+use strum::IntoEnumIterator;
 
 pub fn columns_contains<Col>(list: &[Col], c: &Col) -> bool {
     use std::mem::discriminant;
@@ -9,4 +14,63 @@ pub fn columns_contains<Col>(list: &[Col], c: &Col) -> bool {
         }
     }
     return false;
+}
+
+pub struct DbOper {}
+impl DbOper {
+    pub async fn insert<Et, Col, A, I>(
+        txn: &DatabaseTransaction,
+        iter: I,
+        conflict: &[Col],
+        exclude: &[Col],
+    ) -> Result<TryInsertResult<InsertResult<A>>, sea_orm::DbErr>
+    where
+        Et: EntityTrait,
+        Col: IntoIden + Copy + IntoEnumIterator,
+        A: ActiveModelTrait<Entity = Et>,
+        I: IntoIterator<Item = A>,
+    {
+        Et::insert_many(iter)
+            .on_conflict(
+                sea_query::OnConflict::columns(conflict.iter().map(|c| c.clone()))
+                    .update_columns(
+                        Col::iter()
+                            .filter(|e| {
+                                !columns_contains(&conflict, e) && !columns_contains(&exclude, e)
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .to_owned(),
+            )
+            .on_empty_do_nothing()
+            .exec(txn)
+            .await
+    }
+}
+
+pub struct DbChunkOper<const N: usize> {}
+
+impl<const N: usize> DbChunkOper<N> {
+    pub async fn insert<Et, Col, A, I>(
+        txn: &DatabaseTransaction,
+        iter: I,
+        conflict: &[Col],
+        exclude: &[Col],
+    ) -> Result<(), sea_orm::DbErr>
+    where
+        Et: EntityTrait,
+        Col: IntoIden + Copy + IntoEnumIterator,
+        A: ActiveModelTrait<Entity = Et>,
+        I: IntoIterator<Item = A>,
+    {
+        let mut chunks = iter.into_iter().const_chunks::<N>();
+        for iter in &mut chunks {
+            DbOper::insert(&txn, iter, &conflict, &exclude).await?;
+        }
+
+        if let Some(rm) = chunks.into_remainder() {
+            DbOper::insert(&txn, rm.into_iter(), &conflict, &exclude).await?;
+        }
+        Ok(())
+    }
 }

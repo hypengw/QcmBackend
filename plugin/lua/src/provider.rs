@@ -1,11 +1,13 @@
 use crate::error::FromLuaError;
 use mlua::prelude::*;
+use qcm_core::db::DbChunkOper;
 use qcm_core::model as sqlm;
 use qcm_core::provider::{
     AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, ProviderSession, QrInfo,
 };
 use qcm_core::{
     anyhow,
+    db::DbOper,
     error::ProviderError,
     event::Event as CoreEvent,
     http::{CookieStoreRwLock, HasCookieJar, HeaderMap, HttpClient},
@@ -209,9 +211,11 @@ impl Provider for LuaProvider {
     }
 
     async fn sync(&self, ctx: &Context) -> Result<(), ProviderError> {
+        let now = chrono::Utc::now();
+
         self.funcs
             .sync
-            .call_async::<()>(LuaContext(ctx.clone()))
+            .call_async::<()>(LuaContext(ctx.clone(), self.id()))
             .await
             .map_err(ProviderError::from_err)
     }
@@ -278,16 +282,88 @@ fn create_json_module(lua: &Lua) -> LuaResult<LuaTable> {
     Ok(t)
 }
 
-struct LuaContext(Context);
+struct LuaContext(Context, /* provider_id */ Option<i64>);
 
 impl LuaUserData for LuaContext {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method(
-            "sync_library",
-            |lua, this, (models): (LuaValue)| async move {
-                let models: Vec<sqlm::library::Model> = lua.from_value(models)?;
-                Ok(())
-            },
-        );
+        methods.add_async_method("sync_libraries", |lua, this, models: LuaValue| async move {
+            let models: Vec<sqlm::library::Model> = lua.from_value(models)?;
+
+            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+            let conflict = [
+                sqlm::library::Column::ProviderId,
+                sqlm::library::Column::NativeId,
+            ];
+
+            let exclude = [sqlm::library::Column::LibraryId];
+
+            let iter = models.into_iter().map(|i| -> sqlm::library::ActiveModel {
+                let id = i.library_id;
+                let mut a: sqlm::library::ActiveModel = i.into();
+                if id == -1 {
+                    a.library_id = NotSet
+                }
+                a
+            });
+
+            DbOper::insert(&txn, iter, &conflict, &exclude)
+                .await
+                .map_err(mlua::Error::external)?;
+            txn.commit().await.map_err(mlua::Error::external)?;
+
+            let ids: Vec<i64> = sqlm::library::Entity::find()
+                .filter(sqlm::library::Column::ProviderId.eq(this.1))
+                .select_only()
+                .column(sqlm::library::Column::LibraryId)
+                .into_tuple()
+                .all(&this.0.db)
+                .await
+                .map_err(mlua::Error::external)?;
+            Ok(ids)
+        });
+        methods.add_async_method("sync_albums", |lua, this, models: LuaValue| async move {
+            let models: Vec<sqlm::album::Model> = lua.from_value(models)?;
+
+            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+            let conflict = [
+                sqlm::album::Column::LibraryId,
+                sqlm::album::Column::NativeId,
+            ];
+            let exclude = [sqlm::album::Column::Id];
+            let iter = models.into_iter().map(|i| {
+                let mut a: sqlm::album::ActiveModel = i.into();
+                a.id = NotSet;
+                a
+            });
+
+            DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            txn.commit().await.map_err(mlua::Error::external)?;
+            Ok(())
+        });
+        methods.add_async_method("sync_artists", |lua, this, models: LuaValue| async move {
+            let models: Vec<sqlm::artist::Model> = lua.from_value(models)?;
+
+            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+            let conflict = [
+                sqlm::artist::Column::LibraryId,
+                sqlm::artist::Column::NativeId,
+            ];
+            let exclude = [sqlm::artist::Column::Id];
+            let iter = models.into_iter().map(|i| {
+                let mut a: sqlm::artist::ActiveModel = i.into();
+                a.id = NotSet;
+                a
+            });
+
+            DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            txn.commit().await.map_err(mlua::Error::external)?;
+            Ok(())
+        });
     }
 }

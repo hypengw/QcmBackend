@@ -13,6 +13,8 @@ pub struct Model {
     pub track_count: i32,
     pub description: String,
     pub company: String,
+    #[serde(default = "chrono::Utc::now")]
+    #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub edit_time: DateTimeUtc,
 }
 

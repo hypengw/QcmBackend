@@ -33,11 +33,12 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
     match ev {
         Event::ProviderSync { id, oneshot } => {
             if let Some(p) = global::provider(id) {
+                let name = p.name();
                 ctx.oper.spawn({
                     let ctx = ctx.provider_context.clone();
-                    log::warn!("spawn sync");
+                    log::info!("spawn sync: {}", name);
                     |tid| async move {
-                        log::warn!("start sync");
+                        log::info!("start sync: {}", name);
                         if let Some(tx) = oneshot {
                             let _ = tx.send(tid);
                         }
@@ -53,7 +54,7 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
                             }
                             _ => {}
                         }
-                        log::warn!("sync end");
+                        log::info!("sync end: {}", name);
                         let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
                             id,
                             commit: SyncCommit::End,
@@ -161,7 +162,7 @@ async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {
         let mut msg = ProviderMetaStatusMsg::default();
         global::with_provider_metas(|metas| {
             for (_, v) in metas {
-                let m:msg::model::ProviderMeta = v.clone().qcm_into();
+                let m: msg::model::ProviderMeta = v.clone().qcm_into();
                 msg.metas.push(m);
             }
         });
