@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::util::to_lua;
+
 fn header_map_to_table(lua: &Lua, headers: &HeaderMap) -> Result<LuaTable> {
     let table = lua.create_table()?;
     for (name, value) in headers.iter() {
@@ -51,7 +53,7 @@ impl UserData for LuaResponse {
                 .json()
                 .await
                 .map_err(mlua::Error::external)?;
-            lua.to_value(&value)
+            to_lua(&lua, &value)
         });
 
         methods.add_method("status", |_, this, ()| {
@@ -268,3 +270,9 @@ fn merge_cookies(stored_cookie: &str, req_cookie_str: &str) -> String {
         .collect::<Vec<_>>()
         .join("; ")
 }
+
+pub struct LuaBatchResponse {
+    pub responses: Vec<Response>,
+}
+
+

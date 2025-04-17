@@ -1,5 +1,6 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
+use super::util::epoch;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "album")]
@@ -9,9 +10,12 @@ pub struct Model {
     pub native_id: String,
     pub library_id: i64,
     pub name: String,
+    #[serde(default = "epoch")]
     pub publish_time: DateTimeUtc,
     pub track_count: i32,
+    #[serde(default = "String::new")]
     pub description: String,
+    #[serde(default = "String::new")]
     pub company: String,
     #[serde(default = "chrono::Utc::now")]
     #[sea_orm(default_expr = "Expr::current_timestamp()")]

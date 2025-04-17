@@ -1,4 +1,5 @@
 pub mod type_enum;
+pub mod util;
 
 pub mod collection;
 pub mod genre;

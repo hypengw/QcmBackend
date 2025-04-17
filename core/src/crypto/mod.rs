@@ -33,6 +33,10 @@ pub fn decrypt(cipher: Cipher, key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec
     Ok(output)
 }
 
+pub fn encode_block(data: &[u8]) -> String {
+    BASE64.encode(data)
+}
+
 // with 64 '\n'
 pub fn encode(data: &[u8]) -> Result<Vec<u8>> {
     let block = BASE64.encode(data);

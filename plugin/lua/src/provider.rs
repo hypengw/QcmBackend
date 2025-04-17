@@ -1,6 +1,7 @@
 use crate::error::FromLuaError;
+use crate::util::to_lua;
 use mlua::prelude::*;
-use qcm_core::db::DbChunkOper;
+use qcm_core::db::{self, DbChunkOper};
 use qcm_core::model as sqlm;
 use qcm_core::provider::{
     AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, ProviderSession, QrInfo,
@@ -199,7 +200,7 @@ impl Provider for LuaProvider {
         let res = self
             .funcs
             .login
-            .call_async::<LuaValue>(self.lua.to_value(info))
+            .call_async::<LuaValue>(to_lua(&self.lua, info))
             .await
             .and_then(|v| self.lua.from_value(v))
             .map_err(ProviderError::from_err);
@@ -217,7 +218,12 @@ impl Provider for LuaProvider {
             .sync
             .call_async::<()>(LuaContext(ctx.clone(), self.id()))
             .await
-            .map_err(ProviderError::from_err)
+            .map_err(ProviderError::from_err)?;
+
+        let txn = ctx.db.begin().await?;
+        db::sync::sync_drop_before(&txn, now).await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     async fn qr(&self, _ctx: &Context) -> Result<QrInfo, ProviderError> {
@@ -276,7 +282,7 @@ fn create_json_module(lua: &Lua) -> LuaResult<LuaTable> {
         lua.create_function(|lua, str: String| {
             let v: serde_json::Value =
                 serde_json::from_str(&str).map_err(|e| mlua::Error::external(e))?;
-            lua.to_value(&v)
+            to_lua(&lua, &v)
         })?,
     )?;
     Ok(t)

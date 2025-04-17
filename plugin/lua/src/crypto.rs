@@ -66,6 +66,11 @@ pub fn create_crypto_module(lua: &Lua) -> LuaResult<LuaTable> {
     )?;
 
     exports.set(
+        "encode_block",
+        lua.create_function(|_, data: LuaString| Ok(encode_block(&data.as_bytes())))?,
+    )?;
+
+    exports.set(
         "decode",
         lua.create_function(|lua, data: LuaString| {
             decode(&data.as_bytes())
