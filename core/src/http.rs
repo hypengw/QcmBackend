@@ -98,13 +98,11 @@ impl BatchRequest {
                 loop {
                     match rx.recv().await {
                         Some(BatchResponseMsg::Wait(tx)) => {
-                            log::info!("Waiting for {} responses", futures.len());
                             if let Err(_) = tx.send(futures.next().await) {
                                 log::error!("Then recv droped");
                             }
                         }
                         Some(msg) => {
-                            log::info!("add response, {}", futures.len());
                             futures.push(new_future(msg));
                         }
                         None => {

@@ -53,6 +53,7 @@ pub enum ImageType {
     Debug,
     Clone,
     PartialEq,
+    Display,
     Eq,
     Serialize,
     Deserialize,

@@ -21,6 +21,7 @@ use qcm_core::{
 use reqwest::Response;
 use sea_orm::*;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -270,12 +271,24 @@ impl Provider for LuaProvider {
         &self,
         _ctx: &Context,
         item_id: &str,
-        _headers: Option<HeaderMap>,
+        headers: Option<HeaderMap>,
     ) -> Result<Response, ProviderError> {
+        let headers = headers.map(|h| {
+            let map = self.lua.create_table().unwrap();
+            for (k, v) in h.iter() {
+                let k = k.as_str();
+                let v = v
+                    .to_str()
+                    .inspect_err(|e| log::error!("{}", e))
+                    .unwrap_or("");
+                map.set(k, v).unwrap();
+            }
+            map
+        });
         let val = self
             .funcs
             .audio
-            .call_async::<LuaValue>((item_id,))
+            .call_async::<LuaValue>((item_id, headers))
             .await
             .map_err(|e| anyhow!(e))?;
 

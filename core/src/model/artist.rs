@@ -1,3 +1,4 @@
+use super::type_enum::ItemType;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -23,11 +24,21 @@ pub enum Relation {
         to = "super::library::Column::LibraryId"
     )]
     Library,
+    #[sea_orm(
+        has_many = "super::image::Entity",
+        on_condition = r#"Expr::col(super::image::Column::ItemType).eq(ItemType::Artist)"#
+    )]
+    Image,
 }
 
 impl Related<super::library::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Library.def()
+    }
+}
+impl Related<super::image::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Image.def()
     }
 }
 

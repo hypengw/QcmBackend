@@ -40,6 +40,18 @@ pub enum Relation {
         to = "super::album::Column::Id"
     )]
     Album,
+    #[sea_orm(
+        belongs_to = "super::song::Entity",
+        from = "Column::ItemId",
+        to = "super::song::Column::Id"
+    )]
+    Song,
+    #[sea_orm(
+        belongs_to = "super::artist::Entity",
+        from = "Column::ItemId",
+        to = "super::artist::Column::Id"
+    )]
+    Artist,
 }
 
 impl Related<super::library::Entity> for Entity {
@@ -51,6 +63,16 @@ impl Related<super::library::Entity> for Entity {
 impl Related<super::album::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Album.def()
+    }
+}
+impl Related<super::song::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Song.def()
+    }
+}
+impl Related<super::artist::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Artist.def()
     }
 }
 
