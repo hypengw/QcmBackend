@@ -1,5 +1,5 @@
 use sea_orm::{entity::prelude::*, sqlx::types::time::UtcOffset};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "library")]
@@ -28,6 +28,8 @@ pub enum Relation {
     Song,
     #[sea_orm(has_many = "super::program::Entity")]
     Program,
+    #[sea_orm(has_many = "super::image::Entity")]
+    Image,
 }
 
 impl Related<super::album::Entity> for Entity {
@@ -43,6 +45,11 @@ impl Related<super::artist::Entity> for Entity {
 impl Related<super::song::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Song.def()
+    }
+}
+impl Related<super::image::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Image.def()
     }
 }
 

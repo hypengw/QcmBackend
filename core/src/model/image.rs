@@ -1,7 +1,8 @@
 use super::type_enum::{ImageType, ItemType};
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "image")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -12,11 +13,16 @@ pub struct Model {
 
     pub library_id: i64, // foreign
 
+    #[serde(default)]
     pub item_native_id: String,
+
+    #[serde(default)]
     pub native_id: Option<String>,
 
+    #[serde(default)]
     pub db: Option<String>,
 
+    #[serde(default)]
     pub fresh: String, // custom string for testing changed
     pub timestamp: DateTimeUtc,
 }

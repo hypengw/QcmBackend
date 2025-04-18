@@ -1,5 +1,5 @@
-pub mod values;
 pub mod sync;
+pub mod values;
 pub use const_chunks::IteratorConstChunks;
 use sea_orm::{
     sea_query::{self, IntoIden, IntoIndexColumn},
@@ -47,6 +47,40 @@ impl DbOper {
             .exec(txn)
             .await
     }
+    pub async fn insert_return_key<Et, Col, A, I>(
+        txn: &DatabaseTransaction,
+        iter: I,
+        conflict: &[Col],
+        exclude: &[Col],
+    ) -> Result<
+        TryInsertResult<
+            Vec<<<Et as sea_orm::EntityTrait>::PrimaryKey as sea_orm::PrimaryKeyTrait>::ValueType>,
+        >,
+        sea_orm::DbErr,
+    >
+    where
+        Et: EntityTrait,
+        Et::Model: sea_orm::ModelTrait + sea_orm::IntoActiveModel<A>,
+        Col: IntoIden + Copy + IntoEnumIterator,
+        A: ActiveModelTrait<Entity = Et>,
+        I: IntoIterator<Item = A>,
+    {
+        Et::insert_many(iter)
+            .on_conflict(
+                sea_query::OnConflict::columns(conflict.iter().map(|c| c.clone()))
+                    .update_columns(
+                        Col::iter()
+                            .filter(|e| {
+                                !columns_contains(&conflict, e) && !columns_contains(&exclude, e)
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                    .to_owned(),
+            )
+            .on_empty_do_nothing()
+            .exec_with_returning_keys(txn)
+            .await
+    }
 }
 
 pub struct DbChunkOper<const N: usize> {}
@@ -73,5 +107,47 @@ impl<const N: usize> DbChunkOper<N> {
             DbOper::insert(&txn, rm.into_iter(), &conflict, &exclude).await?;
         }
         Ok(())
+    }
+
+    pub async fn insert_return_key<Et, Col, A, I>(
+        txn: &DatabaseTransaction,
+        iter: I,
+        conflict: &[Col],
+        exclude: &[Col],
+    ) -> Result<
+        Vec<<<Et as sea_orm::EntityTrait>::PrimaryKey as sea_orm::PrimaryKeyTrait>::ValueType>,
+        sea_orm::DbErr,
+    >
+    where
+        Et: EntityTrait,
+        Et::Model: sea_orm::ModelTrait + sea_orm::IntoActiveModel<A>,
+        Col: IntoIden + Copy + IntoEnumIterator,
+        A: ActiveModelTrait<Entity = Et>,
+        I: IntoIterator<Item = A>,
+    {
+        let mut out = Vec::new();
+        let mut chunks = iter.into_iter().const_chunks::<N>();
+        for iter in &mut chunks {
+            match DbOper::insert_return_key(&txn, iter, &conflict, &exclude).await? {
+                TryInsertResult::Inserted(inserted) => {
+                    out.extend(inserted);
+                }
+                _ => {
+                    return Err(sea_orm::DbErr::RecordNotInserted);
+                }
+            }
+        }
+
+        if let Some(rm) = chunks.into_remainder() {
+            match DbOper::insert_return_key(&txn, rm.into_iter(), &conflict, &exclude).await? {
+                TryInsertResult::Inserted(inserted) => {
+                    out.extend(inserted);
+                }
+                _ => {
+                    return Err(sea_orm::DbErr::RecordNotInserted);
+                }
+            }
+        }
+        Ok(out)
     }
 }

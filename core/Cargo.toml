@@ -47,6 +47,7 @@ sea-orm = { version = "1.1", features = [
     "with-uuid",
     "with-chrono",
     "debug-print",
+    "sqlite-use-returning-for-3_35"
 ] }
 # other
 const-chunks = "0.3"

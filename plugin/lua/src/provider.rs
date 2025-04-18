@@ -356,12 +356,12 @@ impl LuaUserData for LuaContext {
                 a
             });
 
-            DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+            let out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
                 .await
                 .map_err(mlua::Error::external)?;
 
             txn.commit().await.map_err(mlua::Error::external)?;
-            Ok(())
+            Ok(out)
         });
         methods.add_async_method("sync_artists", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::artist::Model> = lua.from_value(models)?;
@@ -378,12 +378,12 @@ impl LuaUserData for LuaContext {
                 a
             });
 
-            DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+            let out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
                 .await
                 .map_err(mlua::Error::external)?;
 
             txn.commit().await.map_err(mlua::Error::external)?;
-            Ok(())
+            Ok(out)
         });
         methods.add_async_method("sync_songs", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::song::Model> = lua.from_value(models)?;
@@ -393,6 +393,29 @@ impl LuaUserData for LuaContext {
             let exclude = [sqlm::song::Column::Id];
             let iter = models.into_iter().map(|i| {
                 let mut a: sqlm::song::ActiveModel = i.into();
+                a.id = NotSet;
+                a
+            });
+
+            let out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            txn.commit().await.map_err(mlua::Error::external)?;
+            Ok(out)
+        });
+        methods.add_async_method("sync_images", |lua, this, models: LuaValue| async move {
+            let models: Vec<sqlm::image::Model> = lua.from_value(models)?;
+
+            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+            let conflict = [
+                sqlm::image::Column::ItemId,
+                sqlm::image::Column::ItemType,
+                sqlm::image::Column::ImageType,
+            ];
+            let exclude = [sqlm::image::Column::Id];
+            let iter = models.into_iter().map(|i| {
+                let mut a: sqlm::image::ActiveModel = i.into();
                 a.id = NotSet;
                 a
             });
