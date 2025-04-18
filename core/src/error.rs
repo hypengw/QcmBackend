@@ -18,6 +18,8 @@ pub enum ProviderError {
     Request(#[from] reqwest::Error),
     #[error("UUid: {0}")]
     Uuid(#[from] uuid::Error),
+    #[error("Not Found")]
+    NotFound,
     #[error("Not Implemented")]
     NotImplemented,
     #[error("Database error: {0}")]

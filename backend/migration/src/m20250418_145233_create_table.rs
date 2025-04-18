@@ -32,11 +32,6 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(image::Column::ItemNativeId)
-                            .string()
-                            .not_null(),
-                    )
                     .col(ColumnDef::new(image::Column::NativeId).string())
                     .col(ColumnDef::new(image::Column::Db).string())
                     .col(ColumnDef::new(image::Column::Fresh).string().not_null())

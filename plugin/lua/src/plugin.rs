@@ -40,7 +40,8 @@ impl LuaPlugin {
 
     fn load_plugin_json(&self, path: &Path) -> Option<(PluginJson, String)> {
         if let Ok(content) = fs::read_to_string(path.join("plugin.json")) {
-            if let Ok(plugin_json) = serde_json::from_str::<PluginJson>(&content) {
+            if let Ok(mut plugin_json) = serde_json::from_str::<PluginJson>(&content) {
+                plugin_json.name = plugin_json.name.to_ascii_lowercase();
                 if let Ok(svg_content) = fs::read_to_string(path.join(&plugin_json.svg_path)) {
                     return Some((plugin_json, svg_content));
                 }
@@ -65,7 +66,12 @@ impl LuaPlugin {
                 })
             });
 
-        let mut meta = ProviderMeta::new(&plugin_json.name, &plugin_json.auth_types, Arc::new(svg_content), creator);
+        let mut meta = ProviderMeta::new(
+            &plugin_json.name,
+            &plugin_json.auth_types,
+            Arc::new(svg_content),
+            creator,
+        );
         meta.has_server_url = plugin_json.has_server_url.unwrap_or(true);
         return meta;
     }

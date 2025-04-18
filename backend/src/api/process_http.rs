@@ -5,11 +5,15 @@ use hyper::body::{Body, Bytes, Frame, Incoming};
 use hyper::header::HeaderName;
 use hyper::{Request, Response, StatusCode};
 pub use hyper_tungstenite::tungstenite::Message as WsMessage;
+use migration::IntoCondition;
 use prost::{self, Message};
 use qcm_core::http;
 use qcm_core::model::type_enum::ImageType;
 use qcm_core::{anyhow, model as sqlm, model::type_enum::ItemType, Result};
-use sea_orm::{EntityTrait, FromQueryResult, QuerySelect, QueryTrait};
+use sea_orm::ConnectionTrait;
+use sea_orm::{
+    sea_query::Expr, EntityTrait, FromQueryResult, JoinType, QuerySelect, QueryTrait, RelationTrait,
+};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -74,18 +78,55 @@ pub async fn process_http_get(
             {
                 ItemType::Album => {
                     let id = parse_id(id)?;
+                    /*
                     let (native_id, provider_id): (String, i64) =
                         sqlm::album::Entity::find_by_id(id)
                             .select_only()
                             .column(sqlm::album::Column::NativeId)
                             .column(sqlm::library::Column::ProviderId)
                             .left_join(sqlm::library::Entity)
+                            .join(JoinType::InnerJoin, sqlm::album::Relation::Image.def())
+
+                            .into_tuple()
+                            .one(db)
+                            .await?
+                            .ok_or(ProcessError::NoSuchAlbum(id.to_string()))?;
+                        */
+                    let (native_id, provider_id, image_native_id): (String, i64, Option<String>) =
+                        sqlm::album::Entity::find_by_id(id)
+                            .select_only()
+                            .column(sqlm::album::Column::NativeId)
+                            .column(sqlm::library::Column::ProviderId)
+                            .column(sqlm::image::Column::NativeId)
+                            .left_join(sqlm::library::Entity)
+                            .join(
+                                JoinType::LeftJoin,
+                                sqlm::album::Relation::Image
+                                    .def()
+                                    .on_condition(move |_left, right| {
+                                        Expr::col((right, sqlm::image::Column::ImageType))
+                                            .eq(image_type)
+                                            .into_condition()
+                                            .add(
+                                                Expr::col(sqlm::image::Column::ItemType)
+                                                    .eq(ItemType::Album),
+                                            )
+                                    })
+                                    .into(),
+                            )
                             .into_tuple()
                             .one(db)
                             .await?
                             .ok_or(ProcessError::NoSuchAlbum(id.to_string()))?;
 
-                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                    media_get_image(
+                        ctx,
+                        provider_id,
+                        &native_id,
+                        image_native_id.as_deref(),
+                        image_type,
+                    )
+                    .await
                 }
                 ItemType::Song => {
                     let id = parse_id(id)?;
@@ -100,7 +141,7 @@ pub async fn process_http_get(
                             .await?
                             .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
 
-                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                    media_get_image(ctx, provider_id, &native_id, None, image_type).await
                 }
                 ItemType::Artist => {
                     let id = parse_id(id)?;
@@ -115,7 +156,7 @@ pub async fn process_http_get(
                             .await?
                             .ok_or(ProcessError::NoSuchArtist(id.to_string()))?;
 
-                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                    media_get_image(ctx, provider_id, &native_id, None, image_type).await
                 }
                 ItemType::Mix => {
                     let id = parse_id(id)?;
@@ -128,7 +169,7 @@ pub async fn process_http_get(
                         .await?
                         .ok_or(ProcessError::NoSuchMix(id.to_string()))?;
 
-                    media_get_image(ctx, provider_id, &native_id, image_type).await
+                    media_get_image(ctx, provider_id, &native_id, None, image_type).await
                 }
                 _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
             }

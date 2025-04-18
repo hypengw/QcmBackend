@@ -9,4 +9,5 @@ pub mod global;
 pub mod event;
 pub use anyhow::Result;
 pub use anyhow::Error;
+pub use anyhow::Error as AnyError;
 pub use anyhow::anyhow as anyhow;

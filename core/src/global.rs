@@ -74,7 +74,8 @@ pub async fn load_from_db(db: &DatabaseConnection) {
 
     let mut global = GLOBAL.lock().unwrap();
     for provider_model in providers {
-        if let Some(meta) = global.provider_metas.get(&provider_model.type_) {
+        let meta_type = provider_model.type_.to_ascii_lowercase();
+        if let Some(meta) = global.provider_metas.get(&meta_type) {
             let provider = (meta.creator)(
                 Some(provider_model.provider_id),
                 &provider_model.name,

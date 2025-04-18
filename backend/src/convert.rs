@@ -398,6 +398,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::NoSuchItemType(_) => msg::ErrorCode::NoSuchItemType.into(),
                 ProcessError::NoSuchImageType(_) => msg::ErrorCode::NoSuchImageType.into(),
                 ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),
+                ProcessError::NotFound => msg::ErrorCode::NotFound.into(),
                 ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
                 ProcessError::Infallible(_) => {
                     panic!("Got infallible error!")

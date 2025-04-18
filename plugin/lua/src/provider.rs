@@ -16,7 +16,7 @@ use qcm_core::{
     http::{CookieStoreRwLock, HasCookieJar, HeaderMap, HttpClient},
     model::type_enum::ImageType,
     provider::{AuthInfo, Context, Provider},
-    Result,
+    AnyError, Result,
 };
 use reqwest::Response;
 use sea_orm::*;
@@ -27,7 +27,7 @@ use std::{
 };
 
 use crate::crypto::create_crypto_module;
-use crate::http::LuaClient;
+use crate::http::{LuaClient, LuaResponse};
 
 struct LuaProviderInner {
     common: ProviderCommonData,
@@ -246,15 +246,24 @@ impl Provider for LuaProvider {
         &self,
         _ctx: &Context,
         item_id: &str,
-        _image_type: ImageType,
+        image_id: Option<&str>,
+        image_type: ImageType,
     ) -> Result<Response, ProviderError> {
-        let response = self
+        let val = self
             .funcs
             .image
-            .call_async::<LuaTable>((item_id,))
+            .call_async::<LuaValue>((item_id, image_id, image_type.to_string()))
             .await
             .map_err(|e| anyhow!(e))?;
-        Err(ProviderError::NotImplemented)
+
+        if val.is_userdata() {
+            let ud = val.as_userdata().unwrap();
+            let mut ud_rsp = ud.borrow_mut::<LuaResponse>().map_err(AnyError::from)?;
+            let rsp = ud_rsp.0.take().ok_or(anyhow!("response not found"))?;
+            Ok(rsp)
+        } else {
+            Err(ProviderError::NotFound)
+        }
     }
 
     async fn audio(
@@ -263,13 +272,21 @@ impl Provider for LuaProvider {
         item_id: &str,
         _headers: Option<HeaderMap>,
     ) -> Result<Response, ProviderError> {
-        let response = self
+        let val = self
             .funcs
             .audio
-            .call_async::<LuaTable>((item_id,))
+            .call_async::<LuaValue>((item_id,))
             .await
             .map_err(|e| anyhow!(e))?;
-        Err(ProviderError::NotImplemented)
+
+        if val.is_userdata() {
+            let ud = val.as_userdata().unwrap();
+            let mut ud_rsp = ud.borrow_mut::<LuaResponse>().map_err(AnyError::from)?;
+            let rsp = ud_rsp.0.take().ok_or(anyhow!("response not found"))?;
+            Ok(rsp)
+        } else {
+            Err(ProviderError::NotFound)
+        }
     }
 }
 

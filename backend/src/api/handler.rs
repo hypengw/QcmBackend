@@ -65,7 +65,7 @@ pub async fn handle_request(
 
         match res {
             Ok(rsp) => Ok(rsp),
-            Err(ProcessError::NoSuchItemType(_)) => {
+            Err(ProcessError::NotFound | ProcessError::NoSuchItemType(_)) => {
                 let rsp = Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(ResponseBody::Empty)

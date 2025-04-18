@@ -14,9 +14,6 @@ pub struct Model {
     pub library_id: i64, // foreign
 
     #[serde(default)]
-    pub item_native_id: String,
-
-    #[serde(default)]
     pub native_id: Option<String>,
 
     #[serde(default)]
@@ -24,6 +21,7 @@ pub struct Model {
 
     #[serde(default)]
     pub fresh: String, // custom string for testing changed
+    #[serde(default = "chrono::Utc::now")]
     pub timestamp: DateTimeUtc,
 }
 // unique: (item_id, item_type, image_type)
@@ -36,11 +34,23 @@ pub enum Relation {
         to = "super::library::Column::LibraryId"
     )]
     Library,
+    #[sea_orm(
+        belongs_to = "super::album::Entity",
+        from = "Column::ItemId",
+        to = "super::album::Column::Id"
+    )]
+    Album,
 }
 
 impl Related<super::library::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Library.def()
+    }
+}
+
+impl Related<super::album::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Album.def()
     }
 }
 

@@ -15,12 +15,13 @@ pub async fn media_get_image(
     ctx: &Arc<BackendContext>,
     provider_id: i64,
     item_id: &str,
+    image_id: Option<&str>,
     image_type: ImageType,
 ) -> Result<Response<ResponseBody>, ProcessError> {
     let provider = qcm_core::global::provider(provider_id)
         .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
     let resp = provider
-        .image(&ctx.provider_context, item_id, image_type)
+        .image(&ctx.provider_context, item_id, image_id, image_type)
         .await?;
 
     let status = resp.status();

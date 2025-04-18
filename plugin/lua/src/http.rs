@@ -33,7 +33,7 @@ fn table_to_header_map(table: &LuaTable) -> LuaResult<HeaderMap> {
     Ok(header_map)
 }
 
-pub struct LuaResponse(Option<Response>);
+pub struct LuaResponse(pub Option<Response>);
 
 impl UserData for LuaResponse {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {

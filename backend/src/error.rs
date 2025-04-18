@@ -47,6 +47,8 @@ pub enum ProcessError {
     NoSuchImageType(String),
     #[error("Unsupported item type: {0}")]
     UnsupportedItemType(String),
+    #[error("Not Found")]
+    NotFound,
     #[error("Infallible")]
     Infallible(#[from] std::convert::Infallible),
     #[error("")]
@@ -67,6 +69,7 @@ impl From<qcm_core::error::ProviderError> for ProcessError {
         use qcm_core::error::ProviderError;
         match e {
             ProviderError::Infallible(e) => ProcessError::Infallible(e),
+            ProviderError::NotFound => ProcessError::NotFound,
             e => ProcessError::Internal(e.into()),
         }
     }

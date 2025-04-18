@@ -131,6 +131,7 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
         &self,
         ctx: &Context,
         item_id: &str,
+        image_id: Option<&str>,
         image_type: ImageType,
     ) -> Result<Response, ProviderError>;
 

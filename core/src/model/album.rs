@@ -1,6 +1,7 @@
+use super::type_enum::ItemType;
+use super::util::epoch;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use super::util::epoch;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "album")]
@@ -32,6 +33,11 @@ pub enum Relation {
     Library,
     #[sea_orm(has_many = "super::song::Entity")]
     Song,
+    #[sea_orm(
+        has_many = "super::image::Entity",
+        on_condition = r#"Expr::col(super::image::Column::ItemType).eq(ItemType::Album)"#
+    )]
+    Image,
 }
 
 impl Related<super::library::Entity> for Entity {
@@ -53,6 +59,12 @@ impl Related<super::artist::Entity> for Entity {
 
     fn via() -> Option<RelationDef> {
         Some(super::rel_album_artist::Relation::Album.def().rev())
+    }
+}
+
+impl Related<super::image::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Image.def()
     }
 }
 

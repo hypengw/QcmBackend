@@ -3,7 +3,16 @@ use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString};
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, EnumIter, EnumString, DeriveActiveEnum,
+    Copy,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    EnumIter,
+    EnumString,
+    DeriveActiveEnum,
 )]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 pub enum CacheType {
@@ -12,6 +21,7 @@ pub enum CacheType {
 }
 
 #[derive(
+    Copy,
     Debug,
     Clone,
     Display,
@@ -39,7 +49,16 @@ pub enum ImageType {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, EnumIter, EnumString, DeriveActiveEnum,
+    Copy,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    EnumIter,
+    EnumString,
+    DeriveActiveEnum,
 )]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 #[strum(ascii_case_insensitive)]
