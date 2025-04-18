@@ -1,5 +1,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
+use super::util::{default_true, epoch, default_json_arr};
+
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "song")]
@@ -14,10 +16,16 @@ pub struct Model {
     pub track_number: i32,
     pub disc_number: i32,
     pub duration: i64,
+    #[serde(default = "default_true")]
     pub can_play: bool,
+    #[serde(default)]
     pub popularity: f64,
+    #[serde(default = "epoch")]
     pub publish_time: DateTimeUtc,
+    #[serde(default = "default_json_arr")]
     pub tags: Json,
+    #[serde(default = "chrono::Utc::now")]
+    #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub edit_time: DateTimeUtc,
 }
 

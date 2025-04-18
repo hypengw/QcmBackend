@@ -1,7 +1,9 @@
 use crate::error::FromLuaError;
 use crate::util::to_lua;
 use mlua::prelude::*;
+use qcm_core::db::sync::sync_song_album_ids;
 use qcm_core::db::{self, DbChunkOper};
+use qcm_core::event::SyncCommit;
 use qcm_core::model as sqlm;
 use qcm_core::provider::{
     AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, ProviderSession, QrInfo,
@@ -294,6 +296,16 @@ struct LuaContext(Context, /* provider_id */ Option<i64>);
 
 impl LuaUserData for LuaContext {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("commit_album", |_, this, count: i32| {
+            if let Some(id) = this.1 {
+                let _ = this.0.ev_sender.try_send(CoreEvent::SyncCommit {
+                    id,
+                    commit: SyncCommit::AddAlbum(count),
+                });
+            }
+            Ok(())
+        });
+
         methods.add_async_method("sync_libraries", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::library::Model> = lua.from_value(models)?;
 
@@ -373,5 +385,38 @@ impl LuaUserData for LuaContext {
             txn.commit().await.map_err(mlua::Error::external)?;
             Ok(())
         });
+        methods.add_async_method("sync_songs", |lua, this, models: LuaValue| async move {
+            let models: Vec<sqlm::song::Model> = lua.from_value(models)?;
+
+            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+            let conflict = [sqlm::song::Column::LibraryId, sqlm::song::Column::NativeId];
+            let exclude = [sqlm::song::Column::Id];
+            let iter = models.into_iter().map(|i| {
+                let mut a: sqlm::song::ActiveModel = i.into();
+                a.id = NotSet;
+                a
+            });
+
+            DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            txn.commit().await.map_err(mlua::Error::external)?;
+            Ok(())
+        });
+        methods.add_async_method(
+            "sync_song_album_ids",
+            |lua, this, (library_id, models): (i64, LuaValue)| async move {
+                let models: Vec<(String, String)> = lua.from_value(models)?;
+
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+                sync_song_album_ids(&txn, library_id, models)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(())
+            },
+        );
     }
 }
