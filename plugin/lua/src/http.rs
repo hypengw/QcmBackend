@@ -1,16 +1,17 @@
 use mlua::prelude::*;
-use mlua::{ExternalResult, Lua, Result, UserData, UserDataMethods};
-use qcm_core::http::{CookieStoreTrait, HttpClient};
+use mlua::{ExternalResult, Lua, UserData, UserDataMethods};
+use qcm_core::http::{BatchRequest, CookieStoreTrait, HttpClient};
 use reqwest::header::{self, HeaderName};
 use reqwest::{header::HeaderMap, Response};
 use serde_json::{StreamDeserializer, Value};
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::util::to_lua;
 
-fn header_map_to_table(lua: &Lua, headers: &HeaderMap) -> Result<LuaTable> {
+fn header_map_to_table(lua: &Lua, headers: &HeaderMap) -> LuaResult<LuaTable> {
     let table = lua.create_table()?;
     for (name, value) in headers.iter() {
         if let Ok(v) = value.to_str() {
@@ -20,7 +21,7 @@ fn header_map_to_table(lua: &Lua, headers: &HeaderMap) -> Result<LuaTable> {
     Ok(table)
 }
 
-fn table_to_header_map(table: &LuaTable) -> Result<HeaderMap> {
+fn table_to_header_map(table: &LuaTable) -> LuaResult<HeaderMap> {
     let mut header_map = HeaderMap::new();
     for pair in table.pairs::<String, String>() {
         let (k, v) = pair?;
@@ -42,6 +43,16 @@ impl UserData for LuaResponse {
                 .unwrap()
                 .text()
                 .await
+                .map_err(mlua::Error::external)
+        });
+
+        methods.add_async_method_mut("bytes", |lua, mut this, ()| async move {
+            this.0
+                .take()
+                .unwrap()
+                .bytes()
+                .await
+                .map(|b| lua.create_string(b))
                 .map_err(mlua::Error::external)
         });
 
@@ -90,31 +101,48 @@ impl UserData for LuaClient {
             let b = this.0.delete(url);
             Ok(LuaRequestBuilder(Some(b), this.1.clone()))
         });
+
+        methods.add_method("new_batch", |_, _, (): ()| {
+            Ok(LuaBatchRequest(BatchRequest::new()))
+        });
     }
 }
 
 pub struct LuaRequestBuilder(Option<reqwest::RequestBuilder>, Arc<dyn CookieStoreTrait>);
 
+impl LuaRequestBuilder {
+    pub fn merge_cookies(&self, req: &mut reqwest::Request) -> LuaResult<()> {
+        let url = req.url().clone();
+        let headers = req.headers_mut();
+        if let Some(req_cookie) = headers.get_mut(header::COOKIE) {
+            if let Some(stored_cookie) = self.1.cookies(&url) {
+                let req_cookie_str = req_cookie.to_str().unwrap_or_default();
+                let stored_cookie_str = stored_cookie.to_str().unwrap_or_default();
+                let merged_cookie = merge_cookies(stored_cookie_str, req_cookie_str);
+                *req_cookie = merged_cookie.parse().map_err(mlua::Error::external)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn build_split(&mut self) -> LuaResult<(HttpClient, reqwest::Request)> {
+        let b = self.0.take().ok_or(mlua::Error::UserDataBorrowError)?;
+        let (client, req) = b.build_split();
+        let mut req = req.map_err(mlua::Error::external)?;
+        self.merge_cookies(&mut req)?;
+        Ok((client, req))
+    }
+
+    pub async fn send(&mut self) -> LuaResult<LuaResponse> {
+        let (client, req) = self.build_split()?;
+        let response = client.execute(req).await.map_err(mlua::Error::external)?;
+        Ok(LuaResponse(Some(response)))
+    }
+}
+
 impl UserData for LuaRequestBuilder {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_method_mut("send", |_, mut this, ()| async move {
-            let b = this.0.take().ok_or(mlua::Error::UserDataBorrowError)?;
-            let (client, req) = b.build_split();
-            let mut req = req.map_err(mlua::Error::external)?;
-            let url = req.url().clone();
-            let headers = req.headers_mut();
-            if let Some(req_cookie) = headers.get_mut(header::COOKIE) {
-                if let Some(stored_cookie) = this.1.cookies(&url) {
-                    let req_cookie_str = req_cookie.to_str().map_err(mlua::Error::external)?;
-                    let stored_cookie_str =
-                        stored_cookie.to_str().map_err(mlua::Error::external)?;
-                    let merged_cookie = merge_cookies(stored_cookie_str, req_cookie_str);
-                    *req_cookie = merged_cookie.parse().map_err(mlua::Error::external)?;
-                }
-            }
-            let response = client.execute(req).await.map_err(mlua::Error::external)?;
-            Ok(LuaResponse(Some(response)))
-        });
+        methods.add_async_method_mut("send", |_, mut this, ()| async move { this.send().await });
 
         methods.add_function_mut(
             "header",
@@ -271,8 +299,30 @@ fn merge_cookies(stored_cookie: &str, req_cookie_str: &str) -> String {
         .join("; ")
 }
 
-pub struct LuaBatchResponse {
-    pub responses: Vec<Response>,
+pub struct LuaBatchRequest(BatchRequest);
+
+impl UserData for LuaBatchRequest {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("add", |_, this, ud: LuaAnyUserData| {
+            let mut rsp = ud.borrow_mut::<LuaRequestBuilder>()?;
+            let (client, req) = rsp.build_split()?;
+            this.0.add(req, client);
+            Ok(())
+        });
+
+        methods.add_method("add_rsp", |_, this, ud: LuaAnyUserData| {
+            let mut rsp = ud.borrow_mut::<LuaResponse>()?;
+            this.0
+                .add_rsp(rsp.0.take().ok_or(mlua::Error::UserDataBorrowError)?);
+            Ok(())
+        });
+
+        methods.add_async_method("wait_one", |lua, this, ()| async move {
+            match this.0.wait_one().await {
+                Some(Ok(e)) => Ok(Some(lua.create_string(e)?)),
+                Some(Err(e)) => Err(mlua::Error::external(e)),
+                None => Ok(None),
+            }
+        });
+    }
 }
-
-

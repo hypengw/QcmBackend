@@ -34,6 +34,8 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
+bytes = "1"
+futures = "0.3"
 # client
 reqwest = { version = "0.12", features = ["json", "cookies", "stream"] }
 cookie_store = "0.21"
