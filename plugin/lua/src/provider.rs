@@ -220,9 +220,11 @@ impl Provider for LuaProvider {
             .await
             .map_err(ProviderError::from_err)?;
 
-        let txn = ctx.db.begin().await?;
-        db::sync::sync_drop_before(&txn, now).await?;
-        txn.commit().await?;
+        if let Some(id) = self.id() {
+            let txn = ctx.db.begin().await?;
+            db::sync::sync_drop_before(&txn, id, now).await?;
+            txn.commit().await?;
+        }
         Ok(())
     }
 

@@ -12,7 +12,7 @@ use tokio::{
 };
 
 use migration::{Migrator, MigratorTrait};
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 
 mod api;
 mod convert;
@@ -150,7 +150,24 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
         .sqlx_logging_level(log::LevelFilter::Debug)
         .sqlx_slow_statements_logging_settings(log::LevelFilter::Debug, Duration::from_secs(1));
 
+    // mmap_size 128MB
+    // journal_size_limit 64MB
+    // cache_size 8MB
     let db = Database::connect(opt).await?;
+    db.execute(sea_orm::Statement::from_string(
+        sea_orm::DatabaseBackend::Sqlite,
+        "
+            PRAGMA foreign_keys = ON;
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA mmap_size = 134217728;
+            PRAGMA journal_size_limit = 67108864;
+            PRAGMA cache_size = 2000;
+        "
+        .to_owned(),
+    ))
+    .await?;
 
     Migrator::up(&db, None).await?;
 
