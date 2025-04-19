@@ -356,20 +356,15 @@ impl LuaUserData for LuaContext {
                 a
             });
 
-            DbOper::insert(&txn, iter, &conflict, &exclude)
+            let out = DbOper::insert_return_key(&txn, iter, &conflict, &exclude)
                 .await
                 .map_err(mlua::Error::external)?;
             txn.commit().await.map_err(mlua::Error::external)?;
 
-            let ids: Vec<i64> = sqlm::library::Entity::find()
-                .filter(sqlm::library::Column::ProviderId.eq(this.1))
-                .select_only()
-                .column(sqlm::library::Column::LibraryId)
-                .into_tuple()
-                .all(&this.0.db)
-                .await
-                .map_err(mlua::Error::external)?;
-            Ok(ids)
+            match out {
+                TryInsertResult::Inserted(out) => Ok(out),
+                _ => Ok(Vec::new()),
+            }
         });
         methods.add_async_method("sync_albums", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::album::Model> = lua.from_value(models)?;
