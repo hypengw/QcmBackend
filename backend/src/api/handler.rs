@@ -65,7 +65,14 @@ pub async fn handle_request(
 
         match res {
             Ok(rsp) => Ok(rsp),
-            Err(ProcessError::NotFound | ProcessError::NoSuchItemType(_)) => {
+            Err(
+                ProcessError::NotFound
+                | ProcessError::NoSuchAlbum(_)
+                | ProcessError::NoSuchArtist(_)
+                | ProcessError::NoSuchSong(_)
+                | ProcessError::NoSuchMix(_)
+                | ProcessError::NoSuchItemType(_),
+            ) => {
                 let rsp = Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(ResponseBody::Empty)

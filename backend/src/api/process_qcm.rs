@@ -189,7 +189,10 @@ pub async fn process_qcm(
             if let Some(Payload::GetAlbumsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
 
+                log::info!("{:?}", &req.library_id);
+
                 let paginator = sqlm::album::Entity::find()
+                    .filter(sqlm::album::Column::LibraryId.is_in(req.library_id.clone()))
                     .order_by_asc(sqlm::album::Column::Id)
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
