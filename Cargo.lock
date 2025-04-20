@@ -1578,7 +1578,7 @@ checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 [[package]]
 name = "jellyfin-api"
 version = "0.1.0"
-source = "git+https://github.com/hypengw/qcm-jellyfin-plugin.git?branch=master#989e5f93c235c17b872993417f9b2f8f12bfe977"
+source = "git+https://github.com/hypengw/qcm-jellyfin-plugin.git?branch=master#80cd9f0345adbb362a7bda44fbad2ea20097bd65"
 dependencies = [
  "reqwest",
  "serde",
@@ -1742,6 +1742,7 @@ name = "migration"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "log",
  "qcm-core",
  "sea-orm-migration",
 ]
@@ -2395,7 +2396,7 @@ dependencies = [
 [[package]]
 name = "qcm-plugin-jellyfin"
 version = "0.1.0"
-source = "git+https://github.com/hypengw/qcm-jellyfin-plugin.git?branch=master#989e5f93c235c17b872993417f9b2f8f12bfe977"
+source = "git+https://github.com/hypengw/qcm-jellyfin-plugin.git?branch=master#80cd9f0345adbb362a7bda44fbad2ea20097bd65"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3214,9 +3215,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "signal-hook-registry"
-version = "1.4.2"
+version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9e9e0b4211b72e7b8b6e85c807d36c212bdb33ea8587f7569562a84df5465b1"
+checksum = "a1ee1aca2bc74ef9589efa7ccaa0f3752751399940356209b3fd80c078149b5e"
 dependencies = [
  "libc",
 ]
