@@ -232,6 +232,7 @@ pub async fn process_qcm(
                 let page_params = PageParams::new(req.page, req.page_size);
 
                 let paginator = sqlm::artist::Entity::find()
+                    .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;

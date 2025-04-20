@@ -11,9 +11,6 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let builder = manager.get_database_backend();
-        let schema = Schema::new(builder);
-
         manager
             .create_table(
                 Table::create()
@@ -131,7 +128,8 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk_album_library")
                             .from(album::Entity, album::Column::LibraryId)
-                            .to(library::Entity, library::Column::LibraryId),
+                            .to(library::Entity, library::Column::LibraryId)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
@@ -188,7 +186,8 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk_artist_library")
                             .from(artist::Entity, artist::Column::LibraryId)
-                            .to(library::Entity, library::Column::LibraryId),
+                            .to(library::Entity, library::Column::LibraryId)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
@@ -248,7 +247,8 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk_mix_provider")
                             .from(mix::Entity, mix::Column::ProviderId)
-                            .to(provider::Entity, provider::Column::ProviderId),
+                            .to(provider::Entity, provider::Column::ProviderId)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
@@ -261,17 +261,6 @@ impl MigrationTrait for Migration {
                 mix::Column::ProviderId
             ))
             .await?;
-
-        //        manager
-        //            .create_table(schema.create_table_from_entity(radio::Entity))
-        //            .await?;
-        //        manager
-        //            .create_index(unique_index!(
-        //                radio::Entity,
-        //                radio::Column::NativeId,
-        //                radio::Column::LibraryId
-        //            ))
-        //            .await?;
 
         manager
             .create_table(
@@ -326,13 +315,15 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk_song_library")
                             .from(song::Entity, song::Column::LibraryId)
-                            .to(library::Entity, library::Column::LibraryId),
+                            .to(library::Entity, library::Column::LibraryId)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_song_album")
                             .from(song::Entity, song::Column::AlbumId)
-                            .to(album::Entity, album::Column::Id),
+                            .to(album::Entity, album::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
@@ -343,111 +334,178 @@ impl MigrationTrait for Migration {
                 song::Column::NativeId,
                 song::Column::LibraryId
             ))
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(rel_album_artist::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(rel_album_artist::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_album_artist::Column::AlbumId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_album_artist::Column::ArtistId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_album_artist::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_album_artist_album")
+                            .from(rel_album_artist::Entity, rel_album_artist::Column::AlbumId)
+                            .to(album::Entity, album::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_album_artist_artist")
+                            .from(rel_album_artist::Entity, rel_album_artist::Column::ArtistId)
+                            .to(artist::Entity, artist::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(unique_index!(
+                rel_album_artist::Entity,
+                rel_album_artist::Column::AlbumId,
+                rel_album_artist::Column::ArtistId
+            ))
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(rel_song_artist::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::SongId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::ArtistId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_song_artist::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_song_artist_song")
+                            .from(rel_song_artist::Entity, rel_song_artist::Column::SongId)
+                            .to(song::Entity, song::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_song_artist_artist")
+                            .from(rel_song_artist::Entity, rel_song_artist::Column::ArtistId)
+                            .to(artist::Entity, artist::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(unique_index!(
+                rel_song_artist::Entity,
+                rel_song_artist::Column::SongId,
+                rel_song_artist::Column::ArtistId
+            ))
+            .await?;
+
+        // Add rel_mix_song table creation
+        manager
+            .create_table(
+                Table::create()
+                    .table(rel_mix_song::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::SongId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::MixId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::OrderIdx)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(rel_mix_song::Column::EditTime)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_mix_song_song")
+                            .from(rel_mix_song::Entity, rel_mix_song::Column::SongId)
+                            .to(song::Entity, song::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_rel_mix_song_mix")
+                            .from(rel_mix_song::Entity, rel_mix_song::Column::MixId)
+                            .to(mix::Entity, mix::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(unique_index!(
+                rel_mix_song::Entity,
+                rel_mix_song::Column::MixId,
+                rel_mix_song::Column::SongId
+            ))
             .await
     }
 
-    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        // Drop in reverse order - first indexes, then tables
-
-        // Drop indexes
-        manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        program::Entity,
-                        program::Column::NativeId,
-                        program::Column::LibraryId
-                    ))
-                    .table(program::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        song::Entity,
-                        song::Column::NativeId,
-                        song::Column::LibraryId
-                    ))
-                    .table(song::Entity)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        mix::Entity,
-                        mix::Column::NativeId,
-                        mix::Column::LibraryId
-                    ))
-                    .table(mix::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        artist::Entity,
-                        artist::Column::NativeId,
-                        artist::Column::LibraryId
-                    ))
-                    .table(artist::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        album::Entity,
-                        album::Column::NativeId,
-                        album::Column::LibraryId
-                    ))
-                    .table(album::Entity)
-                    .to_owned(),
-            )
-            .await?;
-
-        //        manager
-        //            .drop_index(
-        //                Index::drop()
-        //                    .name(unique_index_name!(
-        //                        radio::Entity,
-        //                        radio::Column::NativeId,
-        //                        radio::Column::LibraryId
-        //                    ))
-        //                    .table(radio::Entity)
-        //                    .to_owned(),
-        //            )
-        //            .await?;
-
-        // manager
-        //     .drop_table(Table::drop().table(program::Entity).to_owned())
-        //     .await?;
-        // manager
-        //     .drop_table(Table::drop().table(radio::Entity).to_owned())
-        //     .await?;
-
-        // Drop tables
-        manager
-            .drop_table(Table::drop().table(song::Entity).to_owned())
-            .await?;
-
-        manager
-            .drop_table(Table::drop().table(mix::Entity).to_owned())
-            .await?;
-        manager
-            .drop_table(Table::drop().table(artist::Entity).to_owned())
-            .await?;
-        manager
-            .drop_table(Table::drop().table(album::Entity).to_owned())
-            .await?;
-        manager
-            .drop_table(Table::drop().table(library::Entity).to_owned())
-            .await
+    async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
+        Ok(())
     }
 }

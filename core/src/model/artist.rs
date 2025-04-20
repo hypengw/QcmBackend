@@ -10,9 +10,14 @@ pub struct Model {
     pub native_id: String,
     pub name: String,
     pub library_id: i64,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub album_count: i32,
+    #[serde(default)]
     pub music_count: i32,
+    #[serde(default = "chrono::Utc::now")]
+    #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub edit_time: DateTimeUtc,
 }
 

@@ -162,17 +162,33 @@ async fn process_http_get_image(
             .await
         }
         ItemType::Artist => {
-            let (native_id, provider_id): (String, i64) = sqlm::artist::Entity::find_by_id(id)
-                .select_only()
-                .column(sqlm::artist::Column::NativeId)
-                .column(sqlm::library::Column::ProviderId)
-                .left_join(sqlm::library::Entity)
-                .into_tuple()
-                .one(db)
-                .await?
-                .ok_or(ProcessError::NoSuchArtist(id.to_string()))?;
+            let (native_id, provider_id, image_id): (String, i64, Option<String>) =
+                sqlm::artist::Entity::find_by_id(id)
+                    .select_only()
+                    .column(sqlm::artist::Column::NativeId)
+                    .column(sqlm::library::Column::ProviderId)
+                    .column(sqlm::image::Column::NativeId)
+                    .left_join(sqlm::library::Entity)
+                    .join(
+                        JoinType::LeftJoin,
+                        sqlm::artist::Relation::Image
+                            .def()
+                            .on_condition(gen_cond(ItemType::Artist, None))
+                            .into(),
+                    )
+                    .into_tuple()
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchArtist(id.to_string()))?;
 
-            media_get_image(ctx, provider_id, &native_id, None, image_type).await
+            media_get_image(
+                ctx,
+                provider_id,
+                &native_id,
+                image_id.as_deref(),
+                image_type,
+            )
+            .await
         }
         ItemType::Mix => {
             let (native_id, provider_id): (String, i64) = sqlm::mix::Entity::find_by_id(id)
@@ -194,7 +210,6 @@ pub async fn process_http_get(
     ctx: &Arc<BackendContext>,
     req: Request<Incoming>,
 ) -> Result<Response<ResponseBody>, ProcessError> {
-    log::warn!("url: {}", req.uri());
     let path_segments: Vec<&str> = req.uri().path().split('/').skip(1).collect();
 
     let parse_id = |id: &str| -> Result<i64, ProcessError> {

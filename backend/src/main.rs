@@ -169,6 +169,8 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
     ))
     .await?;
 
+    // custom migrator
+    Migrator::down(&db, None).await?;
     Migrator::up(&db, None).await?;
 
     Ok(db)

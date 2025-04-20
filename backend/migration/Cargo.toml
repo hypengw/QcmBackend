@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 qcm-core = {path = "../../core"}
+log = "0.4"
 async-std = { version = "1", features = ["attributes", "tokio1"] }
 
 [dependencies.sea-orm-migration]
