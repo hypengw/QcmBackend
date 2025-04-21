@@ -344,6 +344,15 @@ impl LuaUserData for LuaContext {
             }
             Ok(())
         });
+        methods.add_method("commit_song", |_, this, count: i32| {
+            if let Some(id) = this.1 {
+                let _ = this.0.ev_sender.try_send(CoreEvent::SyncCommit {
+                    id,
+                    commit: SyncCommit::AddSong(count),
+                });
+            }
+            Ok(())
+        });
 
         methods.add_async_method("sync_libraries", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::library::Model> = lua.from_value(models)?;
@@ -477,7 +486,7 @@ impl LuaUserData for LuaContext {
         );
         methods.add_async_method(
             "sync_album_artist_ids",
-            |lua, this, (library_id, models): (i64, LuaValue)| async move {
+            |lua, this, (models,): (LuaValue,)| async move {
                 let models: Vec<sqlm::rel_album_artist::Model> = lua.from_value(models)?;
                 let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
 
@@ -488,6 +497,31 @@ impl LuaUserData for LuaContext {
                 let exclude = [sqlm::rel_album_artist::Column::Id];
                 let iter = models.into_iter().map(|i| {
                     let mut a: sqlm::rel_album_artist::ActiveModel = i.into();
+                    a.id = NotSet;
+                    a
+                });
+
+                DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(())
+            },
+        );
+        methods.add_async_method(
+            "sync_song_artist_ids",
+            |lua, this, (models,): (LuaValue,)| async move {
+                let models: Vec<sqlm::rel_song_artist::Model> = lua.from_value(models)?;
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+
+                let conflict = [
+                    sqlm::rel_song_artist::Column::SongId,
+                    sqlm::rel_song_artist::Column::ArtistId,
+                ];
+                let exclude = [sqlm::rel_song_artist::Column::Id];
+                let iter = models.into_iter().map(|i| {
+                    let mut a: sqlm::rel_song_artist::ActiveModel = i.into();
                     a.id = NotSet;
                     a
                 });
