@@ -6,8 +6,8 @@ use tokio::sync::oneshot;
 
 use qcm_core::model as sqlm;
 use sea_orm::{
-    sea_query, ColumnTrait, EntityTrait, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, TransactionTrait,
+    sea_query, ColumnTrait, ConnectionTrait, EntityTrait, LoaderTrait, ModelTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, QueryTrait, TransactionTrait,
 };
 
 use crate::api::{self, pagination::PageParams};
@@ -15,8 +15,8 @@ use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
-    self, AddProviderRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp, MessageType,
-    QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
+    self, AddProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
+    MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
 
 fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
@@ -227,12 +227,44 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
-        MessageType::GetArtistsReq => {
-            if let Some(Payload::GetArtistsReq(req)) = payload {
+        MessageType::GetAlbumArtistsReq => {
+            if let Some(Payload::GetAlbumArtistsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
 
                 let paginator = sqlm::artist::Entity::find()
                     .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
+                    .inner_join(sqlm::rel_album_artist::Entity)
+                    .order_by_asc(sqlm::artist::Column::Id)
+                    .distinct()
+                    .paginate(&ctx.provider_context.db, page_params.page_size);
+
+                let total = paginator.num_items().await?;
+                let artists = paginator
+                    .fetch_page(page_params.page)
+                    .await?
+                    .into_iter()
+                    .map(|a| a.qcm_into())
+                    .collect();
+
+                let rsp = GetAlbumArtistsRsp {
+                    items: artists,
+                    extras: Vec::new(),
+                    total: total as i32,
+                    has_more: page_params.has_more(total),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetArtistsReq => {
+            if let Some(Payload::GetArtistsReq(req)) = payload {
+                let page_params = PageParams::new(req.page, req.page_size);
+
+
+                let paginator = sqlm::artist::Entity::find()
+                    .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
+                    .inner_join(sqlm::rel_song_artist::Entity)
+                    .order_by_asc(sqlm::artist::Column::Id)
+                    .distinct()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;

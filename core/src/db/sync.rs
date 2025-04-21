@@ -18,9 +18,22 @@ pub async fn sync_drop_before(
 
     sqlm::album::Entity::delete_many()
         .filter(sqlm::album::Column::EditTime.lt(now))
-        .filter(sqlm::album::Column::LibraryId.is_in(ids))
+        .filter(sqlm::album::Column::LibraryId.is_in(ids.clone()))
         .exec(txn)
         .await?;
+
+    sqlm::song::Entity::delete_many()
+        .filter(sqlm::song::Column::EditTime.lt(now))
+        .filter(sqlm::song::Column::LibraryId.is_in(ids.clone()))
+        .exec(txn)
+        .await?;
+
+    sqlm::artist::Entity::delete_many()
+        .filter(sqlm::artist::Column::EditTime.lt(now))
+        .filter(sqlm::artist::Column::LibraryId.is_in(ids))
+        .exec(txn)
+        .await?;
+
     Ok(())
 }
 

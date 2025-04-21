@@ -445,6 +445,7 @@ impl_from_for_qcm_msg!(GetAlbumsRsp);
 impl_from_for_qcm_msg!(GetAlbumRsp);
 
 impl_from_for_qcm_msg!(GetArtistsRsp);
+impl_from_for_qcm_msg!(GetAlbumArtistsRsp);
 impl_from_for_qcm_msg!(GetArtistRsp);
 impl_from_for_qcm_msg!(GetArtistAlbumRsp);
 

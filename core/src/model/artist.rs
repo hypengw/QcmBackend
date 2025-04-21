@@ -34,6 +34,10 @@ pub enum Relation {
         on_condition = r#"Expr::col(super::image::Column::ItemType).eq(ItemType::Artist)"#
     )]
     Image,
+    #[sea_orm(has_many = "super::rel_album_artist::Entity")]
+    RelAlbum,
+    #[sea_orm(has_many = "super::rel_song_artist::Entity")]
+    RelSong,
 }
 
 impl Related<super::library::Entity> for Entity {
@@ -46,7 +50,16 @@ impl Related<super::image::Entity> for Entity {
         Relation::Image.def()
     }
 }
-
+impl Related<super::rel_album_artist::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RelAlbum.def()
+    }
+}
+impl Related<super::rel_song_artist::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RelSong.def()
+    }
+}
 impl Related<super::album::Entity> for Entity {
     fn to() -> RelationDef {
         super::rel_album_artist::Relation::Album.def()
