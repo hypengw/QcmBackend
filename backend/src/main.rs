@@ -24,7 +24,6 @@ mod convert;
 mod error;
 mod event;
 mod global;
-mod media;
 mod msg;
 mod reverse;
 mod task;
@@ -74,6 +73,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let cache_db = prepare_cache_db(&args.data).await?;
 
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    global::set_shutdown_tx(shutdown_tx.clone());
 
     tokio::spawn(async move {
         let mut sigterm = signal(SignalKind::terminate()).unwrap();
