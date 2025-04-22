@@ -1,12 +1,16 @@
+use anyhow::anyhow;
 use futures_util::{SinkExt, Stream, StreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, Limited, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
 use hyper::{Request, Response};
 use qcm_core::http;
+use qcm_core::model::image;
 use qcm_core::{model as sql_model, model::type_enum::ImageType, Result};
 use sea_orm::EntityTrait;
 use std::sync::Arc;
 
+use super::connection::{parse_range, Connection};
+use super::process::ReverseEvent;
 use crate::error::{HttpError, ProcessError};
 use crate::event::BackendContext;
 use crate::reverse::body_type::ResponseBody;
@@ -49,11 +53,43 @@ pub async fn media_get_image(
         }
         builder
     };
-    let resp = builder
-        .status(status)
-        .body(ResponseBody::Boxed(BoxBody::new(s.map_err(|e| e.into()))))
-        .unwrap();
-    Ok(resp)
+
+    let range = headers
+        .get(hyper::header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| parse_range(s))
+        .transpose()?;
+
+    let cnn = Connection::new("", range, {
+        let provider_id = provider_id.clone();
+        let ctx = ctx.clone();
+        let item_id = item_id.to_string();
+        let image_id = image_id.map(|s| s.to_string());
+        move || async move {
+            let provider = qcm_core::global::provider(provider_id);
+            //    .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
+            Err(anyhow!(""))
+            //let resp = provider
+            //    .image(
+            //        &ctx.provider_context,
+            //        &item_id,
+            //        image_id.as_deref(),
+            //        image_type,
+            //    )
+            //    .await?;
+            //Ok(resp)
+        }
+    });
+
+    let rsp = {
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        ctx.reverse_ev
+            .send(ReverseEvent::NewConnection(cnn, tx))
+            .await?;
+
+        rx.await
+    };
+    rsp
 }
 
 pub async fn media_get_audio(

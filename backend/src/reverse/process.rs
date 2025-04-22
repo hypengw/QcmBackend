@@ -1,11 +1,14 @@
+use hyper_util::client::legacy::connect::Connected;
 use qcm_core::Result;
 
+use super::body_type::ResponseBody;
 use super::connection::Connection;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::oneshot;
 
 pub enum ReverseEvent {
-    NewConnection(Connection),
+    NewConnection(Connection, oneshot::Sender<Result<hyper::Response<ResponseBody>>>),
     Stop,
 }
 

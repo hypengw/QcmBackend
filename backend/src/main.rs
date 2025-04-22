@@ -135,6 +135,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 let db = db.clone();
                 let cache_db = cache_db.clone();
                 let oper = oper.clone();
+                let reverse_ev = reverse_event.clone();
                 let mut cnn_shutdown_rx = cnn_shutdown_rx.clone();
 
                 async move {
@@ -143,7 +144,8 @@ async fn main() -> Result<(), anyhow::Error> {
                         let db = db.clone();
                         let cache_db = cache_db.clone();
                         let oper = oper.clone();
-                        async move { handle_request(request, db, cache_db, oper).await }
+                        let reverse_ev = reverse_ev.clone();
+                        async move { handle_request(request, db, cache_db, oper, reverse_ev).await }
                     };
                     let connection = http
                         .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
