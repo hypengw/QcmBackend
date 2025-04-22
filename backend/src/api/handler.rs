@@ -173,6 +173,8 @@ async fn handle_ws(
         });
     }
 
+    log::info!("WebSocket connection closed");
+
     // end event process
     ctx.provider_context
         .ev_sender
@@ -183,6 +185,9 @@ async fn handle_ws(
         .send(event::BackendEvent::End)
         .await
         .unwrap();
+
+    // Only support one client, close self
+    bglobal::shutdown();
     return Ok(());
 }
 
