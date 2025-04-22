@@ -23,7 +23,7 @@ use tokio::sync::mpsc::Sender;
 use crate::convert::QcmInto;
 use crate::error::{HttpError, ProcessError};
 use crate::event::BackendContext;
-use crate::media::server::{media_get_audio, media_get_image};
+use crate::reverse::handler::{media_get_audio, media_get_image};
 use crate::msg::{self, QcmMessage, Rsp};
 use crate::reverse::body_type::ResponseBody;
 

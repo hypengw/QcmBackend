@@ -49,11 +49,14 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     use tracing_subscriber::{filter::LevelFilter, fmt, prelude::*, reload};
-    let (filter, reload_handle) = reload::Layer::new(LevelFilter::ERROR);
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::Layer::default())
-        .init();
+    let log_reload_handle = {
+        let (filter, reload_handle) = reload::Layer::new(LevelFilter::ERROR);
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::Layer::default())
+            .init();
+        reload_handle
+    };
 
     let args = Args::parse();
     let log_level = args
@@ -69,57 +72,96 @@ async fn main() -> Result<(), anyhow::Error> {
         (oper, mgr.start())
     };
 
+    // database
     let db = prepare_db(&args.data).await?;
     let cache_db = prepare_cache_db(&args.data).await?;
 
-    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
-    global::set_shutdown_tx(shutdown_tx.clone());
+    // shutdown watcher
+    let mut shutdown_rx = {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        global::set_shutdown_tx(shutdown_tx.clone());
 
-    tokio::spawn(async move {
-        let mut sigterm = signal(SignalKind::terminate()).unwrap();
-        let mut sigint = signal(SignalKind::interrupt()).unwrap();
-        loop {
-            tokio::select! {
-                _ = sigterm.recv() => {}
-                _ = sigint.recv() => {}
-            };
-            shutdown_tx.send(true).unwrap();
-        }
-    });
+        tokio::spawn(async move {
+            let mut sigterm = signal(SignalKind::terminate()).unwrap();
+            let mut sigint = signal(SignalKind::interrupt()).unwrap();
+            loop {
+                tokio::select! {
+                    _ = sigterm.recv() => {}
+                    _ = sigint.recv() => {}
+                };
+                shutdown_tx.send(true).unwrap();
+            }
+        });
+        shutdown_rx
+    };
+
+    let reverse_event = {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+        tokio::spawn({
+            async move {
+                match reverse::process::process_cache_event(&mut rx).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::error!("Error processing reverse event: {}", e);
+                    }
+                }
+            }
+        });
+
+        tx
+    };
 
     // Use port 0 if none specified (system will assign an available port)
     let listener = listen(args.port.unwrap_or(0)).await;
 
-    let _ = reload_handle.modify(|f| {
+    // enable logging after print port
+    let _ = log_reload_handle.modify(|f| {
         *f = log_level;
     });
 
+    // init other gloabl entry here for log
     qcm_core::global::load_from_db(&db).await;
 
-    let accept = |stream: TcpStream| {
-        let addr = stream
-            .peer_addr()
-            .expect("connected streams should have a peer address");
-        log::info!("New connection: {}", addr);
-        let db = db.clone();
-        let cache_db = cache_db.clone();
+    let accept = {
         let oper = oper.clone();
-        tokio::spawn(async move {
-            let http = hyper::server::conn::http1::Builder::new();
-            let service = |request: Request<Incoming>| {
+        let cnn_shutdown_rx = shutdown_rx.clone();
+        move |stream: TcpStream| {
+            let addr = stream
+                .peer_addr()
+                .expect("connected streams should have a peer address");
+
+            tokio::spawn({
+                // need double clone for multiple requests in one connection, `accept` is Fn
                 let db = db.clone();
                 let cache_db = cache_db.clone();
                 let oper = oper.clone();
-                async move { handle_request(request, db, cache_db, oper).await }
-            };
-            let connection = http
-                .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
-                .with_upgrades();
+                let mut cnn_shutdown_rx = cnn_shutdown_rx.clone();
 
-            if let Err(err) = connection.await {
-                log::error!("Error HTTP connection: {err:?}");
-            }
-        });
+                async move {
+                    let http = hyper::server::conn::http1::Builder::new();
+                    let service = |request: Request<Incoming>| {
+                        let db = db.clone();
+                        let cache_db = cache_db.clone();
+                        let oper = oper.clone();
+                        async move { handle_request(request, db, cache_db, oper).await }
+                    };
+                    let connection = http
+                        .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
+                        .with_upgrades();
+
+                    tokio::select! {
+                        res = connection => {
+                            if let Err(err) = res {
+                                log::error!("Error HTTP connection: {err:?}");
+                            }
+                        }
+                        _ = cnn_shutdown_rx.changed() => {
+                            log::info!("Shutting down connection: {}", addr);
+                        }
+                    }
+                }
+            });
+        }
     };
 
     loop {
@@ -134,16 +176,18 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
             _ = shutdown_rx.changed() => {
-                log::info!("Shutting down...");
+                log::info!("Shutting down acceptting");
                 break;
             }
         }
     }
 
-    // wait stop
+    // final
     {
+        log::info!("Shutting down task manager");
         oper.stop();
         let _ = taskmgr_handle.join();
+        log::info!("Task manager stopped");
     }
     Ok(())
 }
