@@ -1,6 +1,11 @@
 use anyhow;
 use clap::{self, Parser};
-use std::{collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    str::FromStr,
+    time::Duration,
+};
 use task::TaskManager;
 
 use hyper::{body::Incoming, Request};
@@ -11,7 +16,7 @@ use tokio::{
     sync::watch,
 };
 
-use migration::{Migrator, MigratorTrait};
+use migration::{CacheDBMigrator, Migrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 
 mod api;
@@ -65,7 +70,8 @@ async fn main() -> Result<(), anyhow::Error> {
         (oper, mgr.start())
     };
 
-    let db = prepare_db(args.data).await?;
+    let db = prepare_db(&args.data).await?;
+    let cache_db = prepare_cache_db(&args.data).await?;
 
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
 
@@ -96,13 +102,15 @@ async fn main() -> Result<(), anyhow::Error> {
             .expect("connected streams should have a peer address");
         log::info!("New connection: {}", addr);
         let db = db.clone();
+        let cache_db = cache_db.clone();
         let oper = oper.clone();
         tokio::spawn(async move {
             let http = hyper::server::conn::http1::Builder::new();
             let service = |request: Request<Incoming>| {
                 let db = db.clone();
+                let cache_db = cache_db.clone();
                 let oper = oper.clone();
-                async move { handle_request(request, db, oper).await }
+                async move { handle_request(request, db, cache_db, oper).await }
             };
             let connection = http
                 .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
@@ -140,9 +148,8 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> {
+async fn prepare_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
     let db_path = data.join("backend.db");
-    // TODO: add journal_mode=wal support
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
     let mut opt = sea_orm::ConnectOptions::new(db_url);
@@ -174,9 +181,41 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
     Migrator::up(&db, None).await?;
 
     Ok(db)
+}
 
-    // let pool = SqlitePool::connect(&db_url).await?;
-    // Ok(pool)
+async fn prepare_cache_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
+    let db_path = data.join("backend_cache.db");
+    let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
+
+    let mut opt = sea_orm::ConnectOptions::new(db_url);
+    opt.sqlx_logging(true)
+        .sqlx_logging_level(log::LevelFilter::Debug)
+        .sqlx_slow_statements_logging_settings(log::LevelFilter::Debug, Duration::from_secs(1));
+
+    // mmap_size 128MB
+    // journal_size_limit 64MB
+    // cache_size 8MB
+    let db = Database::connect(opt).await?;
+    db.execute(sea_orm::Statement::from_string(
+        sea_orm::DatabaseBackend::Sqlite,
+        "
+            PRAGMA foreign_keys = ON;
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA mmap_size = 134217728;
+            PRAGMA journal_size_limit = 67108864;
+            PRAGMA cache_size = 2000;
+        "
+        .to_owned(),
+    ))
+    .await?;
+
+    // custom migrator
+    CacheDBMigrator::down(&db, None).await?;
+    CacheDBMigrator::up(&db, None).await?;
+
+    Ok(db)
 }
 
 async fn listen(port: u16) -> TcpListener {

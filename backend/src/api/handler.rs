@@ -31,6 +31,7 @@ use super::process_event::{process_backend_event, process_event, ProcessContext}
 pub async fn handle_request(
     mut request: Request<Incoming>,
     db: DatabaseConnection,
+    cache_db: DatabaseConnection,
     oper: TaskManagerOper,
 ) -> Result<Response<ResponseBody>> {
     // if ws
@@ -39,7 +40,7 @@ pub async fn handle_request(
 
         // spawn to handle ws connect
         tokio::spawn(async move {
-            if let Err(e) = handle_ws(websocket, db, oper).await {
+            if let Err(e) = handle_ws(websocket, db, cache_db, oper).await {
                 log::error!("Error in websocket connection: {e}");
             }
         });
@@ -87,6 +88,7 @@ pub async fn handle_request(
 async fn handle_ws(
     ws: HyperWebsocket,
     db: DatabaseConnection,
+    cache_db: DatabaseConnection,
     oper: TaskManagerOper,
 ) -> Result<()> {
     let (mut ws_writer, ws_reader) = ws.await?.split();
@@ -98,6 +100,7 @@ async fn handle_ws(
     let ctx = Arc::new(BackendContext {
         provider_context: Arc::new(Context {
             db,
+            cache_db,
             ev_sender: ev_sender,
         }),
         bk_ev_sender,
