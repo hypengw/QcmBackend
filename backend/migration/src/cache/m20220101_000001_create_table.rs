@@ -31,7 +31,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(cache::Column::ContentLength)
-                            .big_integer()
+                            .big_unsigned()
                             .not_null(),
                     )
                     .col(ColumnDef::new(cache::Column::Blob).binary())

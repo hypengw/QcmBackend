@@ -1,5 +1,5 @@
 use super::type_enum::CacheType;
-use sea_orm::entity::prelude::*;
+use sea_orm::{entity::prelude::*, EntityOrSelect, FromQueryResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -12,7 +12,7 @@ pub struct Model {
     pub cache_type: CacheType,
 
     pub content_type: String,
-    pub content_length: i64,
+    pub content_length: u64,
 
     #[serde(default)]
     pub blob: Option<Vec<u8>>,
@@ -33,3 +33,52 @@ pub struct Model {
 pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
+
+#[derive(DerivePartialModel, FromQueryResult)]
+#[sea_orm(entity = "Entity")]
+pub struct Info {
+    pub id: i64,
+    pub cache_type: CacheType,
+    pub content_type: String,
+    pub content_length: u64,
+    pub filename: Option<String>,
+}
+
+pub async fn blob_chunk(
+    db: &DatabaseConnection,
+    id: Option<i64>,
+    key: Option<String>,
+    offset: u64,
+    chunk_size: u64,
+) -> Result<bytes::Bytes, sea_orm::DbErr> {
+    use sea_orm::QuerySelect;
+    let expr = match (id, key) {
+        (Some(id), _) => Column::Id.eq(id),
+        (None, Some(key)) => Column::Key.eq(key),
+        (None, None) => return Err(DbErr::Custom("query cache without filter".to_string())),
+    };
+    let chunk: Option<String> = Entity::find()
+        .filter(expr)
+        .select_only()
+        .column_as(
+            Expr::cust_with_values(
+                "substr(blob, ?, ?)",
+                [
+                    Value::BigUnsigned(Some(offset + 1)),
+                    Value::BigUnsigned(Some(chunk_size)),
+                ],
+            ),
+            "chunk",
+        )
+        .into_tuple()
+        .one(db)
+        .await?;
+    chunk
+        .map(|s| {
+            use bytes::BufMut;
+            let mut buf = bytes::BytesMut::new();
+            buf.put(s.as_bytes());
+            buf.freeze()
+        })
+        .ok_or(DbErr::Custom(String::new()))
+}

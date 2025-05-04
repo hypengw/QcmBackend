@@ -51,7 +51,8 @@ impl Body for RequestBody {
 */
 
 /* ------------------------------------ */
-pub type UnboundedStreamBody = StreamBody<UnboundedReceiver<Result<Frame<Bytes>, HttpError>>>;
+pub type StreamItem = Result<Frame<Bytes>, HttpError>;
+pub type UnboundedStreamBody = StreamBody<UnboundedReceiver<StreamItem>>;
 
 #[allow(unused)]
 /// Response body use in this project

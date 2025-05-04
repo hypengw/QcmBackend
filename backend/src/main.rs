@@ -96,10 +96,12 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     let reverse_event = {
+        let cache_db = cache_db.clone();
         let (tx, mut rx) = tokio::sync::mpsc::channel(100);
         tokio::spawn({
+            let tx = tx.clone();
             async move {
-                match reverse::process::process_cache_event(&mut rx).await {
+                match reverse::process::process_cache_event(tx, rx, cache_db).await {
                     Ok(_) => {}
                     Err(e) => {
                         log::error!("Error processing reverse event: {}", e);
@@ -217,6 +219,7 @@ async fn prepare_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
             PRAGMA mmap_size = 134217728;
             PRAGMA journal_size_limit = 67108864;
             PRAGMA cache_size = 2000;
+            PRAGMA auto_vacuum = 2;
         "
         .to_owned(),
     ))
@@ -252,6 +255,7 @@ async fn prepare_cache_db(data: &Path) -> Result<DatabaseConnection, anyhow::Err
             PRAGMA mmap_size = 134217728;
             PRAGMA journal_size_limit = 67108864;
             PRAGMA cache_size = 2000;
+            PRAGMA auto_vacuum = 2;
         "
         .to_owned(),
     ))

@@ -9,8 +9,8 @@ use qcm_core::{model as sql_model, model::type_enum::ImageType, Result};
 use sea_orm::EntityTrait;
 use std::sync::Arc;
 
-use super::connection::{parse_range, Connection};
-use super::process::ReverseEvent;
+use super::connection::{parse_range, Connection, Range};
+use super::process::{wrap_creator, ReverseEvent};
 use crate::error::{HttpError, ProcessError};
 use crate::event::BackendContext;
 use crate::reverse::body_type::ResponseBody;
@@ -22,12 +22,7 @@ pub async fn media_get_image(
     image_id: Option<&str>,
     image_type: ImageType,
 ) -> Result<Response<ResponseBody>, ProcessError> {
-    let provider = qcm_core::global::provider(provider_id)
-        .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
-    let resp = provider
-        .image(&ctx.provider_context, item_id, image_id, image_type)
-        .await?;
-
+    /*
     let status = resp.status();
     let headers = resp.headers().clone();
     let stream = resp.bytes_stream().map(|f| f.map(|b| Frame::data(b)));
@@ -53,43 +48,54 @@ pub async fn media_get_image(
         }
         builder
     };
+    */
 
-    let range = headers
-        .get(hyper::header::RANGE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| parse_range(s))
-        .transpose()?;
+    // let range = headers
+    //     .get(hyper::header::RANGE)
+    //     .and_then(|v| v.to_str().ok())
+    //     .map(|s| parse_range(s))
+    //     .transpose()?;
 
-    let cnn = Connection::new("", range, {
-        let provider_id = provider_id.clone();
+    let create_rsp = {
         let ctx = ctx.clone();
         let item_id = item_id.to_string();
         let image_id = image_id.map(|s| s.to_string());
-        move || async move {
-            let provider = qcm_core::global::provider(provider_id);
-            //    .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
-            Err(anyhow!(""))
-            //let resp = provider
-            //    .image(
-            //        &ctx.provider_context,
-            //        &item_id,
-            //        image_id.as_deref(),
-            //        image_type,
-            //    )
-            //    .await?;
-            //Ok(resp)
+        move |_: bool, _r: Option<Range>| {
+            let ctx = ctx.clone();
+            let item_id = item_id.clone();
+            let image_id = image_id.clone();
+            async move {
+                let provider = qcm_core::global::provider(provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
+                let resp = provider
+                    .image(
+                        &ctx.provider_context,
+                        &item_id,
+                        image_id.as_deref(),
+                        image_type,
+                    )
+                    .await?;
+                Ok(resp)
+            }
         }
-    });
+    };
+
+    let cnn = Connection::new("", None);
 
     let rsp = {
-        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = tokio::sync::oneshot::channel();
         ctx.reverse_ev
-            .send(ReverseEvent::NewConnection(cnn, tx))
+            .send(ReverseEvent::NewConnection(
+                cnn,
+                wrap_creator(create_rsp),
+                tx,
+            ))
             .await?;
 
         rx.await
+            .map_err(|e| ProcessError::Internal(anyhow!("{}", e)))?
     };
-    rsp
+    Ok(rsp?)
 }
 
 pub async fn media_get_audio(
