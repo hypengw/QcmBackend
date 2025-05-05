@@ -35,7 +35,6 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(cache::Column::Blob).binary())
-                    .col(ColumnDef::new(cache::Column::Filename).string())
                     .col(
                         ColumnDef::new(cache::Column::Timestamp)
                             .timestamp()

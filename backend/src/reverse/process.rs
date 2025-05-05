@@ -1,6 +1,7 @@
+use bytes::BufMut;
 use bytes::{Buf, Bytes};
 use futures::channel::mpsc::UnboundedSender;
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use http_body_util::StreamBody;
 use hyper_util::client::legacy::connect::Connected;
 use qcm_core::model as sqlm;
@@ -16,6 +17,7 @@ use crate::reverse::connection::range_in_full;
 use reqwest::Response;
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::io::Read;
 use std::io::{Seek, Write};
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -34,12 +36,21 @@ type Creator = Box<
         + 'static,
 >;
 
+#[derive(Debug, Clone)]
+enum ReadState {
+    Reading(u64),
+    Paused,
+    End,
+}
+
 enum EventBus {
     RequestRead(String, i64, u64),
-    ReadedBuf(i64, u64, Bytes),
-    ReadFinish(i64, u64, bool),
-    RealRequest(i64),
-    Write(i64, u64, Bytes),
+    RequestReadIoRsp(i64, Option<piece::Piece>),
+    ReadedBuf(i64, Bytes, ReadState),
+    ReadContinue(i64),
+    DoRead,
+    NewRemoteFile(String, RemoteFileInfo, reqwest::Response),
+    NewConnection(i64, Sender<ConnectionEvent>),
     EndConnection(i64),
 }
 
@@ -49,8 +60,7 @@ pub enum ReverseEvent {
         Creator,
         oneshot::Sender<Result<hyper::Response<ResponseBody>, hyper::Error>>,
     ),
-    AddCommon(String, ConnectCommonResource),
-    EndConnection(String),
+    NewRemoteFile(String, RemoteFileInfo, reqwest::Response),
     Stop,
 }
 
@@ -62,31 +72,26 @@ where
 }
 
 enum ConnectionEvent {
-    ReadedBuf(Bytes),
-    ReadFinish(u64, bool),
+    ReadedBuf(Bytes, ReadState),
     RealRequest,
 }
 
 enum IoEvent {
-    RequestRead(String, i64),
-    Read(String, i64),
-    Write(String, u64, Bytes, Option<(PathBuf, u64)>),
-}
-
-struct ConnectCommonResource {
-    info: RemoteFileInfo,
+    RequestRead(String, i64, u64),
+    DoRead,
+    ReadContinue(i64),
+    NewWrite(String, u64, oneshot::Sender<bool>),
+    Write(Arc<String>, u64, Bytes),
 }
 
 struct ConnectResource {
     pub tx: Sender<ConnectionEvent>,
 }
 
-struct ProcessCtx {
-    pub common: BTreeMap<String, ConnectCommonResource>,
-}
+struct ProcessCtx {}
 
 #[derive(Clone, Debug, PartialEq)]
-struct RemoteFileInfo {
+pub struct RemoteFileInfo {
     content_type: String,
     content_length: u64,
     accept_ranges: bool,
@@ -136,32 +141,72 @@ pub async fn process_cache_event(
     tx: Sender<ReverseEvent>,
     rx: Receiver<ReverseEvent>,
     db: DatabaseConnection,
+    cache_dir: PathBuf,
 ) -> Result<()> {
-    let mut ctx = Box::new(ProcessCtx {
-        common: BTreeMap::new(),
-    });
+    let mut ctx = Box::new(ProcessCtx {});
     let mut rx = rx;
 
-    let (io_tx, io_handle) = {
-        let tx = tx.clone();
-        let (io_tx, io_rx) = std::sync::mpsc::channel();
-        let handle = std::thread::spawn(move || {
-            process_io(tx, io_rx);
-        });
-        (io_tx, handle)
-    };
-
+    let (io_tx, io_rx) = std::sync::mpsc::channel();
     let bus_tx: Sender<EventBus> = {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(20);
+        let (bus_tx, mut rx) = tokio::sync::mpsc::channel(20);
+        let tx = tx.clone();
+        let io_tx = io_tx.clone();
         tokio::spawn(async move {
-            let resource = BTreeMap::<i64, ConnectResource>::new();
+            let mut resource = BTreeMap::<i64, ConnectResource>::new();
             loop {
                 match rx.recv().await {
-                    _ => {}
+                    Some(ev) => match ev {
+                        EventBus::RequestRead(key, id, cursor) => {
+                            let _ = io_tx.send(IoEvent::RequestRead(key, id, cursor));
+                        }
+                        EventBus::RequestReadIoRsp(id, piece) => match piece {
+                            None => {
+                                if let Some(c) = resource.get(&id) {
+                                    if let Err(_) = c.tx.try_send(ConnectionEvent::RealRequest) {
+                                        resource.remove(&id);
+                                    }
+                                }
+                            }
+                            Some(_) => {}
+                        },
+                        EventBus::ReadedBuf(id, bytes, state) => {
+                            if let Some(c) = resource.get(&id) {
+                                if let Err(_) =
+                                    c.tx.send(ConnectionEvent::ReadedBuf(bytes, state)).await
+                                {
+                                    resource.remove(&id);
+                                }
+                            }
+                        }
+                        EventBus::ReadContinue(id) => {
+                            let _ = io_tx.send(IoEvent::ReadContinue(id));
+                        }
+                        EventBus::NewConnection(id, cnn_tx) => {
+                            resource.insert(id, ConnectResource { tx: cnn_tx });
+                        }
+                        EventBus::EndConnection(id) => {
+                            resource.remove(&id);
+                        }
+                        EventBus::DoRead => {
+                            let _ = io_tx.send(IoEvent::DoRead);
+                        }
+                        EventBus::NewRemoteFile(key, info, rsp) => {
+                            let _ = tx.send(ReverseEvent::NewRemoteFile(key, info, rsp)).await;
+                        }
+                    },
+                    None => {
+                        break;
+                    }
                 }
             }
         });
-        tx
+        bus_tx
+    };
+    let io_handle = {
+        let bus_tx = bus_tx.clone();
+        std::thread::spawn(move || {
+            process_io(bus_tx, io_rx, cache_dir);
+        })
     };
 
     let mut cnn_id: i64 = 0;
@@ -172,13 +217,10 @@ pub async fn process_cache_event(
         match rx.recv().await {
             Some(ev) => match ev {
                 ReverseEvent::NewConnection(cnn, ct, rsp_tx) => {
-                    let ev_tx = tx.clone();
                     let bus_tx = bus_tx.clone();
                     let (cnn_tx, cnn_rx) = tokio::sync::mpsc::channel(10);
                     let cache_info = sqlm::cache::Entity::find()
-                        .select_only()
                         .filter(sqlm::cache::Column::Key.eq(cnn.key.clone()))
-                        .into_partial_model::<sqlm::cache::Info>()
                         .one(&db)
                         .await?;
 
@@ -197,16 +239,7 @@ pub async fn process_cache_event(
                                     }),
                                 },
                                 None => match real_request(&ct, true, cnn.range).await {
-                                    Ok((info, _)) => {
-                                        let _ = ev_tx
-                                            .send(ReverseEvent::AddCommon(
-                                                cnn.key.clone(),
-                                                ConnectCommonResource { info: info.clone() },
-                                            ))
-                                            .await;
-
-                                        info
-                                    }
+                                    Ok((info, _)) => info,
                                     Err(_) => {
                                         log::error!("get remote file info failed");
                                         return;
@@ -265,11 +298,20 @@ pub async fn process_cache_event(
                         };
                         match rsp_tx.send(Ok(rsp)) {
                             Ok(_) => {
+                                let _ = bus_tx.send(EventBus::NewConnection(cnn_id, cnn_tx)).await;
                                 let _ = process_connection(
-                                    cnn, cnn_id, bus_tx, cnn_rx, info, stream_tx, cache_info, db,
+                                    cnn,
+                                    cnn_id,
+                                    bus_tx.clone(),
+                                    cnn_rx,
+                                    info,
+                                    stream_tx,
+                                    cache_info,
+                                    db,
                                     ct,
                                 )
                                 .await;
+                                let _ = bus_tx.send(EventBus::EndConnection(cnn_id)).await;
                             }
                             Err(_) => {
                                 return;
@@ -277,11 +319,50 @@ pub async fn process_cache_event(
                         }
                     });
                 }
-                ReverseEvent::AddCommon(key, common) => {
-                    ctx.common.insert(key, common);
+                ReverseEvent::NewRemoteFile(key, info, rsp) => {
+                    let io_tx = io_tx.clone();
+                    tokio::spawn(async move {
+                        let mut cursor =
+                            info.content_range.as_ref().map(|cr| cr.start).unwrap_or(0);
+                        let mut stream = rsp.bytes_stream();
+
+                        {
+                            let (tx, rx) = oneshot::channel();
+                            let _ = io_tx.send(IoEvent::NewWrite(
+                                key.clone(),
+                                info.content_range
+                                    .as_ref()
+                                    .map(|cr| cr.full)
+                                    .unwrap_or(info.content_length),
+                                tx,
+                            ));
+
+                            match rx.await {
+                                Ok(true) => {}
+                                _ => {
+                                    return;
+                                }
+                            }
+                        }
+
+                        let key = Arc::new(key);
+                        while let Some(bytes) = stream.next().await {
+                            match bytes {
+                                Ok(bytes) => {
+                                    let len = bytes.len();
+                                    let _ = io_tx.send(IoEvent::Write(key.clone(), cursor, bytes));
+                                    cursor += len as u64;
+                                }
+                                Err(e) => {
+                                    log::error!("{:?}", e);
+                                }
+                            }
+                        }
+                    });
                 }
-                ReverseEvent::EndConnection(key) => {}
-                ReverseEvent::Stop => {}
+                ReverseEvent::Stop => {
+                    break;
+                }
             },
             None => {
                 break;
@@ -301,23 +382,16 @@ async fn process_connection(
     rx: Receiver<ConnectionEvent>,
     remote_info: RemoteFileInfo,
     stream_tx: UnboundedSender<StreamItem>,
-    cache_info: Option<sqlm::cache::Info>,
+    cache_info: Option<sqlm::cache::Model>,
     db: DatabaseConnection,
     ct: Creator,
 ) -> Result<()> {
     let range = cnn.range;
     let mut rx = rx;
-    let mut cursor: u64 = match range.map(|r| r.start) {
+    let start = match range.map(|r| r.start) {
         Some(http_range_header::StartPosition::Index(pos)) => pos,
         Some(http_range_header::StartPosition::FromLast(pos)) => match remote_info.content_range {
-            Some(cr) => {
-                if cr.full < pos {
-                    log::error!("");
-                    return Ok(());
-                } else {
-                    cr.full - (pos + 1)
-                }
-            }
+            Some(cr) => cr.full - (pos + 1),
             None => {
                 log::error!("unknown remote file size");
                 return Ok(());
@@ -325,21 +399,25 @@ async fn process_connection(
         },
         None => 0,
     };
+    let mut cursor = start;
     let mut stream_tx = stream_tx;
-    let mut retry = 3;
 
-    match cache_info {
-        Some(cache_info) => {
-            while cursor != cache_info.content_length {
-                let size = std::cmp::min(512, cache_info.content_length - cursor);
-                match sqlm::cache::blob_chunk(&db, Some(cache_info.id), None, cursor, 512).await {
-                    Ok(bytes) => stream_tx.send(Ok(hyper::body::Frame::data(bytes))).await?,
-                    Err(e) => {
-                        log::error!("{:?}", e);
-                        return Ok(());
-                    }
-                };
-                cursor += size;
+    match cache_info.and_then(|info| info.blob) {
+        Some(bytes) => {
+            let cursor = cursor as usize;
+            let len = bytes.len();
+            match bytes.as_slice().get(cursor..len) {
+                Some(bytes) => {
+                    let mut buf = bytes::BytesMut::new();
+                    buf.put(bytes);
+
+                    stream_tx
+                        .send(Ok(hyper::body::Frame::data(buf.freeze())))
+                        .await?;
+                }
+                _ => {
+                    log::error!("out of range");
+                }
             }
         }
         None => {
@@ -350,21 +428,38 @@ async fn process_connection(
             loop {
                 match rx.recv().await {
                     Some(ev) => match ev {
-                        ConnectionEvent::ReadedBuf(bs) => {
+                        ConnectionEvent::ReadedBuf(bs, state) => {
                             use futures_util::SinkExt;
+                            cursor += bs.len() as u64;
                             stream_tx.send(Ok(hyper::body::Frame::data(bs))).await?;
-                        }
-                        ConnectionEvent::ReadFinish(pos, finished) => {
-                            cursor = pos;
-                            if finished {
-                                break;
-                            }
 
-                            let _ = bus_tx.send(EventBus::RequestRead(cnn.key.clone(), id, cursor));
+                            match state {
+                                ReadState::Paused => {
+                                    let _ = bus_tx.send(EventBus::ReadContinue(id)).await?;
+                                }
+                                ReadState::End => {
+                                    if start + remote_info.content_length > cursor {
+                                        let _ = bus_tx
+                                            .send(EventBus::RequestRead(
+                                                cnn.key.clone(),
+                                                id,
+                                                cursor,
+                                            ))
+                                            .await?;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                         ConnectionEvent::RealRequest => {
                             match real_request(&ct, false, range).await {
-                                Ok((_info, rsp)) => {}
+                                Ok((info, rsp)) => {
+                                    let _ = bus_tx
+                                        .send(EventBus::NewRemoteFile(cnn.key.clone(), info, rsp))
+                                        .await?;
+                                }
                                 Err(e) => {
                                     log::error!("{:?}", e);
                                 }
@@ -387,75 +482,207 @@ struct DownloadFile {
     file: std::fs::File,
 }
 
-fn process_io(tx: tokio::sync::mpsc::Sender<ReverseEvent>, rx: std::sync::mpsc::Receiver<IoEvent>) {
-    let mut readers = BTreeMap::<i64, std::fs::File>::new();
+struct Reader {
+    file: std::fs::File,
+    piece: piece::Piece,
+    state: ReadState,
+}
+
+fn process_io(
+    tx: tokio::sync::mpsc::Sender<EventBus>,
+    rx: std::sync::mpsc::Receiver<IoEvent>,
+    cache_dir: PathBuf,
+) {
+    let create_cache_file = |key: &str| -> std::io::Result<(std::fs::File, PathBuf)> {
+        let dir = cache_dir.join(key.get(0..2).unwrap_or("00"));
+        let file = dir.join(key);
+        let _ = std::fs::create_dir_all(&dir)?;
+        std::fs::File::create(&file).map(|f| (f, file))
+    };
+    let get_cache_file =
+        |key: &str, cursor: u64| -> std::io::Result<(std::fs::File, u64, PathBuf)> {
+            let dir = cache_dir.join(key.get(0..2).unwrap_or("00"));
+            let file = dir.join(key);
+            std::fs::File::open(&file).and_then(|mut f| {
+                f.seek(std::io::SeekFrom::End(0))?;
+                let len = f.stream_position()?;
+                f.seek(std::io::SeekFrom::Start(cursor))?;
+                Ok((f, len, file))
+            })
+        };
+
+    let mut readers = BTreeMap::<i64, Reader>::new();
     let mut writers = BTreeMap::<String, DownloadFile>::new();
+
     loop {
         match rx.recv() {
             Ok(ev) => match ev {
-                IoEvent::RequestRead(key, id) => {}
-                IoEvent::Read(key, id) => {
-                    match readers.get_mut(&id) {
-                        Some(file) => {}
-                        None => {}
-                    }
-                    // if let Some(c) = contents.get(&key) {
-                    //     // match c {}
-                    // }
-                }
-                IoEvent::Write(key, offset, bytes, path_and_len) => {
-                    match (writers.contains_key(&key), path_and_len) {
-                        (false, Some((path, len))) => {
-                            match std::fs::File::create(&path)
-                                .and_then(|f| f.set_len(len).map(|_| f))
-                            {
-                                Ok(file) => {
-                                    writers.insert(
-                                        key.clone(),
-                                        DownloadFile {
-                                            meta: piece::FileMeta {
-                                                path,
-                                                len,
-                                                pieces: BTreeMap::new(),
-                                            },
-                                            file,
+                IoEvent::RequestRead(key, id, cursor) => {
+                    let p = {
+                        match writers.get_mut(&key) {
+                            Some(f) => match f.meta.longest_piece(cursor) {
+                                Some(p) => {
+                                    let _ = f.file.flush();
+                                    match readers.get_mut(&id) {
+                                        Some(reader) => {
+                                            match reader.file.seek(std::io::SeekFrom::Start(cursor))
+                                            {
+                                                Err(e) => {
+                                                    log::error!("{:?}", e);
+                                                    None
+                                                }
+                                                _ => {
+                                                    reader.piece = p.clone();
+                                                    reader.state = ReadState::Reading(0);
+                                                    Some(p)
+                                                }
+                                            }
+                                        }
+                                        None => match std::fs::File::open(&f.meta.path) {
+                                            Ok(mut file) => {
+                                                match file.seek(std::io::SeekFrom::Start(cursor)) {
+                                                    Err(e) => {
+                                                        log::error!("{:?}", e);
+                                                        None
+                                                    }
+                                                    _ => {
+                                                        readers.insert(
+                                                            id,
+                                                            Reader {
+                                                                file: file,
+                                                                piece: p.clone(),
+                                                                state: ReadState::Reading(0),
+                                                            },
+                                                        );
+                                                        Some(p)
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                log::error!("{:?}", e);
+                                                None
+                                            }
+                                        },
+                                    }
+                                }
+                                None => None,
+                            },
+                            None => match get_cache_file(&key, cursor) {
+                                Ok((file, len, _)) => {
+                                    let p = piece::Piece {
+                                        offset: 0,
+                                        length: len - (cursor + 1),
+                                    };
+                                    readers.insert(
+                                        id,
+                                        Reader {
+                                            file: file,
+                                            piece: p.clone(),
+                                            state: ReadState::Reading(0),
                                         },
                                     );
+                                    Some(p)
                                 }
                                 Err(e) => {
                                     log::error!("{:?}", e);
-                                    return;
+                                    None
                                 }
-                            }
+                            },
                         }
-                        (false, None) => {
-                            log::error!("no writer and no path");
+                    };
+                    let _ = tx.try_send(EventBus::RequestReadIoRsp(id, p));
+                }
+                IoEvent::ReadContinue(id) => {
+                    if let Some(reader) = readers.get_mut(&id) {
+                        reader.state = ReadState::Reading(0);
+                    }
+                }
+                IoEvent::DoRead => {
+                    // 64K
+                    let mut buf = [0; 64 * 1024];
+                    readers
+                        .iter_mut()
+                        .filter(|(_, v)| match v.state {
+                            ReadState::Reading(_) => true,
+                            _ => false,
+                        })
+                        .for_each(|(id, v)| match v.file.read(&mut buf) {
+                            Ok(size) => {
+                                let mut bytes_buf = bytes::BytesMut::new();
+                                bytes_buf.put(&buf[0..size]);
+                                let _ = tx.try_send(EventBus::ReadedBuf(
+                                    *id,
+                                    bytes_buf.freeze(),
+                                    v.state.clone(),
+                                ));
+                            }
+                            Err(_) => {}
+                        });
+                }
+                IoEvent::NewWrite(key, len, res) => match writers.contains_key(key.as_str()) {
+                    false => match create_cache_file(key.as_str()) {
+                        Ok((file, path)) => {
+                            writers.insert(
+                                key.clone(),
+                                DownloadFile {
+                                    meta: piece::FileMeta {
+                                        path,
+                                        len,
+                                        pieces: BTreeMap::new(),
+                                    },
+                                    file,
+                                },
+                            );
+                            let _ = res.send(true);
+                        }
+                        Err(e) => {
+                            log::error!("{:?}", e);
+                            let _ = res.send(false);
+                            continue;
+                        }
+                    },
+                    _ => {}
+                },
+                IoEvent::Write(key, offset, bytes) => {
+                    let mut do_write = |key: &str| {
+                        let f = match writers.get_mut(key) {
+                            Some(f) => f,
+                            None => {
+                                return;
+                            }
+                        };
+
+                        let seeked = f.file.seek(std::io::SeekFrom::Start(offset));
+                        if seeked.map(|s| s != offset).unwrap_or(true) {
+                            let path = f.meta.path.clone();
+                            log::error!("seek file failed: {}", &path.to_str().unwrap_or_default());
+                            writers.remove(key);
+                            let _ = std::fs::remove_file(path.clone());
                             return;
                         }
-                        (_, _) => {}
-                    }
-
-                    let f = writers.get_mut(&key).unwrap();
-                    let seeked = f.file.seek(std::io::SeekFrom::Start(offset));
-                    if seeked.map(|s| s != offset).unwrap_or(true) {
-                        let path = f.meta.path.clone();
-                        log::error!("seek file failed: {}", &path.to_str().unwrap_or_default());
-                        writers.remove(&key);
-                        let _ = std::fs::remove_file(path.clone());
-                        return;
-                    }
-                    let writed = f.file.write(&bytes);
-                    if writed.map(|w| w != bytes.len()).unwrap_or(true) {
-                        let path = f.meta.path.clone();
-                        log::error!("write file failed: {}", &path.to_str().unwrap_or_default());
-                        writers.remove(&key);
-                        let _ = std::fs::remove_file(path.clone());
-                        return;
-                    }
+                        let writed = f.file.write(&bytes);
+                        if writed.map(|w| w != bytes.len()).unwrap_or(true) {
+                            let path = f.meta.path.clone();
+                            log::error!(
+                                "write file failed: {}",
+                                &path.to_str().unwrap_or_default()
+                            );
+                            writers.remove(key);
+                            let _ = std::fs::remove_file(path.clone());
+                            return;
+                        }
+                    };
+                    do_write(key.as_str())
                 }
             },
             Err(_) => {
                 break;
+            }
+        }
+
+        for (_, v) in readers.iter() {
+            if let ReadState::Reading(_) = v.state {
+                let _ = tx.try_send(EventBus::DoRead);
             }
         }
     }

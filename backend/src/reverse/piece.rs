@@ -1,8 +1,9 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
+#[derive(Debug,Clone)]
 pub struct Piece {
-    offset: u64,
-    length: u64,
+    pub offset: u64,
+    pub length: u64,
 }
 
 pub struct FileMeta {

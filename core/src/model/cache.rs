@@ -17,9 +17,6 @@ pub struct Model {
     #[serde(default)]
     pub blob: Option<Vec<u8>>,
 
-    #[serde(default)]
-    pub filename: Option<String>,
-
     #[serde(default = "chrono::Utc::now")]
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub timestamp: DateTimeUtc,
@@ -33,16 +30,6 @@ pub struct Model {
 pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
-
-#[derive(DerivePartialModel, FromQueryResult)]
-#[sea_orm(entity = "Entity")]
-pub struct Info {
-    pub id: i64,
-    pub cache_type: CacheType,
-    pub content_type: String,
-    pub content_length: u64,
-    pub filename: Option<String>,
-}
 
 pub async fn blob_chunk(
     db: &DatabaseConnection,

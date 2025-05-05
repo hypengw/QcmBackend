@@ -1,5 +1,6 @@
 use anyhow;
 use clap::{self, Parser};
+use reverse::process::ReverseEvent;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -36,6 +37,10 @@ struct Args {
     /// Data directory path
     #[arg(short, long)]
     data: PathBuf,
+
+    /// Cache directory path
+    #[arg(short, long)]
+    cache: PathBuf,
 
     /// Port to listen on, auto if not set
     #[arg(short, long)]
@@ -95,13 +100,21 @@ async fn main() -> Result<(), anyhow::Error> {
         shutdown_rx
     };
 
-    let reverse_event = {
+    let reverse_ev = {
         let cache_db = cache_db.clone();
-        let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+        let cache_dir = args.cache.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(512);
         tokio::spawn({
             let tx = tx.clone();
             async move {
-                match reverse::process::process_cache_event(tx, rx, cache_db).await {
+                match reverse::process::process_cache_event(
+                    tx,
+                    rx,
+                    cache_db,
+                    cache_dir.join("QcmBackend"),
+                )
+                .await
+                {
                     Ok(_) => {}
                     Err(e) => {
                         log::error!("Error processing reverse event: {}", e);
@@ -127,6 +140,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let accept = {
         let oper = oper.clone();
         let cnn_shutdown_rx = shutdown_rx.clone();
+        let reverse_ev = reverse_ev.clone();
         move |stream: TcpStream| {
             let addr = stream
                 .peer_addr()
@@ -137,7 +151,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 let db = db.clone();
                 let cache_db = cache_db.clone();
                 let oper = oper.clone();
-                let reverse_ev = reverse_event.clone();
+                let reverse_ev = reverse_ev.clone();
                 let mut cnn_shutdown_rx = cnn_shutdown_rx.clone();
 
                 async move {
@@ -188,6 +202,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // final
     {
+        let _ = reverse_ev.send(ReverseEvent::Stop);
+
         log::info!("Shutting down task manager");
         oper.stop();
         let _ = taskmgr_handle.join();

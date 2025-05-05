@@ -12,3 +12,5 @@ qcm-core = { path = "./core" }
 [profile.release]
 lto = "fat"
 strip = "debuginfo"
+codegen-units = 1
+panic = "abort"
