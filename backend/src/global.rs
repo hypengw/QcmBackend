@@ -7,13 +7,15 @@ use std::sync::{Arc, Mutex};
 use crate::event::BackendContext;
 
 struct Global {
-    pub contexts: BTreeMap<i64, Arc<BackendContext>>,
+    contexts: BTreeMap<i64, Arc<BackendContext>>,
+    shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl Global {
     fn new() -> Self {
         Self {
             contexts: BTreeMap::new(),
+            shutdown_tx: None,
         }
     }
 }
@@ -33,4 +35,16 @@ pub fn reg_context(port: i64, c: Arc<BackendContext>) {
 pub fn unreg_context(port: i64) {
     let mut g = GLOBAL.lock().unwrap();
     g.contexts.remove(&port);
+}
+
+pub fn set_shutdown_tx(tx: tokio::sync::watch::Sender<bool>) {
+    let mut g = GLOBAL.lock().unwrap();
+    g.shutdown_tx = Some(tx);
+}
+
+pub fn shutdown() {
+    let g = GLOBAL.lock().unwrap();
+    if let Some(tx) = &g.shutdown_tx {
+        let _ = tx.send(true);
+    }
 }

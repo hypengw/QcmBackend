@@ -16,6 +16,7 @@ pub mod song;
 
 pub mod image;
 pub mod cache;
+pub mod cache_part;
 
 pub mod rel_album_artist;
 pub mod rel_mix_song;

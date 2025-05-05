@@ -18,6 +18,8 @@ use strum_macros::{Display, EnumString};
 pub enum CacheType {
     Image = 0,
     Audio = 1,
+    M3u = 2,
+    AudioTs = 3,
 }
 
 #[derive(

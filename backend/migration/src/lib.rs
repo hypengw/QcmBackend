@@ -1,7 +1,4 @@
-use log::info;
 pub use sea_orm_migration::{prelude::*, Migration, MigrationStatus};
-
-use std::collections::HashSet;
 
 mod cache;
 mod drop;
@@ -9,8 +6,7 @@ mod m20220101_000003_create_table;
 mod m20250418_145233_create_table;
 
 pub struct Migrator;
-pub struct MigratorDrop;
-pub struct MigratorCacheDB;
+pub use cache::CacheDBMigrator;
 
 #[macro_export]
 macro_rules! unique_index_name {

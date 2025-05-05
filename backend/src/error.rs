@@ -1,6 +1,7 @@
 use prost;
 
 use hyper;
+use qcm_core::anyhow;
 use sea_orm::error as orm_error;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -81,6 +82,8 @@ pub enum HttpError {
     Reqwest(#[from] reqwest::Error),
     #[error("Hyper body error: {0}")]
     HyperBody(#[from] hyper::Error),
+    #[error("Unsupported range: {0}")]
+    UnsupportedRange(String),
     #[error("Infallible")]
     Infallible(#[from] std::convert::Infallible),
 }
@@ -88,6 +91,7 @@ pub enum HttpError {
 impl From<HttpError> for ProcessError {
     fn from(e: HttpError) -> Self {
         match e {
+            HttpError::UnsupportedRange(e) => ProcessError::Internal(anyhow!("{}", e)),
             HttpError::Reqwest(e) => ProcessError::Internal(e.into()),
             HttpError::HyperBody(e) => ProcessError::HyperBody(e),
             HttpError::Infallible(e) => ProcessError::Infallible(e),

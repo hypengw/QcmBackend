@@ -1,4 +1,5 @@
-use crate::task::TaskManagerOper;
+use super::task::TaskManagerOper;
+use super::reverse::process::ReverseEvent;
 pub use qcm_core::event::Event;
 pub use qcm_core::event::SyncCommit;
 use qcm_core::{self, provider};
@@ -15,7 +16,8 @@ pub enum BackendEvent {
 
 pub struct BackendContext {
     pub provider_context: Arc<provider::Context>,
-    pub bk_ev_sender: Sender<BackendEvent>,
+    pub backend_ev: Sender<BackendEvent>,
     pub ws_sender: Sender<WsMessage>,
     pub oper: TaskManagerOper,
+    pub reverse_ev: Sender<ReverseEvent>,
 }

@@ -5,12 +5,13 @@ use crate::api::process_http::process_http_post;
 use crate::convert::*;
 use crate::global as bglobal;
 use crate::msg::{self, QcmMessage, Rsp};
-use crate::reverse::body_type::ResponseBody;
+use crate::reverse;
 use crate::task::TaskManagerOper;
 use crate::{
     error::ProcessError,
     event::{self, BackendContext, BackendEvent},
 };
+use crate::{reverse::body_type::ResponseBody, reverse::process::ReverseEvent};
 use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
@@ -31,7 +32,9 @@ use super::process_event::{process_backend_event, process_event, ProcessContext}
 pub async fn handle_request(
     mut request: Request<Incoming>,
     db: DatabaseConnection,
+    cache_db: DatabaseConnection,
     oper: TaskManagerOper,
+    reverse_ev: tokio::sync::mpsc::Sender<ReverseEvent>,
 ) -> Result<Response<ResponseBody>> {
     // if ws
     if hyper_tungstenite::is_upgrade_request(&request) {
@@ -39,7 +42,7 @@ pub async fn handle_request(
 
         // spawn to handle ws connect
         tokio::spawn(async move {
-            if let Err(e) = handle_ws(websocket, db, oper).await {
+            if let Err(e) = handle_ws(websocket, db, cache_db, oper, reverse_ev).await {
                 log::error!("Error in websocket connection: {e}");
             }
         });
@@ -87,7 +90,9 @@ pub async fn handle_request(
 async fn handle_ws(
     ws: HyperWebsocket,
     db: DatabaseConnection,
+    cache_db: DatabaseConnection,
     oper: TaskManagerOper,
+    reverse_ev: tokio::sync::mpsc::Sender<ReverseEvent>,
 ) -> Result<()> {
     let (mut ws_writer, ws_reader) = ws.await?.split();
 
@@ -98,11 +103,13 @@ async fn handle_ws(
     let ctx = Arc::new(BackendContext {
         provider_context: Arc::new(Context {
             db,
+            cache_db,
             ev_sender: ev_sender,
         }),
-        bk_ev_sender,
+        backend_ev: bk_ev_sender,
         ws_sender,
         oper,
+        reverse_ev,
     });
 
     // TODO: reg context by real port
@@ -154,7 +161,7 @@ async fn handle_ws(
         }
     });
 
-    let _ = ctx.bk_ev_sender.try_send(BackendEvent::Frist);
+    let _ = ctx.backend_ev.try_send(BackendEvent::Frist);
 
     // receive from ws
     // let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
@@ -170,16 +177,21 @@ async fn handle_ws(
         });
     }
 
+    log::info!("WebSocket connection closed");
+
     // end event process
     ctx.provider_context
         .ev_sender
         .send(event::Event::End)
         .await
         .unwrap();
-    ctx.bk_ev_sender
+    ctx.backend_ev
         .send(event::BackendEvent::End)
         .await
         .unwrap();
+
+    // Only support one client, close self
+    bglobal::shutdown();
     return Ok(());
 }
 

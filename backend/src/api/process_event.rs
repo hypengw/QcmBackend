@@ -65,7 +65,7 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
         }
         Event::SyncCommit { id, commit } => {
             let _ = ctx
-                .bk_ev_sender
+                .backend_ev
                 .try_send(BackendEvent::SyncCommit { id, commit });
         }
         Event::End => return Ok(true),

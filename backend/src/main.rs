@@ -1,6 +1,12 @@
 use anyhow;
 use clap::{self, Parser};
-use std::{collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
+use reverse::process::ReverseEvent;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    str::FromStr,
+    time::Duration,
+};
 use task::TaskManager;
 
 use hyper::{body::Incoming, Request};
@@ -11,7 +17,7 @@ use tokio::{
     sync::watch,
 };
 
-use migration::{Migrator, MigratorTrait};
+use migration::{CacheDBMigrator, Migrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 
 mod api;
@@ -19,7 +25,6 @@ mod convert;
 mod error;
 mod event;
 mod global;
-mod media;
 mod msg;
 mod reverse;
 mod task;
@@ -33,6 +38,10 @@ struct Args {
     #[arg(short, long)]
     data: PathBuf,
 
+    /// Cache directory path
+    #[arg(short, long)]
+    cache: PathBuf,
+
     /// Port to listen on, auto if not set
     #[arg(short, long)]
     port: Option<u16>,
@@ -45,11 +54,14 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     use tracing_subscriber::{filter::LevelFilter, fmt, prelude::*, reload};
-    let (filter, reload_handle) = reload::Layer::new(LevelFilter::ERROR);
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::Layer::default())
-        .init();
+    let log_reload_handle = {
+        let (filter, reload_handle) = reload::Layer::new(LevelFilter::ERROR);
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::Layer::default().with_line_number(true).with_file(true))
+            .init();
+        reload_handle
+    };
 
     let args = Args::parse();
     let log_level = args
@@ -65,53 +77,109 @@ async fn main() -> Result<(), anyhow::Error> {
         (oper, mgr.start())
     };
 
-    let db = prepare_db(args.data).await?;
+    // database
+    let db = prepare_db(&args.data).await?;
+    let cache_db = prepare_cache_db(&args.data).await?;
 
-    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    // shutdown watcher
+    let mut shutdown_rx = {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        global::set_shutdown_tx(shutdown_tx.clone());
 
-    tokio::spawn(async move {
-        let mut sigterm = signal(SignalKind::terminate()).unwrap();
-        let mut sigint = signal(SignalKind::interrupt()).unwrap();
-        loop {
-            tokio::select! {
-                _ = sigterm.recv() => {}
-                _ = sigint.recv() => {}
-            };
-            shutdown_tx.send(true).unwrap();
-        }
-    });
+        tokio::spawn(async move {
+            let mut sigterm = signal(SignalKind::terminate()).unwrap();
+            let mut sigint = signal(SignalKind::interrupt()).unwrap();
+            loop {
+                tokio::select! {
+                    _ = sigterm.recv() => {}
+                    _ = sigint.recv() => {}
+                };
+                shutdown_tx.send(true).unwrap();
+            }
+        });
+        shutdown_rx
+    };
+
+    let reverse_ev = {
+        let cache_db = cache_db.clone();
+        let cache_dir = args.cache.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(512);
+        tokio::spawn({
+            let tx = tx.clone();
+            async move {
+                match reverse::process::process_cache_event(
+                    tx,
+                    rx,
+                    cache_db,
+                    cache_dir.join("QcmBackend"),
+                )
+                .await
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::error!("Error processing reverse event: {}", e);
+                    }
+                }
+            }
+        });
+
+        tx
+    };
 
     // Use port 0 if none specified (system will assign an available port)
     let listener = listen(args.port.unwrap_or(0)).await;
 
-    let _ = reload_handle.modify(|f| {
+    // enable logging after print port
+    let _ = log_reload_handle.modify(|f| {
         *f = log_level;
     });
 
+    // init other gloabl entry here for log
     qcm_core::global::load_from_db(&db).await;
 
-    let accept = |stream: TcpStream| {
-        let addr = stream
-            .peer_addr()
-            .expect("connected streams should have a peer address");
-        log::info!("New connection: {}", addr);
-        let db = db.clone();
+    let accept = {
         let oper = oper.clone();
-        tokio::spawn(async move {
-            let http = hyper::server::conn::http1::Builder::new();
-            let service = |request: Request<Incoming>| {
-                let db = db.clone();
-                let oper = oper.clone();
-                async move { handle_request(request, db, oper).await }
-            };
-            let connection = http
-                .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
-                .with_upgrades();
+        let cnn_shutdown_rx = shutdown_rx.clone();
+        let reverse_ev = reverse_ev.clone();
+        move |stream: TcpStream| {
+            let addr = stream
+                .peer_addr()
+                .expect("connected streams should have a peer address");
 
-            if let Err(err) = connection.await {
-                log::error!("Error HTTP connection: {err:?}");
-            }
-        });
+            tokio::spawn({
+                // need double clone for multiple requests in one connection, `accept` is Fn
+                let db = db.clone();
+                let cache_db = cache_db.clone();
+                let oper = oper.clone();
+                let reverse_ev = reverse_ev.clone();
+                let mut cnn_shutdown_rx = cnn_shutdown_rx.clone();
+
+                async move {
+                    let http = hyper::server::conn::http1::Builder::new();
+                    let service = |request: Request<Incoming>| {
+                        let db = db.clone();
+                        let cache_db = cache_db.clone();
+                        let oper = oper.clone();
+                        let reverse_ev = reverse_ev.clone();
+                        async move { handle_request(request, db, cache_db, oper, reverse_ev).await }
+                    };
+                    let connection = http
+                        .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
+                        .with_upgrades();
+
+                    tokio::select! {
+                        res = connection => {
+                            if let Err(err) = res {
+                                log::error!("Error HTTP connection: {err:?}");
+                            }
+                        }
+                        _ = cnn_shutdown_rx.changed() => {
+                            log::info!("Shutting down connection: {}", addr);
+                        }
+                    }
+                }
+            });
+        }
     };
 
     loop {
@@ -126,23 +194,26 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
             _ = shutdown_rx.changed() => {
-                log::info!("Shutting down...");
+                log::info!("Shutting down acceptting");
                 break;
             }
         }
     }
 
-    // wait stop
+    // final
     {
+        let _ = reverse_ev.send(ReverseEvent::Stop);
+
+        log::info!("Shutting down task manager");
         oper.stop();
         let _ = taskmgr_handle.join();
+        log::info!("Task manager stopped");
     }
     Ok(())
 }
 
-async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> {
+async fn prepare_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
     let db_path = data.join("backend.db");
-    // TODO: add journal_mode=wal support
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
     let mut opt = sea_orm::ConnectOptions::new(db_url);
@@ -164,6 +235,7 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
             PRAGMA mmap_size = 134217728;
             PRAGMA journal_size_limit = 67108864;
             PRAGMA cache_size = 2000;
+            PRAGMA auto_vacuum = 2;
         "
         .to_owned(),
     ))
@@ -174,9 +246,42 @@ async fn prepare_db(data: PathBuf) -> Result<DatabaseConnection, anyhow::Error> 
     Migrator::up(&db, None).await?;
 
     Ok(db)
+}
 
-    // let pool = SqlitePool::connect(&db_url).await?;
-    // Ok(pool)
+async fn prepare_cache_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
+    let db_path = data.join("backend_cache.db");
+    let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
+
+    let mut opt = sea_orm::ConnectOptions::new(db_url);
+    opt.sqlx_logging(true)
+        .sqlx_logging_level(log::LevelFilter::Debug)
+        .sqlx_slow_statements_logging_settings(log::LevelFilter::Debug, Duration::from_secs(1));
+
+    // mmap_size 128MB
+    // journal_size_limit 64MB
+    // cache_size 8MB
+    let db = Database::connect(opt).await?;
+    db.execute(sea_orm::Statement::from_string(
+        sea_orm::DatabaseBackend::Sqlite,
+        "
+            PRAGMA foreign_keys = ON;
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA mmap_size = 134217728;
+            PRAGMA journal_size_limit = 67108864;
+            PRAGMA cache_size = 2000;
+            PRAGMA auto_vacuum = 2;
+        "
+        .to_owned(),
+    ))
+    .await?;
+
+    // custom migrator
+    CacheDBMigrator::down(&db, None).await?;
+    CacheDBMigrator::up(&db, None).await?;
+
+    Ok(db)
 }
 
 async fn listen(port: u16) -> TcpListener {

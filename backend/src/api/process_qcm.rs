@@ -104,7 +104,7 @@ pub async fn process_qcm(
                                 global::add_provider(provider.clone());
                                 global::set_tmp_provider(None);
 
-                                ctx.bk_ev_sender
+                                ctx.backend_ev
                                     .send(BackendEvent::NewProvider { id })
                                     .await?;
                                 rsp.code = msg::model::AuthResult::Ok.into();

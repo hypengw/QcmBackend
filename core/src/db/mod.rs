@@ -3,7 +3,8 @@ pub mod values;
 pub use const_chunks::IteratorConstChunks;
 use sea_orm::{
     sea_query::{self, IntoIden, IntoIndexColumn},
-    ActiveModelTrait, DatabaseTransaction, EntityTrait, InsertResult, TryInsertResult,
+    ActiveModelTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, InsertResult,
+    TryInsertResult,
 };
 use strum::IntoEnumIterator;
 
@@ -151,3 +152,4 @@ impl<const N: usize> DbChunkOper<N> {
         Ok(out)
     }
 }
+

@@ -50,6 +50,7 @@ impl Default for AuthMethod {
 #[derive(Clone, Debug)]
 pub struct Context {
     pub db: DatabaseConnection,
+    pub cache_db: DatabaseConnection,
     pub ev_sender: Sender<Event>,
 }
 
