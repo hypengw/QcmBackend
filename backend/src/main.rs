@@ -58,7 +58,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let (filter, reload_handle) = reload::Layer::new(LevelFilter::ERROR);
         tracing_subscriber::registry()
             .with(filter)
-            .with(fmt::Layer::default())
+            .with(fmt::Layer::default().with_line_number(true).with_file(true))
             .init();
         reload_handle
     };

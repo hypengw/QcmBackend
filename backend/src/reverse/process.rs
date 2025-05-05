@@ -50,6 +50,7 @@ enum EventBus {
     ReadContinue(i64),
     DoRead,
     NewRemoteFile(String, RemoteFileInfo, reqwest::Response),
+    FinishFile(String),
     NewConnection(i64, Sender<ConnectionEvent>),
     EndConnection(i64),
 }
@@ -193,6 +194,7 @@ pub async fn process_cache_event(
                         EventBus::NewRemoteFile(key, info, rsp) => {
                             let _ = tx.send(ReverseEvent::NewRemoteFile(key, info, rsp)).await;
                         }
+                        EventBus::FinishFile(key) => {}
                     },
                     None => {
                         break;
@@ -484,6 +486,7 @@ struct DownloadFile {
 
 struct Reader {
     file: std::fs::File,
+    key: String,
     piece: piece::Piece,
     state: ReadState,
 }
@@ -495,7 +498,7 @@ fn process_io(
 ) {
     let create_cache_file = |key: &str| -> std::io::Result<(std::fs::File, PathBuf)> {
         let dir = cache_dir.join(key.get(0..2).unwrap_or("00"));
-        let file = dir.join(key);
+        let file = dir.join(key).with_extension("downloading");
         let _ = std::fs::create_dir_all(&dir)?;
         std::fs::File::create(&file).map(|f| (f, file))
     };
@@ -550,6 +553,7 @@ fn process_io(
                                                             id,
                                                             Reader {
                                                                 file: file,
+                                                                key: key,
                                                                 piece: p.clone(),
                                                                 state: ReadState::Reading(0),
                                                             },
@@ -571,22 +575,20 @@ fn process_io(
                                 Ok((file, len, _)) => {
                                     let p = piece::Piece {
                                         offset: 0,
-                                        length: len - (cursor + 1),
+                                        length: len - cursor,
                                     };
                                     readers.insert(
                                         id,
                                         Reader {
                                             file: file,
+                                            key: key,
                                             piece: p.clone(),
                                             state: ReadState::Reading(0),
                                         },
                                     );
                                     Some(p)
                                 }
-                                Err(e) => {
-                                    log::error!("{:?}", e);
-                                    None
-                                }
+                                Err(_) => None,
                             },
                         }
                     };
@@ -606,17 +608,40 @@ fn process_io(
                             ReadState::Reading(_) => true,
                             _ => false,
                         })
-                        .for_each(|(id, v)| match v.file.read(&mut buf) {
-                            Ok(size) => {
-                                let mut bytes_buf = bytes::BytesMut::new();
-                                bytes_buf.put(&buf[0..size]);
-                                let _ = tx.try_send(EventBus::ReadedBuf(
-                                    *id,
-                                    bytes_buf.freeze(),
-                                    v.state.clone(),
-                                ));
+                        .for_each(|(id, v)| {
+                            let mut cur = match v.state {
+                                ReadState::Reading(o) => o,
+                                _ => 0,
+                            };
+                            let len = std::cmp::min((v.piece.length - cur) as usize, 64 * 1024);
+
+                            match v.file.read(&mut buf[0..len]) {
+                                Ok(size) => {
+                                    let mut bytes_buf = bytes::BytesMut::new();
+                                    bytes_buf.put(&buf[0..size]);
+                                    cur += size as u64;
+                                    if cur == v.piece.length {
+                                        v.state = ReadState::End;
+                                    } else {
+                                        if cur >= 64 * 1024 {
+                                            v.piece.length -= cur;
+                                            v.state = ReadState::Paused;
+                                        } else {
+                                            v.state = ReadState::Reading(cur);
+                                        }
+                                    }
+
+                                    let _ = tx.try_send(EventBus::ReadedBuf(
+                                        *id,
+                                        bytes_buf.freeze(),
+                                        v.state.clone(),
+                                    ));
+                                }
+                                Err(e) => {
+                                    log::error!("{:?}", e);
+                                    let _ = tx.try_send(EventBus::EndConnection(*id));
+                                }
                             }
-                            Err(_) => {}
                         });
                 }
                 IoEvent::NewWrite(key, len, res) => match writers.contains_key(key.as_str()) {
@@ -644,35 +669,70 @@ fn process_io(
                     _ => {}
                 },
                 IoEvent::Write(key, offset, bytes) => {
-                    let mut do_write = |key: &str| {
+                    let mut do_write = |key: &str| -> std::io::Result<()> {
                         let f = match writers.get_mut(key) {
                             Some(f) => f,
                             None => {
-                                return;
+                                return Ok(());
                             }
                         };
-
-                        let seeked = f.file.seek(std::io::SeekFrom::Start(offset));
-                        if seeked.map(|s| s != offset).unwrap_or(true) {
+                        f.file.seek(std::io::SeekFrom::Start(offset))?;
+                        f.file.write(&bytes)?;
+                        f.meta.combine(piece::Piece {
+                            offset,
+                            length: bytes.len() as u64,
+                        });
+                        if f.meta.is_end() {
                             let path = f.meta.path.clone();
-                            log::error!("seek file failed: {}", &path.to_str().unwrap_or_default());
                             writers.remove(key);
-                            let _ = std::fs::remove_file(path.clone());
-                            return;
-                        }
-                        let writed = f.file.write(&bytes);
-                        if writed.map(|w| w != bytes.len()).unwrap_or(true) {
-                            let path = f.meta.path.clone();
-                            log::error!(
-                                "write file failed: {}",
-                                &path.to_str().unwrap_or_default()
+                            let mut tmp = BTreeMap::<i64, (piece::Piece, ReadState)>::new();
+                            for (id, v) in readers.iter() {
+                                if v.key == key {
+                                    tmp.insert(*id, (v.piece.clone(), v.state.clone()));
+                                }
+                            }
+                            for (id, _) in tmp.iter() {
+                                readers.remove(id);
+                            }
+                            let old = path;
+                            let path = old.with_file_name(
+                                old.file_stem().and_then(|s| s.to_str()).unwrap_or(key),
                             );
-                            writers.remove(key);
-                            let _ = std::fs::remove_file(path.clone());
-                            return;
+
+                            std::fs::rename(&old, &path)?;
+                            let _ = tx.try_send(EventBus::FinishFile(key.to_string()));
+
+                            for (id, (piece, state)) in tmp {
+                                match std::fs::File::open(&path).and_then(|mut f| {
+                                    f.seek(std::io::SeekFrom::Start(
+                                        piece.offset
+                                            + match state {
+                                                ReadState::Reading(o) => o,
+                                                _ => 0,
+                                            },
+                                    ))?;
+                                    Ok(f)
+                                }) {
+                                    Ok(file) => {
+                                        readers.insert(
+                                            id,
+                                            Reader {
+                                                file,
+                                                key: key.to_string(),
+                                                piece,
+                                                state,
+                                            },
+                                        );
+                                    }
+                                    _ => continue,
+                                }
+                            }
                         }
+                        Ok(())
                     };
-                    do_write(key.as_str())
+                    if let Err(e) = do_write(key.as_str()) {
+                        log::error!("{:?}", e);
+                    }
                 }
             },
             Err(_) => {
