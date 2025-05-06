@@ -10,7 +10,7 @@ use qcm_core::{model as sql_model, model::type_enum::ImageType, Result};
 use sea_orm::EntityTrait;
 use std::sync::Arc;
 
-use super::connection::{parse_range, Connection, Range};
+use super::connection::{format_range, parse_range, Connection, Range};
 use super::process::{wrap_creator, ReverseEvent};
 use crate::error::{HttpError, ProcessError};
 use crate::event::BackendContext;
@@ -47,7 +47,12 @@ pub async fn media_get_image(
         }
     };
 
-    let key = format!("{}{}{}", item_id, image_id.unwrap_or_default(), image_type);
+    let key = format!(
+        "image{}{}{}",
+        item_id,
+        image_id.unwrap_or_default(),
+        image_type
+    );
     let key = crypto::digest(crypto::MessageDigest::md5(), key.as_bytes())
         .map(|data| String::from_utf8_lossy(&crypto::hex::encode_low(&data)).to_string())
         .map_err(|_| ProcessError::Internal(anyhow!("md5 error")))?;
@@ -76,6 +81,55 @@ pub async fn media_get_audio(
     native_id: &str,
     headers: http::HeaderMap,
 ) -> Result<Response<ResponseBody>, ProcessError> {
+    let create_rsp = {
+        let ctx = ctx.clone();
+        let native_id = native_id.to_string();
+        let headers = headers.clone();
+        move |_: bool, r: Option<Range>| {
+            let ctx = ctx.clone();
+            let native_id = native_id.clone();
+            let mut headers = headers.clone();
+            if let Some(r) = r {
+                headers.insert(
+                    hyper::header::RANGE,
+                    hyper::header::HeaderValue::from_str(&format_range(&r)).unwrap(),
+                );
+            }
+
+            async move {
+                let provider = qcm_core::global::provider(provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
+                let resp = provider
+                    .audio(&ctx.provider_context, &native_id, Some(headers))
+                    .await?;
+                Ok(resp)
+            }
+        }
+    };
+
+    let key = format!("audio{}", native_id);
+    let key = crypto::digest(crypto::MessageDigest::md5(), key.as_bytes())
+        .map(|data| String::from_utf8_lossy(&crypto::hex::encode_low(&data)).to_string())
+        .map_err(|_| ProcessError::Internal(anyhow!("md5 error")))?;
+
+    let cnn = Connection::new(&key, None);
+
+    let rsp = {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        ctx.reverse_ev
+            .send(ReverseEvent::NewConnection(
+                cnn,
+                wrap_creator(create_rsp),
+                tx,
+            ))
+            .await?;
+
+        rx.await
+            .map_err(|e| ProcessError::Internal(anyhow!("{}", e)))?
+    };
+    Ok(rsp?)
+
+    /*
     let provider = qcm_core::global::provider(provider_id)
         .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
     let resp = provider
@@ -112,4 +166,5 @@ pub async fn media_get_audio(
         .body(ResponseBody::Boxed(BoxBody::new(s.map_err(|e| e.into()))))
         .unwrap();
     Ok(resp)
+     */
 }

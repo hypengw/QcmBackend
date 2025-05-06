@@ -21,17 +21,32 @@ impl FileMeta {
             .map(|(_, p)| p.clone())
     }
 
-    pub fn combine(&mut self, p: Piece) {
+    pub fn piece_of(&self, start: u64) -> Option<Piece> {
+        self.longest_piece(start).map(|mut p| {
+            p.length = p.offset + p.length - start;
+            p.offset = start;
+            p
+        })
+    }
+
+    pub fn combine(&mut self, p: Piece) -> bool {
         let mut merged = p.clone();
         let mut to_remove = Vec::new();
 
         for (offset, existing) in self.pieces.range(..) {
-            if existing.offset + existing.length == p.offset {
-                merged.offset = existing.offset;
-                merged.length += existing.length;
-                to_remove.push(*offset);
-            } else if p.offset + p.length == existing.offset {
-                merged.length += existing.length;
+            if existing.offset <= p.offset
+                && existing.offset + existing.length >= p.offset + p.length
+            {
+                return false;
+            }
+
+            if (existing.offset <= p.offset && existing.offset + existing.length >= p.offset)
+                || (p.offset <= existing.offset && p.offset + p.length >= existing.offset)
+            {
+                let old_offset = merged.offset;
+                merged.offset = merged.offset.min(existing.offset);
+                merged.length = (old_offset + merged.length).max(existing.offset + existing.length)
+                    - merged.offset;
                 to_remove.push(*offset);
             }
         }
@@ -40,6 +55,7 @@ impl FileMeta {
             self.pieces.remove(&offset);
         }
         self.pieces.insert(merged.offset, merged);
+        return true;
     }
 
     pub fn is_end(&self) -> bool {

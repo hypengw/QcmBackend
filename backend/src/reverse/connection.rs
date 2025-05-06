@@ -55,6 +55,26 @@ pub fn default_range() -> Range {
     }
 }
 
+pub fn format_range(r: &Range) -> String {
+    match (r.start, r.end) {
+        (
+            http_range_header::StartPosition::Index(start),
+            http_range_header::EndPosition::Index(end),
+        ) => {
+            format!("bytes={}-{}", start, end)
+        }
+        (
+            http_range_header::StartPosition::Index(start),
+            http_range_header::EndPosition::LastByte,
+        ) => {
+            format!("bytes={}-", start)
+        }
+        (http_range_header::StartPosition::FromLast(start), _) => {
+            format!("bytes=-{}", start)
+        }
+    }
+}
+
 pub fn range_in_full(r: &Range, full: u64) -> bool {
     match r.start {
         http_range_header::StartPosition::Index(offset) => {

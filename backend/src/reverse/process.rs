@@ -22,6 +22,7 @@ use std::io::{Seek, Write};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::oneshot;
@@ -46,10 +47,11 @@ enum ReadState {
 enum EventBus {
     RequestRead(String, i64, u64),
     RequestReadIoRsp(i64, Option<piece::Piece>),
+    DoRealRequest(i64),
     ReadedBuf(i64, Bytes, ReadState),
     ReadContinue(i64),
     DoRead,
-    NewRemoteFile(String, RemoteFileInfo, reqwest::Response),
+    NewRemoteFile(String, i64, RemoteFileInfo, reqwest::Response),
     FinishFile(String),
     NewConnection(i64, Sender<ConnectionEvent>),
     EndConnection(i64),
@@ -61,7 +63,9 @@ pub enum ReverseEvent {
         Creator,
         oneshot::Sender<Result<hyper::Response<ResponseBody>, hyper::Error>>,
     ),
-    NewRemoteFile(String, RemoteFileInfo, reqwest::Response),
+    NewRemoteFile(String, i64, RemoteFileInfo, reqwest::Response),
+    RequestReadIoRsp(i64, Option<piece::Piece>),
+    EndConnection(i64),
     Stop,
 }
 
@@ -89,7 +93,14 @@ struct ConnectResource {
     pub tx: Sender<ConnectionEvent>,
 }
 
-struct ProcessCtx {}
+struct RemoteFileTask {
+    pub cursor: Arc<AtomicU64>,
+    pub end: u64,
+    pub handle: tokio::task::JoinHandle<()>,
+}
+struct ProcessCtx {
+    pub tasks: BTreeMap<i64, RemoteFileTask>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RemoteFileInfo {
@@ -97,6 +108,15 @@ pub struct RemoteFileInfo {
     content_length: u64,
     accept_ranges: bool,
     content_range: Option<ContentRange>,
+}
+
+impl RemoteFileInfo {
+    pub fn full(&self) -> u64 {
+        self.content_range
+            .as_ref()
+            .map(|cr| cr.full)
+            .unwrap_or(self.content_length)
+    }
 }
 
 async fn real_request(
@@ -144,9 +164,6 @@ pub async fn process_cache_event(
     db: DatabaseConnection,
     cache_dir: PathBuf,
 ) -> Result<()> {
-    let mut ctx = Box::new(ProcessCtx {});
-    let mut rx = rx;
-
     let (io_tx, io_rx) = std::sync::mpsc::channel();
     let bus_tx: Sender<EventBus> = {
         let (bus_tx, mut rx) = tokio::sync::mpsc::channel(20);
@@ -160,16 +177,16 @@ pub async fn process_cache_event(
                         EventBus::RequestRead(key, id, cursor) => {
                             let _ = io_tx.send(IoEvent::RequestRead(key, id, cursor));
                         }
-                        EventBus::RequestReadIoRsp(id, piece) => match piece {
-                            None => {
-                                if let Some(c) = resource.get(&id) {
-                                    if let Err(_) = c.tx.try_send(ConnectionEvent::RealRequest) {
-                                        resource.remove(&id);
-                                    }
+                        EventBus::RequestReadIoRsp(id, piece) => {
+                            let _ = tx.send(ReverseEvent::RequestReadIoRsp(id, piece)).await;
+                        }
+                        EventBus::DoRealRequest(id) => {
+                            if let Some(c) = resource.get(&id) {
+                                if let Err(_) = c.tx.try_send(ConnectionEvent::RealRequest) {
+                                    resource.remove(&id);
                                 }
                             }
-                            Some(_) => {}
-                        },
+                        }
                         EventBus::ReadedBuf(id, bytes, state) => {
                             if let Some(c) = resource.get(&id) {
                                 if let Err(_) =
@@ -187,12 +204,15 @@ pub async fn process_cache_event(
                         }
                         EventBus::EndConnection(id) => {
                             resource.remove(&id);
+                            let _ = tx.send(ReverseEvent::EndConnection(id)).await;
                         }
                         EventBus::DoRead => {
                             let _ = io_tx.send(IoEvent::DoRead);
                         }
-                        EventBus::NewRemoteFile(key, info, rsp) => {
-                            let _ = tx.send(ReverseEvent::NewRemoteFile(key, info, rsp)).await;
+                        EventBus::NewRemoteFile(key, id, info, rsp) => {
+                            let _ = tx
+                                .send(ReverseEvent::NewRemoteFile(key, id, info, rsp))
+                                .await;
                         }
                         EventBus::FinishFile(key) => {}
                     },
@@ -211,10 +231,12 @@ pub async fn process_cache_event(
         })
     };
 
+    let mut ctx = Box::new(ProcessCtx {
+        tasks: BTreeMap::new(),
+    });
+    let mut rx = rx;
     let mut cnn_id: i64 = 0;
-
     use sea_orm::ColumnTrait;
-
     loop {
         match rx.recv().await {
             Some(ev) => match ev {
@@ -321,46 +343,81 @@ pub async fn process_cache_event(
                         }
                     });
                 }
-                ReverseEvent::NewRemoteFile(key, info, rsp) => {
+                ReverseEvent::NewRemoteFile(key, id, info, rsp) => {
                     let io_tx = io_tx.clone();
-                    tokio::spawn(async move {
-                        let mut cursor =
-                            info.content_range.as_ref().map(|cr| cr.start).unwrap_or(0);
-                        let mut stream = rsp.bytes_stream();
+                    let cursor = Arc::new(AtomicU64::new(
+                        info.content_range.as_ref().map(|cr| cr.start).unwrap_or(0),
+                    ));
+                    let end = info
+                        .content_range
+                        .as_ref()
+                        .map(|cr| cr.full)
+                        .unwrap_or(info.content_length);
+                    let handle = tokio::spawn({
+                        let cursor = cursor.clone();
+                        async move {
+                            let mut stream = rsp.bytes_stream();
 
-                        {
-                            let (tx, rx) = oneshot::channel();
-                            let _ = io_tx.send(IoEvent::NewWrite(
-                                key.clone(),
-                                info.content_range
-                                    .as_ref()
-                                    .map(|cr| cr.full)
-                                    .unwrap_or(info.content_length),
-                                tx,
-                            ));
+                            {
+                                let (tx, rx) = oneshot::channel();
+                                let _ = io_tx.send(IoEvent::NewWrite(
+                                    key.clone(),
+                                    info.content_range
+                                        .as_ref()
+                                        .map(|cr| cr.full)
+                                        .unwrap_or(info.content_length),
+                                    tx,
+                                ));
 
-                            match rx.await {
-                                Ok(true) => {}
-                                _ => {
-                                    return;
+                                match rx.await {
+                                    Ok(true) => {}
+                                    _ => {
+                                        return;
+                                    }
                                 }
                             }
-                        }
 
-                        let key = Arc::new(key);
-                        while let Some(bytes) = stream.next().await {
-                            match bytes {
-                                Ok(bytes) => {
-                                    let len = bytes.len();
-                                    let _ = io_tx.send(IoEvent::Write(key.clone(), cursor, bytes));
-                                    cursor += len as u64;
-                                }
-                                Err(e) => {
-                                    log::error!("{:?}", e);
+                            let key = Arc::new(key);
+                            while let Some(bytes) = stream.next().await {
+                                match bytes {
+                                    Ok(bytes) => {
+                                        let len = bytes.len();
+                                        let mut cursor_raw =
+                                            cursor.load(std::sync::atomic::Ordering::Relaxed);
+                                        let _ = io_tx.send(IoEvent::Write(
+                                            key.clone(),
+                                            cursor_raw,
+                                            bytes,
+                                        ));
+                                        cursor_raw += len as u64;
+                                        cursor.store(
+                                            cursor_raw,
+                                            std::sync::atomic::Ordering::Release,
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::error!("{:?}", e);
+                                    }
                                 }
                             }
                         }
                     });
+                    ctx.tasks.insert(
+                        id,
+                        RemoteFileTask {
+                            cursor: cursor,
+                            end,
+                            handle,
+                        },
+                    );
+                }
+                ReverseEvent::RequestReadIoRsp(id, piece) => {
+                    if let (None, None) = (ctx.tasks.get(&id), piece) {
+                        let _ = bus_tx.send(EventBus::DoRealRequest(id)).await;
+                    }
+                }
+                ReverseEvent::EndConnection(id) => {
+                    ctx.tasks.remove(&id);
                 }
                 ReverseEvent::Stop => {
                     break;
@@ -392,8 +449,8 @@ async fn process_connection(
     let mut rx = rx;
     let start = match range.map(|r| r.start) {
         Some(http_range_header::StartPosition::Index(pos)) => pos,
-        Some(http_range_header::StartPosition::FromLast(pos)) => match remote_info.content_range {
-            Some(cr) => cr.full - (pos + 1),
+        Some(http_range_header::StartPosition::FromLast(pos)) => match &remote_info.content_range {
+            Some(cr) => cr.full - pos,
             None => {
                 log::error!("unknown remote file size");
                 return Ok(());
@@ -432,7 +489,17 @@ async fn process_connection(
                     Some(ev) => match ev {
                         ConnectionEvent::ReadedBuf(bs, state) => {
                             use futures_util::SinkExt;
-                            cursor += bs.len() as u64;
+                            {
+                                let old = cursor;
+                                cursor += bs.len() as u64;
+                                // log::info!(
+                                //     "stream({}), {} -> {} / {}",
+                                //     id,
+                                //     old,
+                                //     cursor,
+                                //     remote_info.full()
+                                // );
+                            }
                             stream_tx.send(Ok(hyper::body::Frame::data(bs))).await?;
 
                             match state {
@@ -459,7 +526,12 @@ async fn process_connection(
                             match real_request(&ct, false, range).await {
                                 Ok((info, rsp)) => {
                                     let _ = bus_tx
-                                        .send(EventBus::NewRemoteFile(cnn.key.clone(), info, rsp))
+                                        .send(EventBus::NewRemoteFile(
+                                            cnn.key.clone(),
+                                            id,
+                                            info,
+                                            rsp,
+                                        ))
                                         .await?;
                                 }
                                 Err(e) => {
@@ -491,6 +563,11 @@ struct Reader {
     state: ReadState,
 }
 
+struct Waiter {
+    key: String,
+    start: u64,
+}
+
 fn process_io(
     tx: tokio::sync::mpsc::Sender<EventBus>,
     rx: std::sync::mpsc::Receiver<IoEvent>,
@@ -516,6 +593,7 @@ fn process_io(
 
     let mut readers = BTreeMap::<i64, Reader>::new();
     let mut writers = BTreeMap::<String, DownloadFile>::new();
+    let mut waiters = BTreeMap::<i64, Waiter>::new();
 
     loop {
         match rx.recv() {
@@ -523,7 +601,7 @@ fn process_io(
                 IoEvent::RequestRead(key, id, cursor) => {
                     let p = {
                         match writers.get_mut(&key) {
-                            Some(f) => match f.meta.longest_piece(cursor) {
+                            Some(f) => match f.meta.piece_of(cursor) {
                                 Some(p) => {
                                     let _ = f.file.flush();
                                     match readers.get_mut(&id) {
@@ -553,7 +631,7 @@ fn process_io(
                                                             id,
                                                             Reader {
                                                                 file: file,
-                                                                key: key,
+                                                                key: key.clone(),
                                                                 piece: p.clone(),
                                                                 state: ReadState::Reading(0),
                                                             },
@@ -574,14 +652,14 @@ fn process_io(
                             None => match get_cache_file(&key, cursor) {
                                 Ok((file, len, _)) => {
                                     let p = piece::Piece {
-                                        offset: 0,
+                                        offset: cursor,
                                         length: len - cursor,
                                     };
                                     readers.insert(
                                         id,
                                         Reader {
                                             file: file,
-                                            key: key,
+                                            key: key.clone(),
                                             piece: p.clone(),
                                             state: ReadState::Reading(0),
                                         },
@@ -592,6 +670,17 @@ fn process_io(
                             },
                         }
                     };
+
+                    if let None = p {
+                        waiters.insert(
+                            id,
+                            Waiter {
+                                key: key.clone(),
+                                start: cursor,
+                            },
+                        );
+                    }
+
                     let _ = tx.try_send(EventBus::RequestReadIoRsp(id, p));
                 }
                 IoEvent::ReadContinue(id) => {
@@ -676,14 +765,39 @@ fn process_io(
                                 return Ok(());
                             }
                         };
-                        f.file.seek(std::io::SeekFrom::Start(offset))?;
-                        f.file.write(&bytes)?;
-                        f.meta.combine(piece::Piece {
+                        let len = bytes.len() as u64;
+                        // log::info!("write: {}/{}", offset, len);
+                        match f.meta.combine(piece::Piece {
                             offset,
-                            length: bytes.len() as u64,
-                        });
+                            length: len,
+                        }) {
+                            true => {
+                                f.file.seek(std::io::SeekFrom::Start(offset))?;
+                                f.file.write(&bytes)?;
+                            }
+                            false => {}
+                        }
+
+                        {
+                            let mut ids = Vec::new();
+                            for (id, v) in waiters.iter() {
+                                if v.key == key && v.start >= offset && v.start < offset + len {
+                                    ids.push(*id);
+                                    let _ = tx.try_send(EventBus::RequestRead(
+                                        v.key.clone(),
+                                        *id,
+                                        v.start,
+                                    ));
+                                }
+                            }
+                            for id in ids {
+                                waiters.remove(&id);
+                            }
+                        }
+
                         if f.meta.is_end() {
                             let path = f.meta.path.clone();
+                            // log::info!("end file: {}", key);
                             writers.remove(key);
                             let mut tmp = BTreeMap::<i64, (piece::Piece, ReadState)>::new();
                             for (id, v) in readers.iter() {
@@ -728,6 +842,7 @@ fn process_io(
                                 }
                             }
                         }
+
                         Ok(())
                     };
                     if let Err(e) = do_write(key.as_str()) {
