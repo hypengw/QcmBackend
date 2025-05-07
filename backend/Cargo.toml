@@ -39,7 +39,11 @@ hyper-tungstenite = "0.17"
 http-range-header = "0.4"
 scopeguard = "1"
 futures = "0.3"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "registry",
+    "json",
+] }
 
 qcm-plugins = { path = "../plugin" }
 

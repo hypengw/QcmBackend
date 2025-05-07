@@ -51,11 +51,17 @@ struct Args {
     log_level: Option<String>,
 }
 
+fn default_log_filter() -> tracing_subscriber::filter::EnvFilter {
+    tracing_subscriber::filter::EnvFilter::builder()
+        .with_default_directive(tracing_subscriber::filter::LevelFilter::ERROR.into())
+        .parse_lossy("")
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    use tracing_subscriber::{filter::LevelFilter, fmt, prelude::*, reload};
+    use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*, reload};
     let log_reload_handle = {
-        let (filter, reload_handle) = reload::Layer::new(LevelFilter::ERROR);
+        let (filter, reload_handle) = reload::Layer::new(default_log_filter());
         tracing_subscriber::registry()
             .with(filter)
             .with(fmt::Layer::default().with_line_number(true).with_file(true))
@@ -66,8 +72,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
     let log_level = args
         .log_level
-        .and_then(|l| LevelFilter::from_str(&l).ok())
-        .unwrap_or(LevelFilter::ERROR);
+        .and_then(|l| EnvFilter::try_new(&l).ok())
+        .unwrap_or(default_log_filter());
 
     qcm_core::global::init(&args.data);
     qcm_plugins::init();
