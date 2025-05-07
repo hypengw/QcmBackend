@@ -1,4 +1,4 @@
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures_util::Stream;
 use http_body_util::{combinators, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
@@ -53,6 +53,7 @@ impl Body for RequestBody {
 /* ------------------------------------ */
 pub type StreamItem = Result<Frame<Bytes>, HttpError>;
 pub type UnboundedStreamBody = StreamBody<UnboundedReceiver<StreamItem>>;
+pub type BoundedStreamBody = StreamBody<Receiver<StreamItem>>;
 
 #[allow(unused)]
 /// Response body use in this project
@@ -64,6 +65,7 @@ pub enum ResponseBody {
     Incoming(Incoming),
     Boxed(BoxBody),
     UnboundedStreamed(UnboundedStreamBody),
+    BoundedStreamed(BoundedStreamBody),
 }
 
 impl Body for ResponseBody {
@@ -83,6 +85,9 @@ impl Body for ResponseBody {
             ResponseBody::UnboundedStreamed(streamed) => {
                 Pin::new(streamed).poll_frame(cx).map_err(|e| e.into())
             }
+            ResponseBody::BoundedStreamed(streamed) => {
+                Pin::new(streamed).poll_frame(cx).map_err(|e| e.into())
+            }
         }
     }
 
@@ -92,6 +97,7 @@ impl Body for ResponseBody {
             ResponseBody::Incoming(incoming) => incoming.is_end_stream(),
             ResponseBody::Boxed(boxed) => boxed.is_end_stream(),
             ResponseBody::UnboundedStreamed(streamed) => streamed.is_end_stream(),
+            ResponseBody::BoundedStreamed(streamed) => streamed.is_end_stream(),
         }
     }
 
@@ -101,6 +107,7 @@ impl Body for ResponseBody {
             ResponseBody::Incoming(incoming) => incoming.size_hint(),
             ResponseBody::Boxed(boxed) => boxed.size_hint(),
             ResponseBody::UnboundedStreamed(streamed) => hyper::body::Body::size_hint(streamed),
+            ResponseBody::BoundedStreamed(streamed) => hyper::body::Body::size_hint(streamed),
         }
     }
 }

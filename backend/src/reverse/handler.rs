@@ -83,7 +83,6 @@ pub async fn media_get_audio(
     headers: http::HeaderMap,
 ) -> Result<Response<ResponseBody>, ProcessError> {
     let mut headers = headers;
-    log::info!("{:?}", headers);
     let range = match headers.get_mut(hyper::header::RANGE) {
         Some(v) => {
             let r = v.to_str().ok().and_then(|r| parse_range(r).ok());

@@ -1,6 +1,6 @@
 use bytes::BufMut;
 use bytes::{Buf, Bytes};
-use futures::channel::mpsc::UnboundedSender;
+use futures::channel::mpsc::Sender as BoundedSender;
 use futures::{SinkExt, StreamExt};
 use http_body_util::StreamBody;
 use hyper_util::client::legacy::connect::Connected;
@@ -122,9 +122,9 @@ fn create_rsp(
     info: &RemoteFileInfo,
 ) -> (
     hyper::Response<ResponseBody>,
-    UnboundedSender<body_type::StreamItem>,
+    BoundedSender<body_type::StreamItem>,
 ) {
-    let (stream_tx, stream_rx) = futures::channel::mpsc::unbounded();
+    let (stream_tx, stream_rx) = futures::channel::mpsc::channel(4);
     let rsp = match (range, &info.content_range) {
         (Some(r), Some(cr)) => {
             if range_in_full(&r, cr.full) {
@@ -135,7 +135,7 @@ fn create_rsp(
                     .header(hyper::header::CONTENT_LENGTH, info.content_length)
                     .header(hyper::header::ACCEPT_RANGES, "bytes")
                     .header(hyper::header::CONTENT_RANGE, cr.to_string())
-                    .body(ResponseBody::UnboundedStreamed(StreamBody::new(stream_rx)))
+                    .body(ResponseBody::BoundedStreamed(StreamBody::new(stream_rx)))
                     .unwrap()
             } else {
                 log::debug!(target: "reverse", "rsp({}) range not satisfiable", id);
@@ -159,7 +159,7 @@ fn create_rsp(
                 b = b.header(hyper::header::ACCEPT_RANGES, "bytes");
             }
 
-            b.body(ResponseBody::UnboundedStreamed(StreamBody::new(stream_rx)))
+            b.body(ResponseBody::BoundedStreamed(StreamBody::new(stream_rx)))
                 .unwrap()
         }
     };
@@ -236,7 +236,12 @@ async fn real_request(
                 .get(reqwest::header::CONTENT_RANGE)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| parse_content_range(v));
-            let accept_ranges = headers.contains_key(reqwest::header::ACCEPT_RANGES);
+
+            let accept_ranges = headers
+                .get(reqwest::header::ACCEPT_RANGES)
+                .map(|v| v == "bytes")
+                .unwrap_or(false);
+
             match (content_type, content_length) {
                 (Some(content_type), Some(content_length)) => Ok((
                     RemoteFileInfo {
@@ -362,10 +367,11 @@ pub async fn process_cache_event(
                         };
 
                         let (rsp, stream_tx) = create_rsp(cnn_id, &cnn.range, &info);
+                        log::debug!(target: "reverse", "{:?}", rsp.headers());
                         match rsp_tx.send(Ok(rsp)) {
                             Ok(_) => {
                                 let _ = bus_tx.send(EventBus::NewConnection(cnn_id, cnn_tx)).await;
-                                let _ = process_connection(
+                                match process_connection(
                                     cnn,
                                     cnn_id,
                                     bus_tx.clone(),
@@ -376,7 +382,23 @@ pub async fn process_cache_event(
                                     db,
                                     ct,
                                 )
-                                .await;
+                                .await
+                                {
+                                    Ok(_) => {
+                                        log::debug!(
+                                            target: "reverse",
+                                            "stream({}) end",
+                                            cnn_id
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::error!(
+                                            target: "reverse",
+                                            "stream({}) {:?}",
+                                            cnn_id, e
+                                        );
+                                    }
+                                }
                                 let _ = bus_tx.send(EventBus::EndConnection(cnn_id)).await;
                             }
                             Err(_) => {
@@ -511,7 +533,7 @@ async fn process_connection(
     bus_tx: Sender<EventBus>,
     rx: Receiver<ConnectionEvent>,
     remote_info: RemoteFileInfo,
-    stream_tx: UnboundedSender<StreamItem>,
+    stream_tx: BoundedSender<StreamItem>,
     cache_info: Option<sqlm::cache::Model>,
     _db: DatabaseConnection,
     ct: Creator,
@@ -586,11 +608,6 @@ async fn process_connection(
                                             ))
                                             .await?;
                                     } else {
-                                        log::debug!(
-                                            target: "reverse",
-                                            "stream({}) end",
-                                            id
-                                        );
                                         break;
                                     }
                                 }

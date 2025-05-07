@@ -52,6 +52,7 @@ pub async fn handle_request(
     } else {
         // TODO: support multiple backend
         let ctx = bglobal::context(1).unwrap();
+        log::debug!(target: "http", "{}", request.uri());
 
         use hyper::Method;
         let res = match *request.method() {
@@ -185,10 +186,7 @@ async fn handle_ws(
         .send(event::Event::End)
         .await
         .unwrap();
-    ctx.backend_ev
-        .send(event::BackendEvent::End)
-        .await
-        .unwrap();
+    ctx.backend_ev.send(event::BackendEvent::End).await.unwrap();
 
     // Only support one client, close self
     bglobal::shutdown();
