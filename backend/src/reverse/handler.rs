@@ -2,10 +2,11 @@ use anyhow::anyhow;
 use futures_util::{SinkExt, Stream, StreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, Limited, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
-use hyper::{Request, Response};
+use hyper::{header, Request, Response};
 use qcm_core::crypto;
 use qcm_core::http;
 use qcm_core::model::image;
+use qcm_core::model::type_enum::CacheType;
 use qcm_core::{model as sql_model, model::type_enum::ImageType, Result};
 use sea_orm::EntityTrait;
 use std::sync::Arc;
@@ -57,7 +58,7 @@ pub async fn media_get_image(
         .map(|data| String::from_utf8_lossy(&crypto::hex::encode_low(&data)).to_string())
         .map_err(|_| ProcessError::Internal(anyhow!("md5 error")))?;
 
-    let cnn = Connection::new(&key, None);
+    let cnn = Connection::new(&key, None, CacheType::Image);
 
     let rsp = {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -81,6 +82,17 @@ pub async fn media_get_audio(
     native_id: &str,
     headers: http::HeaderMap,
 ) -> Result<Response<ResponseBody>, ProcessError> {
+    let mut headers = headers;
+    log::info!("{:?}", headers);
+    let range = match headers.get_mut(hyper::header::RANGE) {
+        Some(v) => {
+            let r = v.to_str().ok().and_then(|r| parse_range(r).ok());
+            headers.remove(hyper::header::RANGE);
+            r
+        }
+        None => None,
+    };
+
     let create_rsp = {
         let ctx = ctx.clone();
         let native_id = native_id.to_string();
@@ -112,7 +124,7 @@ pub async fn media_get_audio(
         .map(|data| String::from_utf8_lossy(&crypto::hex::encode_low(&data)).to_string())
         .map_err(|_| ProcessError::Internal(anyhow!("md5 error")))?;
 
-    let cnn = Connection::new(&key, None);
+    let cnn = Connection::new(&key, range, CacheType::Audio);
 
     let rsp = {
         let (tx, rx) = tokio::sync::oneshot::channel();

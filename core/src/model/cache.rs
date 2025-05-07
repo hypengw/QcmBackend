@@ -12,9 +12,11 @@ pub struct Model {
     pub cache_type: CacheType,
 
     pub content_type: String,
-    pub content_length: u64,
+    // u64 is not supported by sqlite
+    pub content_length: i64,
 
     #[serde(default)]
+    #[sea_orm(nullable)]
     pub blob: Option<Vec<u8>>,
 
     #[serde(default = "chrono::Utc::now")]

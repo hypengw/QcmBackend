@@ -8,7 +8,7 @@ use futures::{
 };
 use http_range_header::parse_range_header;
 use hyper::body::{Bytes, Frame};
-use qcm_core::Result;
+use qcm_core::{model::type_enum::CacheType, Result};
 use reqwest::{header::HeaderMap, Response};
 use std::pin::Pin;
 
@@ -52,6 +52,13 @@ pub fn default_range() -> Range {
     Range {
         start: http_range_header::StartPosition::Index(0),
         end: http_range_header::EndPosition::LastByte,
+    }
+}
+
+pub fn range_start(r: &Range, full: u64) -> u64 {
+    match r.start {
+        http_range_header::StartPosition::Index(pos) => pos,
+        http_range_header::StartPosition::FromLast(pos) => full - pos,
     }
 }
 
@@ -137,13 +144,22 @@ pub fn parse_range(s: &str) -> Result<Range, HttpError> {
 pub struct Connection {
     pub key: String,
     pub range: Option<Range>,
+    pub cache_type: CacheType,
 }
 
 impl Connection {
-    pub fn new(key: &str, range: Option<Range>) -> Self {
+    pub fn new(key: &str, range: Option<Range>, cache_type: CacheType) -> Self {
         Self {
             key: key.to_string(),
             range: range,
+            cache_type,
+        }
+    }
+
+    pub fn start(&self, full: u64) -> u64 {
+        match self.range {
+            Some(r) => range_start(&r, full),
+            None => 0,
         }
     }
 }

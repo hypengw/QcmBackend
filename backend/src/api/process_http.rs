@@ -251,7 +251,6 @@ pub async fn process_http_get(
                     req.headers()
                         .iter()
                         .filter(|(k, _)| match **k {
-                            header::CONTENT_RANGE => true,
                             header::ACCEPT => true,
                             header::RANGE => true,
                             header::CONNECTION => true,

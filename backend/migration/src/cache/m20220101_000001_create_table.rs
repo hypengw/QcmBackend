@@ -23,7 +23,11 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(cache::Column::Key).string().not_null())
-                    .col(ColumnDef::new(cache::Column::CacheType).string().not_null())
+                    .col(
+                        ColumnDef::new(cache::Column::CacheType)
+                            .integer()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(cache::Column::ContentType)
                             .string()

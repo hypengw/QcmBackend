@@ -5,15 +5,18 @@ use futures::{SinkExt, StreamExt};
 use http_body_util::StreamBody;
 use hyper_util::client::legacy::connect::Connected;
 use qcm_core::model as sqlm;
+use qcm_core::model::type_enum::CacheType;
 use qcm_core::Result;
-use sea_orm::QuerySelect;
+use sea_orm::{sea_query, QuerySelect};
 use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter};
 
-use super::body_type::{ResponseBody, StreamItem};
-use super::connection::{default_range, parse_content_range, Connection, ContentRange, Range};
+use super::body_type::{self, ResponseBody, StreamItem};
+use super::connection::{
+    default_range, parse_content_range, range_start, Connection, ContentRange, Range,
+};
 use super::piece;
 use crate::error::{HttpError, ProcessError};
-use crate::reverse::connection::range_in_full;
+use crate::reverse::connection::{format_range, range_in_full};
 use reqwest::Response;
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -51,8 +54,8 @@ enum EventBus {
     ReadedBuf(i64, Bytes, ReadState),
     ReadContinue(i64),
     DoRead,
-    NewRemoteFile(String, i64, RemoteFileInfo, reqwest::Response),
-    FinishFile(String),
+    NewRemoteFile(String, i64, CacheType, RemoteFileInfo, reqwest::Response),
+    FinishFile(String, CacheType, RemoteFileInfo),
     NewConnection(i64, Sender<ConnectionEvent>),
     EndConnection(i64),
 }
@@ -63,8 +66,9 @@ pub enum ReverseEvent {
         Creator,
         oneshot::Sender<Result<hyper::Response<ResponseBody>, hyper::Error>>,
     ),
-    NewRemoteFile(String, i64, RemoteFileInfo, reqwest::Response),
+    NewRemoteFile(String, i64, CacheType, RemoteFileInfo, reqwest::Response),
     RequestReadIoRsp(i64, Option<piece::Piece>),
+    FinishFile(String, CacheType, RemoteFileInfo),
     EndConnection(i64),
     Stop,
 }
@@ -76,6 +80,92 @@ where
     Box::new(move |head: bool, r: Option<Range>| Box::pin(ct(head, r)))
 }
 
+async fn query_cache_info(db: &DatabaseConnection, key: &str) -> Option<sqlm::cache::Model> {
+    use sea_orm::ColumnTrait;
+    match sqlm::cache::Entity::find()
+        .filter(sqlm::cache::Column::Key.eq(key.to_string()))
+        .one(db)
+        .await
+    {
+        Ok(info) => info,
+        Err(e) => {
+            log::error!("{:?}", e);
+            None
+        }
+    }
+}
+
+fn cache_to_remote_info(cache_info: &sqlm::cache::Model, range: &Option<Range>) -> RemoteFileInfo {
+    let full = cache_info.content_length as u64;
+    match range {
+        Some(range) => RemoteFileInfo {
+            content_length: full - range_start(range, full),
+            content_type: cache_info.content_type.clone(),
+            accept_ranges: true,
+            content_range: ContentRange::from_range(
+                range.clone(),
+                cache_info.content_length as u64,
+            ),
+        },
+        None => RemoteFileInfo {
+            content_length: full,
+            content_type: cache_info.content_type.clone(),
+            accept_ranges: true,
+            content_range: None,
+        },
+    }
+}
+
+fn create_rsp(
+    id: i64,
+    range: &Option<Range>,
+    info: &RemoteFileInfo,
+) -> (
+    hyper::Response<ResponseBody>,
+    UnboundedSender<body_type::StreamItem>,
+) {
+    let (stream_tx, stream_rx) = futures::channel::mpsc::unbounded();
+    let rsp = match (range, &info.content_range) {
+        (Some(r), Some(cr)) => {
+            if range_in_full(&r, cr.full) {
+                log::debug!(target: "reverse", "rsp({}) range: {}, content range: {}", id, format_range(&r), cr);
+                hyper::Response::builder()
+                    .status(hyper::StatusCode::PARTIAL_CONTENT)
+                    .header(hyper::header::CONTENT_TYPE, &info.content_type)
+                    .header(hyper::header::CONTENT_LENGTH, info.content_length)
+                    .header(hyper::header::ACCEPT_RANGES, "bytes")
+                    .header(hyper::header::CONTENT_RANGE, cr.to_string())
+                    .body(ResponseBody::UnboundedStreamed(StreamBody::new(stream_rx)))
+                    .unwrap()
+            } else {
+                log::debug!(target: "reverse", "rsp({}) range not satisfiable", id);
+                hyper::Response::builder()
+                    .status(hyper::StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header(hyper::header::CONTENT_TYPE, &info.content_type)
+                    .header(hyper::header::ACCEPT_RANGES, "bytes")
+                    .header(hyper::header::CONTENT_RANGE, format!("bytes */{}", cr.full))
+                    .body(ResponseBody::Empty)
+                    .unwrap()
+            }
+        }
+        (_, _) => {
+            log::debug!(target: "reverse", "rsp({}) no range", id);
+            let mut b = hyper::Response::builder()
+                .status(hyper::StatusCode::OK)
+                .header(hyper::header::CONTENT_TYPE, &info.content_type)
+                .header(hyper::header::CONTENT_LENGTH, info.content_length);
+
+            if info.accept_ranges {
+                b = b.header(hyper::header::ACCEPT_RANGES, "bytes");
+            }
+
+            b.body(ResponseBody::UnboundedStreamed(StreamBody::new(stream_rx)))
+                .unwrap()
+        }
+    };
+    (rsp, stream_tx)
+}
+
 enum ConnectionEvent {
     ReadedBuf(Bytes, ReadState),
     RealRequest,
@@ -85,7 +175,13 @@ enum IoEvent {
     RequestRead(String, i64, u64),
     DoRead,
     ReadContinue(i64),
-    NewWrite(String, u64, oneshot::Sender<bool>),
+    NewWrite(
+        String,
+        u64,
+        CacheType,
+        RemoteFileInfo,
+        oneshot::Sender<bool>,
+    ),
     Write(Arc<String>, u64, Bytes),
 }
 
@@ -209,12 +305,16 @@ pub async fn process_cache_event(
                         EventBus::DoRead => {
                             let _ = io_tx.send(IoEvent::DoRead);
                         }
-                        EventBus::NewRemoteFile(key, id, info, rsp) => {
+                        EventBus::NewRemoteFile(key, id, cache_type, info, rsp) => {
                             let _ = tx
-                                .send(ReverseEvent::NewRemoteFile(key, id, info, rsp))
+                                .send(ReverseEvent::NewRemoteFile(key, id, cache_type, info, rsp))
                                 .await;
                         }
-                        EventBus::FinishFile(key) => {}
+                        EventBus::FinishFile(key, cache_type, info) => {
+                            let _ = tx
+                                .send(ReverseEvent::FinishFile(key, cache_type, info))
+                                .await;
+                        }
                     },
                     None => {
                         break;
@@ -236,32 +336,21 @@ pub async fn process_cache_event(
     });
     let mut rx = rx;
     let mut cnn_id: i64 = 0;
-    use sea_orm::ColumnTrait;
+
     loop {
         match rx.recv().await {
             Some(ev) => match ev {
                 ReverseEvent::NewConnection(cnn, ct, rsp_tx) => {
                     let bus_tx = bus_tx.clone();
                     let (cnn_tx, cnn_rx) = tokio::sync::mpsc::channel(10);
-                    let cache_info = sqlm::cache::Entity::find()
-                        .filter(sqlm::cache::Column::Key.eq(cnn.key.clone()))
-                        .one(&db)
-                        .await?;
-
+                    let cache_info = query_cache_info(&db, &cnn.key).await;
                     cnn_id += 1;
                     let cnn_id = cnn_id;
                     let db = db.clone();
                     tokio::spawn(async move {
                         let info = {
                             match &cache_info {
-                                Some(cache_info) => RemoteFileInfo {
-                                    content_length: cache_info.content_length,
-                                    content_type: cache_info.content_type.clone(),
-                                    accept_ranges: true,
-                                    content_range: cnn.range.clone().and_then(|r| {
-                                        ContentRange::from_range(r, cache_info.content_length)
-                                    }),
-                                },
+                                Some(cache_info) => cache_to_remote_info(cache_info, &cnn.range),
                                 None => match real_request(&ct, true, cnn.range).await {
                                     Ok((info, _)) => info,
                                     Err(_) => {
@@ -272,54 +361,7 @@ pub async fn process_cache_event(
                             }
                         };
 
-                        let (stream_tx, stream_rx) = futures::channel::mpsc::unbounded();
-                        let rsp = {
-                            match (cnn.range, &info.content_range) {
-                                (Some(r), Some(cr)) => {
-                                    if range_in_full(&r, cr.full) {
-                                        hyper::Response::builder()
-                                            .status(hyper::StatusCode::PARTIAL_CONTENT)
-                                            .header(hyper::header::CONTENT_TYPE, &info.content_type)
-                                            .header(
-                                                hyper::header::CONTENT_LENGTH,
-                                                info.content_length,
-                                            )
-                                            .header(hyper::header::ACCEPT_RANGES, "bytes")
-                                            .header(hyper::header::CONTENT_RANGE, cr.to_string())
-                                            .body(ResponseBody::UnboundedStreamed(StreamBody::new(
-                                                stream_rx,
-                                            )))
-                                            .unwrap()
-                                    } else {
-                                        hyper::Response::builder()
-                                            .status(hyper::StatusCode::RANGE_NOT_SATISFIABLE)
-                                            .header(hyper::header::CONTENT_TYPE, &info.content_type)
-                                            .header(hyper::header::ACCEPT_RANGES, "bytes")
-                                            .header(
-                                                hyper::header::CONTENT_RANGE,
-                                                format!("bytes */{}", cr.full),
-                                            )
-                                            .body(ResponseBody::Empty)
-                                            .unwrap()
-                                    }
-                                }
-                                (_, _) => {
-                                    let mut b = hyper::Response::builder()
-                                        .status(hyper::StatusCode::OK)
-                                        .header(hyper::header::CONTENT_TYPE, &info.content_type)
-                                        .header(hyper::header::CONTENT_LENGTH, info.content_length);
-
-                                    if info.accept_ranges {
-                                        b = b.header(hyper::header::ACCEPT_RANGES, "bytes");
-                                    }
-
-                                    b.body(ResponseBody::UnboundedStreamed(StreamBody::new(
-                                        stream_rx,
-                                    )))
-                                    .unwrap()
-                                }
-                            }
-                        };
+                        let (rsp, stream_tx) = create_rsp(cnn_id, &cnn.range, &info);
                         match rsp_tx.send(Ok(rsp)) {
                             Ok(_) => {
                                 let _ = bus_tx.send(EventBus::NewConnection(cnn_id, cnn_tx)).await;
@@ -343,7 +385,7 @@ pub async fn process_cache_event(
                         }
                     });
                 }
-                ReverseEvent::NewRemoteFile(key, id, info, rsp) => {
+                ReverseEvent::NewRemoteFile(key, id, cache_type, info, rsp) => {
                     let io_tx = io_tx.clone();
                     let cursor = Arc::new(AtomicU64::new(
                         info.content_range.as_ref().map(|cr| cr.start).unwrap_or(0),
@@ -366,6 +408,8 @@ pub async fn process_cache_event(
                                         .as_ref()
                                         .map(|cr| cr.full)
                                         .unwrap_or(info.content_length),
+                                    cache_type,
+                                    info.clone(),
                                     tx,
                                 ));
 
@@ -416,6 +460,33 @@ pub async fn process_cache_event(
                         let _ = bus_tx.send(EventBus::DoRealRequest(id)).await;
                     }
                 }
+                ReverseEvent::FinishFile(key, cache_type, info) => {
+                    use sea_orm::{NotSet, Set};
+                    if let Err(e) = sqlm::cache::Entity::insert(sqlm::cache::ActiveModel {
+                        id: NotSet,
+                        key: Set(key),
+                        cache_type: Set(cache_type),
+                        content_length: Set(info.full() as i64),
+                        content_type: Set(info.content_type),
+                        blob: NotSet,
+                        timestamp: NotSet,
+                        last_use: NotSet,
+                    })
+                    .on_conflict(
+                        sea_query::OnConflict::columns([sqlm::cache::Column::Key])
+                            .update_columns([
+                                sqlm::cache::Column::CacheType,
+                                sqlm::cache::Column::ContentLength,
+                                sqlm::cache::Column::ContentType,
+                            ])
+                            .to_owned(),
+                    )
+                    .exec(&db)
+                    .await
+                    {
+                        log::error!("{:?}", e);
+                    }
+                }
                 ReverseEvent::EndConnection(id) => {
                     ctx.tasks.remove(&id);
                 }
@@ -442,27 +513,18 @@ async fn process_connection(
     remote_info: RemoteFileInfo,
     stream_tx: UnboundedSender<StreamItem>,
     cache_info: Option<sqlm::cache::Model>,
-    db: DatabaseConnection,
+    _db: DatabaseConnection,
     ct: Creator,
 ) -> Result<()> {
     let range = cnn.range;
     let mut rx = rx;
-    let start = match range.map(|r| r.start) {
-        Some(http_range_header::StartPosition::Index(pos)) => pos,
-        Some(http_range_header::StartPosition::FromLast(pos)) => match &remote_info.content_range {
-            Some(cr) => cr.full - pos,
-            None => {
-                log::error!("unknown remote file size");
-                return Ok(());
-            }
-        },
-        None => 0,
-    };
+    let start = cnn.start(remote_info.full());
     let mut cursor = start;
     let mut stream_tx = stream_tx;
 
     match cache_info.and_then(|info| info.blob) {
         Some(bytes) => {
+            log::debug!(target: "reverse", "stream({}) from db", id);
             let cursor = cursor as usize;
             let len = bytes.len();
             match bytes.as_slice().get(cursor..len) {
@@ -492,13 +554,14 @@ async fn process_connection(
                             {
                                 let old = cursor;
                                 cursor += bs.len() as u64;
-                                // log::info!(
-                                //     "stream({}), {} -> {} / {}",
-                                //     id,
-                                //     old,
-                                //     cursor,
-                                //     remote_info.full()
-                                // );
+                                log::debug!(
+                                    target: "reverse",
+                                    "stream({}), ({} -> {}) / {}",
+                                    id,
+                                    old,
+                                    cursor,
+                                    remote_info.full()
+                                );
                             }
                             stream_tx.send(Ok(hyper::body::Frame::data(bs))).await?;
 
@@ -508,6 +571,13 @@ async fn process_connection(
                                 }
                                 ReadState::End => {
                                     if start + remote_info.content_length > cursor {
+                                        log::debug!(
+                                            target: "reverse",
+                                            "request read: {}/{}, start: {}",
+                                            cursor,
+                                            remote_info.content_length,
+                                            start,
+                                        );
                                         let _ = bus_tx
                                             .send(EventBus::RequestRead(
                                                 cnn.key.clone(),
@@ -516,6 +586,11 @@ async fn process_connection(
                                             ))
                                             .await?;
                                     } else {
+                                        log::debug!(
+                                            target: "reverse",
+                                            "stream({}) end",
+                                            id
+                                        );
                                         break;
                                     }
                                 }
@@ -529,6 +604,7 @@ async fn process_connection(
                                         .send(EventBus::NewRemoteFile(
                                             cnn.key.clone(),
                                             id,
+                                            cnn.cache_type,
                                             info,
                                             rsp,
                                         ))
@@ -554,6 +630,8 @@ async fn process_connection(
 struct DownloadFile {
     meta: piece::FileMeta,
     file: std::fs::File,
+    cache_type: CacheType,
+    remote_info: RemoteFileInfo,
 }
 
 struct Reader {
@@ -698,33 +776,38 @@ fn process_io(
                             _ => false,
                         })
                         .for_each(|(id, v)| {
-                            let mut cur = match v.state {
+                            let mut readed = match v.state {
                                 ReadState::Reading(o) => o,
                                 _ => 0,
                             };
-                            let len = std::cmp::min((v.piece.length - cur) as usize, 64 * 1024);
+                            let len = std::cmp::min((v.piece.length - readed) as usize, 64 * 1024);
 
                             match v.file.read(&mut buf[0..len]) {
                                 Ok(size) => {
                                     let mut bytes_buf = bytes::BytesMut::new();
                                     bytes_buf.put(&buf[0..size]);
-                                    cur += size as u64;
-                                    if cur == v.piece.length {
-                                        v.state = ReadState::End;
+                                    if size == 0 {
+                                        log::error!("readed zero, {}/{}", readed, v.piece.length);
+                                        let _ = tx.try_send(EventBus::EndConnection(*id));
                                     } else {
-                                        if cur >= 64 * 1024 {
-                                            v.piece.length -= cur;
-                                            v.state = ReadState::Paused;
+                                        readed += size as u64;
+                                        if readed == v.piece.length {
+                                            v.state = ReadState::End;
                                         } else {
-                                            v.state = ReadState::Reading(cur);
+                                            if readed >= 64 * 1024 {
+                                                v.piece.length -= readed;
+                                                v.state = ReadState::Paused;
+                                            } else {
+                                                v.state = ReadState::Reading(readed);
+                                            }
                                         }
-                                    }
 
-                                    let _ = tx.try_send(EventBus::ReadedBuf(
-                                        *id,
-                                        bytes_buf.freeze(),
-                                        v.state.clone(),
-                                    ));
+                                        let _ = tx.try_send(EventBus::ReadedBuf(
+                                            *id,
+                                            bytes_buf.freeze(),
+                                            v.state.clone(),
+                                        ));
+                                    }
                                 }
                                 Err(e) => {
                                     log::error!("{:?}", e);
@@ -733,30 +816,34 @@ fn process_io(
                             }
                         });
                 }
-                IoEvent::NewWrite(key, len, res) => match writers.contains_key(key.as_str()) {
-                    false => match create_cache_file(key.as_str()) {
-                        Ok((file, path)) => {
-                            writers.insert(
-                                key.clone(),
-                                DownloadFile {
-                                    meta: piece::FileMeta {
-                                        path,
-                                        len,
-                                        pieces: BTreeMap::new(),
+                IoEvent::NewWrite(key, len, cache_type, remote_info, res) => {
+                    match writers.contains_key(key.as_str()) {
+                        false => match create_cache_file(key.as_str()) {
+                            Ok((file, path)) => {
+                                writers.insert(
+                                    key.clone(),
+                                    DownloadFile {
+                                        meta: piece::FileMeta {
+                                            path,
+                                            len,
+                                            pieces: BTreeMap::new(),
+                                        },
+                                        cache_type,
+                                        file,
+                                        remote_info,
                                     },
-                                    file,
-                                },
-                            );
-                            let _ = res.send(true);
-                        }
-                        Err(e) => {
-                            log::error!("{:?}", e);
-                            let _ = res.send(false);
-                            continue;
-                        }
-                    },
-                    _ => {}
-                },
+                                );
+                                let _ = res.send(true);
+                            }
+                            Err(e) => {
+                                log::error!("{:?}", e);
+                                let _ = res.send(false);
+                                continue;
+                            }
+                        },
+                        _ => {}
+                    }
+                }
                 IoEvent::Write(key, offset, bytes) => {
                     let mut do_write = |key: &str| -> std::io::Result<()> {
                         let f = match writers.get_mut(key) {
@@ -797,6 +884,8 @@ fn process_io(
 
                         if f.meta.is_end() {
                             let path = f.meta.path.clone();
+                            let remote_info = f.remote_info.clone();
+                            let cache_type = f.cache_type;
                             // log::info!("end file: {}", key);
                             writers.remove(key);
                             let mut tmp = BTreeMap::<i64, (piece::Piece, ReadState)>::new();
@@ -814,7 +903,11 @@ fn process_io(
                             );
 
                             std::fs::rename(&old, &path)?;
-                            let _ = tx.try_send(EventBus::FinishFile(key.to_string()));
+                            let _ = tx.try_send(EventBus::FinishFile(
+                                key.to_string(),
+                                cache_type,
+                                remote_info,
+                            ));
 
                             for (id, (piece, state)) in tmp {
                                 match std::fs::File::open(&path).and_then(|mut f| {
