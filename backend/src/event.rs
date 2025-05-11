@@ -10,6 +10,8 @@ pub use tokio_tungstenite::tungstenite::Message as WsMessage;
 pub enum BackendEvent {
     Frist,
     NewProvider { id: i64 },
+    UpdateProvider { id: i64 },
+    DeleteProvider { id: i64 },
     SyncCommit { id: i64, commit: SyncCommit },
     End,
 }

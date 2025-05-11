@@ -30,6 +30,18 @@ pub enum Relation {
     Program,
     #[sea_orm(has_many = "super::image::Entity")]
     Image,
+    #[sea_orm(
+        belongs_to = "super::provider::Entity",
+        from = "Column::ProviderId",
+        to = "super::provider::Column::ProviderId"
+    )]
+    Provider,
+}
+
+impl Related<super::provider::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Provider.def()
+    }
 }
 
 impl Related<super::album::Entity> for Entity {

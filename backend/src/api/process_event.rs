@@ -107,6 +107,14 @@ pub async fn process_backend_event(
                 }
             });
         }
+        BackendEvent::UpdateProvider { id } => {
+            let _ = id;
+            send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+        }
+        BackendEvent::DeleteProvider { id } => {
+            let _ = id;
+            send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+        }
         BackendEvent::SyncCommit { id, commit } => {
             let status = {
                 match pctx.sync_status.get_mut(&id) {

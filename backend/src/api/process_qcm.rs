@@ -74,6 +74,10 @@ pub async fn process_qcm(
                     .exec(&ctx.provider_context.db)
                     .await?;
                 global::remove_provider(id);
+                let _ = ctx
+                    .backend_ev
+                    .send(BackendEvent::DeleteProvider { id })
+                    .await;
                 let rsp = Rsp::default();
                 return Ok(rsp.qcm_into());
             }
@@ -146,7 +150,12 @@ pub async fn process_qcm(
                         let info = auth_info.clone().qcm_into();
                         match new_provider.auth(&ctx.provider_context, &info).await? {
                             AuthResult::Ok => {
-                                super::db::add_provider(&ctx.provider_context.db, provider).await?;
+                                super::db::add_provider(
+                                    &ctx.provider_context.db,
+                                    new_provider.clone(),
+                                )
+                                .await?;
+                                global::add_provider(new_provider);
                             }
                             e => {
                                 rsp = e.qcm_into();
@@ -159,6 +168,12 @@ pub async fn process_qcm(
                         super::db::add_provider(&ctx.provider_context.db, provider).await?;
                     }
                 }
+                let _ = ctx
+                    .backend_ev
+                    .send(BackendEvent::UpdateProvider {
+                        id: req.provider_id,
+                    })
+                    .await;
                 return Ok(rsp.qcm_into());
             }
         }
@@ -170,13 +185,13 @@ pub async fn process_qcm(
                 let key = uuid::Uuid::new_v4().to_string();
                 global::set_tmp_provider(&key, provider.clone());
 
-                let rsp = msg::CreateTmpProviderRsp { id: key };
+                let rsp = msg::CreateTmpProviderRsp { key: key };
                 return Ok(rsp.qcm_into());
             }
         }
         MessageType::DeleteTmpProviderReq => {
             if let Some(Payload::DeleteTmpProviderReq(req)) = payload {
-                global::remove_tmp_provider(&req.id);
+                global::remove_tmp_provider(&req.key);
             }
         }
         MessageType::QrAuthUrlReq => {

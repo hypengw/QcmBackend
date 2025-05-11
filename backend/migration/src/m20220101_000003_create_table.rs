@@ -1,4 +1,4 @@
-use qcm_core::model::*;
+use qcm_core::{global::provider, model::*};
 use sea_orm::Schema;
 use sea_orm_migration::prelude::*;
 use sea_query;
@@ -71,6 +71,13 @@ impl MigrationTrait for Migration {
                             .timestamp()
                             .not_null()
                             .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_library_provider")
+                            .from(library::Entity, library::Column::ProviderId)
+                            .to(provider::Entity, provider::Column::ProviderId)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
