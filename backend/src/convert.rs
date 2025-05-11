@@ -350,7 +350,7 @@ impl QcmFrom<AuthResult> for msg::model::AuthResult {
     }
 }
 
-impl QcmFrom<AuthResult> for msg::AddProviderRsp {
+impl QcmFrom<AuthResult> for msg::AuthProviderRsp {
     fn qcm_from(v: AuthResult) -> Self {
         let (code, message, qr_name, qr_avatar_url) = match v {
             AuthResult::Failed { message } => (
@@ -376,6 +376,19 @@ impl QcmFrom<AuthResult> for msg::AddProviderRsp {
             message,
             qr_name,
             qr_avatar_url,
+        }
+    }
+}
+
+impl QcmFrom<AuthResult> for msg::UpdateProviderRsp {
+    fn qcm_from(v: AuthResult) -> Self {
+        let (code, message) = match v {
+            AuthResult::Failed { message } => (msg::model::AuthResult::Failed, message),
+            r => (r.qcm_into(), String::new()),
+        };
+        Self {
+            code: code.into(),
+            message,
         }
     }
 }
@@ -442,7 +455,9 @@ macro_rules! impl_from_for_qcm_msg {
 impl_from_for_qcm_msg!(ProviderMetaStatusMsg);
 impl_from_for_qcm_msg!(ProviderStatusMsg);
 impl_from_for_qcm_msg!(ProviderSyncStatusMsg);
-impl_from_for_qcm_msg!(AddProviderRsp);
+impl_from_for_qcm_msg!(CreateTmpProviderRsp);
+impl_from_for_qcm_msg!(AuthProviderRsp);
+impl_from_for_qcm_msg!(UpdateProviderRsp);
 impl_from_for_qcm_msg!(GetProviderMetasRsp);
 impl_from_for_qcm_msg!(QrAuthUrlRsp);
 impl_from_for_qcm_msg!(TestRsp);

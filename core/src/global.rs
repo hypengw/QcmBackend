@@ -27,11 +27,26 @@ impl Setting {
     }
 }
 
+#[derive(Clone)]
+struct TmpProvider {
+    pub provider: Arc<dyn Provider>,
+    pub interval: i64,
+}
+
+impl TmpProvider {
+    pub fn new(provider: Arc<dyn Provider>) -> Self {
+        Self {
+            provider,
+            interval: 30,
+        }
+    }
+}
+
 pub struct Global {
     pub plugins: BTreeMap<String, Box<dyn Plugin>>,
     pub provider_metas: BTreeMap<String, ProviderMeta>,
     pub providers: BTreeMap<i64, Arc<dyn Provider>>,
-    pub temp_provider: Option<Arc<dyn Provider>>,
+    pub tmp_providers: BTreeMap<String, TmpProvider>,
     setting: Setting,
 }
 
@@ -41,7 +56,7 @@ impl Global {
             plugins: BTreeMap::new(),
             provider_metas: BTreeMap::new(),
             providers: BTreeMap::new(),
-            temp_provider: None,
+            tmp_providers: BTreeMap::new(),
             setting: Setting::new(),
         }
     }
@@ -175,13 +190,32 @@ pub fn add_provider(p: Arc<dyn Provider>) {
     let mut g = GLOBAL.lock().unwrap();
     g.providers.insert(p.id().unwrap(), p);
 }
-
-pub fn get_tmp_provider() -> Option<Arc<dyn Provider>> {
-    let g = GLOBAL.lock().unwrap();
-    g.temp_provider.clone()
+pub fn remove_provider(id: i64) {
+    let mut g = GLOBAL.lock().unwrap();
+    g.providers.remove(&id);
 }
 
-pub fn set_tmp_provider(p: Option<Arc<dyn Provider>>) {
+pub fn get_tmp_provider(key: &str) -> Option<Arc<dyn Provider>> {
+    let g = GLOBAL.lock().unwrap();
+    g.tmp_providers.get(key).map(|p| p.provider.clone())
+}
+
+pub fn set_tmp_provider(key: &str, p: Arc<dyn Provider>) {
     let mut g = GLOBAL.lock().unwrap();
-    g.temp_provider = p;
+    g.tmp_providers.insert(key.to_string(), TmpProvider::new(p));
+}
+
+pub fn remove_tmp_provider(key: &str) {
+    let mut g = GLOBAL.lock().unwrap();
+    g.tmp_providers.remove(key);
+}
+
+pub fn tmp_provider_heartbeat(key: &str) {
+    let mut g = GLOBAL.lock().unwrap();
+    match g.tmp_providers.get_mut(key) {
+        Some(p) => {
+            p.interval = 30;
+        }
+        None => (),
+    };
 }

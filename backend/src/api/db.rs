@@ -28,6 +28,7 @@ pub async fn add_provider(
         .on_conflict(
             sea_query::OnConflict::column(sqlm::provider::Column::ProviderId)
                 .update_columns([
+                    sqlm::provider::Column::Name,
                     sqlm::provider::Column::BaseUrl,
                     sqlm::provider::Column::Custom,
                     sqlm::provider::Column::AuthMethod,

@@ -15,7 +15,7 @@ use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
-    self, AddProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
+    self, AuthProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
     MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
 
@@ -67,72 +67,125 @@ pub async fn process_qcm(
             };
             return Ok(response.qcm_into());
         }
+        MessageType::DeleteProviderReq => {
+            if let Some(Payload::DeleteProviderReq(req)) = payload {
+                let id = req.provider_id;
+                sqlm::provider::Entity::delete_by_id(id)
+                    .exec(&ctx.provider_context.db)
+                    .await?;
+                global::remove_provider(id);
+                let rsp = Rsp::default();
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::AuthProviderReq => {
+            if let Some(Payload::AuthProviderReq(req)) = payload {
+                let provider = global::get_tmp_provider(&req.tmp_provider)
+                    .ok_or(ProcessError::NoSuchProvider(req.tmp_provider.clone()))?;
+
+                let mut rsp = AuthProviderRsp::default();
+                let info = req
+                    .auth_info
+                    .clone()
+                    .ok_or(ProcessError::NotFound)?
+                    .qcm_into();
+                match provider.auth(&ctx.provider_context, &info).await? {
+                    AuthResult::Ok => {
+                        rsp.code = msg::model::AuthResult::Ok.into();
+                    }
+                    e => {
+                        rsp = e.qcm_into();
+                    }
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
         MessageType::AddProviderReq => {
             if let Some(Payload::AddProviderReq(req)) = payload {
-                if let Some(auth_info) = &req.auth_info {
-                    if let Some(meta) = qcm_core::global::provider_meta(&req.type_name) {
-                        let provider = match auth_info.method {
-                            Some(msg::model::auth_info::Method::Qr(_)) => {
-                                let p = match global::get_tmp_provider() {
-                                    Some(tmp) if tmp.type_name() == req.type_name => tmp,
-                                    _ => {
-                                        let provider =
-                                            (meta.creator)(None, "", &global::device_id())?;
-                                        global::set_tmp_provider(Some(provider.clone()));
-                                        provider
-                                    }
-                                };
-                                p.set_name(&req.name);
-                                p
-                            }
-                            _ => (meta.creator)(None, &req.name, &global::device_id())?,
-                        };
+                let provider = global::get_tmp_provider(&req.tmp_provider)
+                    .ok_or(ProcessError::NoSuchProvider(req.tmp_provider.clone()))?;
+                let id = api::db::add_provider(&ctx.provider_context.db, provider.clone()).await?;
+                provider.set_id(Some(id));
 
-                        let mut rsp = AddProviderRsp::default();
-                        match provider
-                            .auth(&ctx.provider_context, &auth_info.clone().qcm_into())
-                            .await?
-                        {
+                global::add_provider(provider.clone());
+                ctx.backend_ev
+                    .send(BackendEvent::NewProvider { id })
+                    .await?;
+
+                return Ok(Rsp::default().qcm_into());
+            }
+        }
+        MessageType::ReplaceProviderReq => {
+            if let Some(Payload::ReplaceProviderReq(req)) = payload {
+                let _provider = global::provider(req.provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(req.provider_id.to_string()))?;
+                let tmp_provider = global::get_tmp_provider(&req.tmp_provider)
+                    .ok_or(ProcessError::NoSuchProvider(req.tmp_provider.clone()))?;
+                tmp_provider.set_id(Some(req.provider_id));
+                // replace
+                global::add_provider(tmp_provider.clone());
+                return Ok(Rsp::default().qcm_into());
+            }
+        }
+        MessageType::UpdateProviderReq => {
+            if let Some(Payload::UpdateProviderReq(req)) = payload {
+                let provider = global::provider(req.provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(req.provider_id.to_string()))?;
+
+                let mut rsp = msg::UpdateProviderRsp::default();
+                rsp.code = msg::model::AuthResult::Ok.into();
+                match &req.auth_info {
+                    // do replace
+                    Some(auth_info) => {
+                        let type_name = provider.type_name();
+                        let meta = global::provider_meta(&type_name)
+                            .ok_or(ProcessError::NoSuchProviderType(type_name))?;
+                        let new_provider =
+                            (meta.creator)(provider.id(), &req.name, &global::device_id())?;
+
+                        let info = auth_info.clone().qcm_into();
+                        match new_provider.auth(&ctx.provider_context, &info).await? {
                             AuthResult::Ok => {
-                                let id = api::db::add_provider(
-                                    &ctx.provider_context.db,
-                                    provider.clone(),
-                                )
-                                .await?;
-                                provider.set_id(Some(id));
-
-                                global::add_provider(provider.clone());
-                                global::set_tmp_provider(None);
-
-                                ctx.backend_ev
-                                    .send(BackendEvent::NewProvider { id })
-                                    .await?;
-                                rsp.code = msg::model::AuthResult::Ok.into();
+                                super::db::add_provider(&ctx.provider_context.db, provider).await?;
                             }
                             e => {
                                 rsp = e.qcm_into();
                             }
-                        };
-                        return Ok(rsp.qcm_into());
+                        }
                     }
-
-                    return Err(ProcessError::NoSuchProviderType(req.type_name.clone()));
+                    // do update
+                    None => {
+                        provider.set_name(&req.name);
+                        super::db::add_provider(&ctx.provider_context.db, provider).await?;
+                    }
                 }
-                return Err(ProcessError::MissingFields("auth_info".to_string()));
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::CreateTmpProviderReq => {
+            if let Some(Payload::CreateTmpProviderReq(req)) = payload {
+                let meta = global::provider_meta(&req.type_name)
+                    .ok_or(ProcessError::NoSuchProviderType(req.type_name.clone()))?;
+                let provider = (meta.creator)(None, "", &global::device_id())?;
+                let key = uuid::Uuid::new_v4().to_string();
+                global::set_tmp_provider(&key, provider.clone());
+
+                let rsp = msg::CreateTmpProviderRsp { id: key };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::DeleteTmpProviderReq => {
+            if let Some(Payload::DeleteTmpProviderReq(req)) = payload {
+                global::remove_tmp_provider(&req.id);
             }
         }
         MessageType::QrAuthUrlReq => {
             if let Some(Payload::QrAuthUrlReq(req)) = payload {
                 let provider = {
-                    match global::get_tmp_provider() {
+                    match global::get_tmp_provider(&req.tmp_provider) {
                         Some(tmp) if tmp.type_name() == req.provider_meta => tmp,
                         _ => {
-                            let meta = global::provider_meta(&req.provider_meta).ok_or(
-                                ProcessError::NoSuchProviderType(req.provider_meta.clone()),
-                            )?;
-                            let provider = (meta.creator)(None, "", &global::device_id())?;
-                            global::set_tmp_provider(Some(provider.clone()));
-                            provider
+                            return Err(ProcessError::NoSuchProvider(req.tmp_provider.clone()));
                         }
                     }
                 };
@@ -258,7 +311,6 @@ pub async fn process_qcm(
         MessageType::GetArtistsReq => {
             if let Some(Payload::GetArtistsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
-
 
                 let paginator = sqlm::artist::Entity::find()
                     .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
