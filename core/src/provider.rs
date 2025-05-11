@@ -38,13 +38,6 @@ pub enum AuthMethod {
     Phone { phone: String, pw: String },
     Email { email: String, pw: String },
     Qr { key: String },
-    None,
-}
-
-impl Default for AuthMethod {
-    fn default() -> Self {
-        return AuthMethod::None;
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -57,7 +50,7 @@ pub struct Context {
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct AuthInfo {
     pub server_url: String,
-    pub method: AuthMethod,
+    pub method: Option<AuthMethod>,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]

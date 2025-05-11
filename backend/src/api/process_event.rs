@@ -1,4 +1,5 @@
 use crate::event::{BackendContext, BackendEvent, Event};
+use crate::msg::model::AuthInfo;
 use qcm_core::event::Event as CoreEvent;
 use qcm_core::event::SyncCommit;
 use qcm_core::model as sqlm;
@@ -197,6 +198,10 @@ async fn send_provider_status(
                 status.id = p.id().unwrap_or(-1);
                 status.name = p.name();
                 status.type_name = p.type_name().to_string();
+                status.auth_info = Some(AuthInfo {
+                    server_url: p.base_url(),
+                    method: p.auth_method().qcm_into(),
+                });
 
                 for lib in &libraries {
                     if Some(lib.provider_id) == p.id() {

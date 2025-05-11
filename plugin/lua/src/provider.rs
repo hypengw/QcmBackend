@@ -209,7 +209,7 @@ impl Provider for LuaProvider {
             .map_err(ProviderError::from_err);
 
         if let Ok(AuthResult::Ok) = &res {
-            self.load_auth_info(&info.server_url, Some(info.method.clone()));
+            self.load_auth_info(&info.server_url, info.method.clone());
         }
         res
     }
