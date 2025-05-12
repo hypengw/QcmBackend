@@ -25,6 +25,7 @@ use std::io::{Seek, Write};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -71,6 +72,27 @@ pub enum ReverseEvent {
     FinishFile(String, CacheType, RemoteFileInfo),
     EndConnection(i64),
     Stop,
+}
+
+enum ConnectionEvent {
+    ReadedBuf(Bytes, ReadState),
+    RealRequest,
+}
+
+enum IoEvent {
+    RequestRead(String, i64, u64),
+    DoRead,
+    ReadContinue(i64),
+    NewWrite(
+        String,
+        u64,
+        CacheType,
+        RemoteFileInfo,
+        oneshot::Sender<bool>,
+    ),
+    Write(Arc<String>, u64, Bytes),
+    EndConnection(i64),
+    EndWrite(String),
 }
 
 pub fn wrap_creator<Fut>(ct: impl Fn(bool, Option<Range>) -> Fut + Send + Sync + 'static) -> Creator
@@ -166,25 +188,6 @@ fn create_rsp(
     (rsp, stream_tx)
 }
 
-enum ConnectionEvent {
-    ReadedBuf(Bytes, ReadState),
-    RealRequest,
-}
-
-enum IoEvent {
-    RequestRead(String, i64, u64),
-    DoRead,
-    ReadContinue(i64),
-    NewWrite(
-        String,
-        u64,
-        CacheType,
-        RemoteFileInfo,
-        oneshot::Sender<bool>,
-    ),
-    Write(Arc<String>, u64, Bytes),
-}
-
 struct ConnectResource {
     pub tx: Sender<ConnectionEvent>,
 }
@@ -237,10 +240,16 @@ async fn real_request(
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| parse_content_range(v));
 
-            let accept_ranges = headers
-                .get(reqwest::header::ACCEPT_RANGES)
-                .map(|v| v == "bytes")
-                .unwrap_or(false);
+            let accept_ranges = {
+                if content_range.is_some() {
+                    true
+                } else {
+                    headers
+                        .get(reqwest::header::ACCEPT_RANGES)
+                        .map(|v| v == "bytes")
+                        .unwrap_or(false)
+                }
+            };
 
             match (content_type, content_length) {
                 (Some(content_type), Some(content_length)) => Ok((
@@ -306,6 +315,7 @@ pub async fn process_cache_event(
                         EventBus::EndConnection(id) => {
                             resource.remove(&id);
                             let _ = tx.send(ReverseEvent::EndConnection(id)).await;
+                            let _ = io_tx.send(IoEvent::EndConnection(id));
                         }
                         EventBus::DoRead => {
                             let _ = io_tx.send(IoEvent::DoRead);
@@ -466,6 +476,8 @@ pub async fn process_cache_event(
                                     }
                                 }
                             }
+
+                            let _ = io_tx.send(IoEvent::EndWrite(key.as_ref().clone()));
                         }
                     });
                     ctx.tasks.insert(
@@ -649,6 +661,7 @@ struct DownloadFile {
     file: std::fs::File,
     cache_type: CacheType,
     remote_info: RemoteFileInfo,
+    pub rc: i64,
 }
 
 struct Reader {
@@ -686,13 +699,28 @@ fn process_io(
             })
         };
 
+    // cnn.id
     let mut readers = BTreeMap::<i64, Reader>::new();
+    // cnn.key
     let mut writers = BTreeMap::<String, DownloadFile>::new();
+    // cnn.id
     let mut waiters = BTreeMap::<i64, Waiter>::new();
 
     loop {
         match rx.recv() {
             Ok(ev) => match ev {
+                IoEvent::EndConnection(id) => {
+                    readers.remove(&id);
+                    waiters.remove(&id);
+                }
+                IoEvent::EndWrite(key) => {
+                    if let Some(w) = writers.get_mut(&key) {
+                        w.rc -= 1;
+                        if w.rc == 0 {
+                            writers.remove(&key);
+                        }
+                    }
+                }
                 IoEvent::RequestRead(key, id, cursor) => {
                     let p = {
                         match writers.get_mut(&key) {
@@ -834,8 +862,8 @@ fn process_io(
                         });
                 }
                 IoEvent::NewWrite(key, len, cache_type, remote_info, res) => {
-                    match writers.contains_key(key.as_str()) {
-                        false => match create_cache_file(key.as_str()) {
+                    match writers.get_mut(key.as_str()) {
+                        None => match create_cache_file(key.as_str()) {
                             Ok((file, path)) => {
                                 writers.insert(
                                     key.clone(),
@@ -848,6 +876,7 @@ fn process_io(
                                         cache_type,
                                         file,
                                         remote_info,
+                                        rc: 1,
                                     },
                                 );
                                 let _ = res.send(true);
@@ -858,7 +887,10 @@ fn process_io(
                                 continue;
                             }
                         },
-                        _ => {}
+                        Some(w) => {
+                            w.rc += 1;
+                            let _ = res.send(true);
+                        }
                     }
                 }
                 IoEvent::Write(key, offset, bytes) => {

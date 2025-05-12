@@ -111,7 +111,7 @@ pub fn range_in_full(r: &Range, full: u64) -> bool {
 }
 
 pub fn parse_content_range(s: &str) -> Option<ContentRange> {
-    let parts: Vec<&str> = s.split(" /").collect();
+    let parts: Vec<&str> = s.split(['/', ' ']).collect();
     match parts.as_slice() {
         ["bytes", range, full] => match range.split("-").collect::<Vec<&str>>().as_slice() {
             [start, end] => {
