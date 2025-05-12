@@ -108,6 +108,7 @@ pub async fn process_qcm(
             if let Some(Payload::AddProviderReq(req)) = payload {
                 let provider = global::get_tmp_provider(&req.tmp_provider)
                     .ok_or(ProcessError::NoSuchProvider(req.tmp_provider.clone()))?;
+                provider.set_name(&req.name);
                 let id = api::db::add_provider(&ctx.provider_context.db, provider.clone()).await?;
                 provider.set_id(Some(id));
 
@@ -198,7 +199,7 @@ pub async fn process_qcm(
             if let Some(Payload::QrAuthUrlReq(req)) = payload {
                 let provider = {
                     match global::get_tmp_provider(&req.tmp_provider) {
-                        Some(tmp) if tmp.type_name() == req.provider_meta => tmp,
+                        Some(tmp) => tmp,
                         _ => {
                             return Err(ProcessError::NoSuchProvider(req.tmp_provider.clone()));
                         }
