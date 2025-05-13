@@ -10,6 +10,8 @@ pub struct Model {
     pub id: i64,
     pub library_id: i64,
     pub name: String,
+    #[serde(default)]
+    pub sort_name: Option<String>,
     pub native_id: String,
     #[sea_orm(nullable)]
     pub album_id: Option<i64>,

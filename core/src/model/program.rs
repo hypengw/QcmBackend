@@ -1,6 +1,7 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, DeriveEntityModel)]
 #[sea_orm(table_name = "program")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -8,6 +9,8 @@ pub struct Model {
     pub library_id: i64, // foreign
     pub native_id: String,
     pub radio_id: i64, // foreign
+    #[serde(default)]
+    pub sort_name: Option<String>,
     pub name: String,
     pub description: String,
     pub duration: i64,

@@ -55,6 +55,21 @@ where
     }
 }
 
+impl QcmFrom<String> for Option<String> {
+    fn qcm_from(v: String) -> Self {
+        match v.is_empty() {
+            true => Some(v),
+            false => None,
+        }
+    }
+}
+
+impl QcmFrom<Option<String>> for String {
+    fn qcm_from(v: Option<String>) -> Self {
+        v.unwrap_or_default()
+    }
+}
+
 impl QcmFrom<prost_types::Timestamp> for sea_orm::entity::prelude::DateTimeUtc {
     fn qcm_from(v: prost_types::Timestamp) -> Self {
         let datetime =
@@ -173,6 +188,11 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
             native_id: v.native_id,
             library_id: v.library_id,
             name: v.name,
+            sort_name: match v.sort_name.is_empty() {
+                true => Some(v.sort_name),
+                false => None,
+            },
+            added_time: v.added_time.unwrap_or_default().qcm_into(),
             publish_time: v.publish_time.unwrap_or_default().qcm_into(),
             track_count: v.track_count,
             description: v.description,
@@ -189,6 +209,8 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
             native_id: v.native_id,
             library_id: v.library_id,
             name: v.name,
+            sort_name: v.sort_name.unwrap_or_default(),
+            added_time: Some(v.added_time.qcm_into()),
             publish_time: Some(v.publish_time.qcm_into()),
             track_count: v.track_count,
             description: v.description,
@@ -204,6 +226,7 @@ impl QcmFrom<proto::Artist> for core::model::artist::Model {
             id: v.id,
             native_id: v.native_id,
             name: v.name,
+            sort_name: v.sort_name.qcm_into(),
             library_id: v.library_id,
             description: v.description,
             album_count: v.album_count,
@@ -219,6 +242,7 @@ impl QcmFrom<core::model::artist::Model> for proto::Artist {
             id: v.id,
             native_id: v.native_id,
             name: v.name,
+            sort_name: v.sort_name.qcm_into(),
             library_id: v.library_id,
             description: v.description,
             album_count: v.album_count,
@@ -235,6 +259,7 @@ impl QcmFrom<proto::Song> for core::model::song::Model {
             native_id: v.native_id,
             library_id: v.library_id,
             name: v.name,
+            sort_name: v.sort_name.qcm_into(),
             album_id: Some(v.album_id),
             track_number: v.track_number,
             disc_number: v.disc_number,
@@ -260,6 +285,7 @@ impl QcmFrom<core::model::song::Model> for proto::Song {
             native_id: v.native_id,
             library_id: v.library_id,
             name: v.name,
+            sort_name: v.sort_name.qcm_into(),
             album_id: v.album_id.unwrap_or_default(),
             track_number: v.track_number,
             disc_number: v.disc_number,
@@ -289,6 +315,7 @@ impl QcmFrom<proto::Mix> for core::model::mix::Model {
             native_id: v.native_id,
             provider_id: v.provider_id,
             name: v.name,
+            sort_name: v.sort_name.qcm_into(),
             track_count: v.track_count,
             special_type: v.special_type,
             description: v.description,
@@ -307,6 +334,7 @@ impl QcmFrom<core::model::mix::Model> for proto::Mix {
             native_id: v.native_id,
             provider_id: v.provider_id,
             name: v.name,
+            sort_name: v.sort_name.qcm_into(),
             track_count: v.track_count,
             special_type: v.special_type,
             description: v.description,
@@ -338,8 +366,9 @@ impl QcmFrom<msg::model::AlbumSort> for sqlm::album::Column {
             AlbumSort::Year => Self::PublishTime,
             AlbumSort::PublishTime => Self::PublishTime,
             AlbumSort::Title => Self::Name,
-            AlbumSort::SortTitle => Self::Name,
+            AlbumSort::SortTitle => Self::SortName,
             AlbumSort::TrackCount => Self::TrackCount,
+            AlbumSort::AddedTime => Self::AddedTime,
         }
     }
 }
@@ -349,7 +378,7 @@ impl QcmFrom<msg::model::ArtistSort> for sqlm::artist::Column {
         use msg::model::ArtistSort;
         match v {
             ArtistSort::Name => Self::Name,
-            ArtistSort::SortName => Self::Name,
+            ArtistSort::SortName => Self::SortName,
             ArtistSort::MusicCount => Self::MusicCount,
             ArtistSort::AlbumCount => Self::AlbumCount,
         }

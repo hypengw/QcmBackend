@@ -9,6 +9,8 @@ pub struct Model {
     pub id: i64,
     pub native_id: String,
     pub name: String,
+    #[serde(default)]
+    pub sort_name: Option<String>,
     pub library_id: i64,
     #[serde(default)]
     pub description: String,

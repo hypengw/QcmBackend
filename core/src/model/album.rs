@@ -11,8 +11,12 @@ pub struct Model {
     pub native_id: String,
     pub library_id: i64,
     pub name: String,
+    #[serde(default)]
+    pub sort_name: Option<String>,
     #[serde(default = "epoch")]
     pub publish_time: DateTimeUtc,
+    #[serde(default = "epoch")]
+    pub added_time: DateTimeUtc,
     pub track_count: i32,
     #[serde(default = "String::new")]
     pub description: String,

@@ -14,85 +14,6 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(provider::Entity)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(provider::Column::ProviderId)
-                            .big_integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(provider::Column::Name).string().not_null())
-                    .col(ColumnDef::new(provider::Column::Type).string().not_null())
-                    .col(
-                        ColumnDef::new(provider::Column::BaseUrl)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(provider::Column::AuthMethod).json())
-                    .col(ColumnDef::new(provider::Column::Cookie).string().not_null())
-                    .col(ColumnDef::new(provider::Column::Custom).string().not_null())
-                    .col(
-                        ColumnDef::new(provider::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_table(
-                Table::create()
-                    .table(library::Entity)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(library::Column::LibraryId)
-                            .big_integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(library::Column::Name).string().not_null())
-                    .col(
-                        ColumnDef::new(library::Column::ProviderId)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(library::Column::NativeId)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(library::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_library_provider")
-                            .from(library::Entity, library::Column::ProviderId)
-                            .to(provider::Entity, provider::Column::ProviderId)
-                            .on_delete(sea_query::ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(unique_index!(
-                library::Entity,
-                library::Column::ProviderId,
-                library::Column::NativeId
-            ))
-            .await?;
-
-        manager
-            .create_table(
-                Table::create()
                     .table(album::Entity)
                     .if_not_exists()
                     .col(
@@ -109,6 +30,12 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(album::Column::Name).string().not_null())
+                    .col(ColumnDef::new(album::Column::SortName).string())
+                    .col(
+                        ColumnDef::new(album::Column::AddedTime)
+                            .timestamp()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(album::Column::PublishTime)
                             .timestamp()
@@ -163,6 +90,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(artist::Column::NativeId).string().not_null())
                     .col(ColumnDef::new(artist::Column::Name).string().not_null())
+                    .col(ColumnDef::new(artist::Column::SortName).string())
                     .col(
                         ColumnDef::new(artist::Column::LibraryId)
                             .big_integer()
@@ -225,6 +153,7 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(mix::Column::Name).string().not_null())
+                    .col(ColumnDef::new(mix::Column::SortName).string())
                     .col(ColumnDef::new(mix::Column::NativeId).string().not_null())
                     .col(ColumnDef::new(mix::Column::TrackCount).integer().not_null())
                     .col(
@@ -288,6 +217,7 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(song::Column::Name).string().not_null())
+                    .col(ColumnDef::new(song::Column::SortName).string())
                     .col(ColumnDef::new(song::Column::AlbumId).big_integer())
                     .col(
                         ColumnDef::new(song::Column::TrackNumber)

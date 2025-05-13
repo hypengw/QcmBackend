@@ -1,12 +1,15 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, DeriveEntityModel)]
 #[sea_orm(table_name = "mix")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub provider_id: i64,
     pub name: String,
+    #[serde(default)]
+    pub sort_name: Option<String>,
     pub native_id: String,
     pub track_count: i32,
     pub special_type: i32,

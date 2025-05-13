@@ -2,7 +2,9 @@ pub use sea_orm_migration::{prelude::*, Migration, MigrationStatus};
 
 mod cache;
 mod drop;
-mod m20220101_000003_create_table;
+mod m20220101_000004_create_provider_table;
+mod m20220101_000005_create_library_table;
+mod m20220101_000006_create_table;
 mod m20250418_145233_create_table;
 
 pub struct Migrator;
@@ -31,17 +33,17 @@ macro_rules! unique_index {
 }
 
 const DROPED: &[&str] = &[
-    "m20220101_000001_create_table",
-    "m20220101_000002_create_rel_table",
+    "m20220101_000003_create_table",
 ];
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            Box::new(drop::m20220101_000001_create_table::Migration),
-            Box::new(drop::m20220101_000002_create_rel_table::Migration),
-            Box::new(m20220101_000003_create_table::Migration),
+            Box::new(drop::m20220101_000003_create_table::Migration),
+            Box::new(m20220101_000004_create_provider_table::Migration),
+            Box::new(m20220101_000005_create_library_table::Migration),
+            Box::new(m20220101_000006_create_table::Migration),
             Box::new(m20250418_145233_create_table::Migration),
         ]
     }
