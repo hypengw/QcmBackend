@@ -258,11 +258,18 @@ pub async fn process_qcm(
             if let Some(Payload::GetAlbumsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
 
-                log::info!("{:?}", &req.library_id);
-
+                let sort: msg::model::AlbumSort =
+                    req.sort.try_into().unwrap_or(msg::model::AlbumSort::Title);
+                let sort_col: sqlm::album::Column = sort.qcm_into();
                 let paginator = sqlm::album::Entity::find()
                     .filter(sqlm::album::Column::LibraryId.is_in(req.library_id.clone()))
-                    .order_by_asc(sqlm::album::Column::Id)
+                    .order_by(
+                        sort_col,
+                        match req.sort_asc {
+                            true => sea_orm::Order::Asc,
+                            false => sea_orm::Order::Desc,
+                        },
+                    )
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
@@ -300,10 +307,19 @@ pub async fn process_qcm(
             if let Some(Payload::GetAlbumArtistsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
 
+                let sort: msg::model::ArtistSort =
+                    req.sort.try_into().unwrap_or(msg::model::ArtistSort::Name);
+                let sort_col: sqlm::artist::Column = sort.qcm_into();
                 let paginator = sqlm::artist::Entity::find()
                     .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_album_artist::Entity)
-                    .order_by_asc(sqlm::artist::Column::Id)
+                    .order_by(
+                        sort_col,
+                        match req.sort_asc {
+                            true => sea_orm::Order::Asc,
+                            false => sea_orm::Order::Desc,
+                        },
+                    )
                     .distinct()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -327,11 +343,19 @@ pub async fn process_qcm(
         MessageType::GetArtistsReq => {
             if let Some(Payload::GetArtistsReq(req)) = payload {
                 let page_params = PageParams::new(req.page, req.page_size);
-
+                let sort: msg::model::ArtistSort =
+                    req.sort.try_into().unwrap_or(msg::model::ArtistSort::Name);
+                let sort_col: sqlm::artist::Column = sort.qcm_into();
                 let paginator = sqlm::artist::Entity::find()
                     .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_song_artist::Entity)
-                    .order_by_asc(sqlm::artist::Column::Id)
+                    .order_by(
+                        sort_col,
+                        match req.sort_asc {
+                            true => sea_orm::Order::Asc,
+                            false => sea_orm::Order::Desc,
+                        },
+                    )
                     .distinct()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 

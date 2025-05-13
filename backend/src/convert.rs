@@ -7,6 +7,7 @@ use chrono::Timelike;
 use prost::{DecodeError, EncodeError, Message};
 use qcm_core as core;
 use qcm_core::db::values::StringVec;
+use qcm_core::model as sqlm;
 use qcm_core::provider::AuthResult;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -326,6 +327,31 @@ impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
             is_script: v.is_script,
             has_server_url: v.has_server_url,
             auth_types: v.auth_types,
+        }
+    }
+}
+
+impl QcmFrom<msg::model::AlbumSort> for sqlm::album::Column {
+    fn qcm_from(v: msg::model::AlbumSort) -> Self {
+        use msg::model::AlbumSort;
+        match v {
+            AlbumSort::Year => Self::PublishTime,
+            AlbumSort::PublishTime => Self::PublishTime,
+            AlbumSort::Title => Self::Name,
+            AlbumSort::SortTitle => Self::Name,
+            AlbumSort::TrackCount => Self::TrackCount,
+        }
+    }
+}
+
+impl QcmFrom<msg::model::ArtistSort> for sqlm::artist::Column {
+    fn qcm_from(v: msg::model::ArtistSort) -> Self {
+        use msg::model::ArtistSort;
+        match v {
+            ArtistSort::Name => Self::Name,
+            ArtistSort::SortName => Self::Name,
+            ArtistSort::MusicCount => Self::MusicCount,
+            ArtistSort::AlbumCount => Self::AlbumCount,
         }
     }
 }
