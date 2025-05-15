@@ -13,7 +13,6 @@ use hyper::{body::Incoming, Request};
 use hyper_util::rt::TokioIo;
 use tokio::{
     net::{TcpListener, TcpStream},
-    signal::unix::{signal, SignalKind},
     sync::watch,
 };
 
@@ -57,6 +56,30 @@ fn default_log_filter() -> tracing_subscriber::filter::EnvFilter {
         .parse_lossy("")
 }
 
+#[cfg(unix)]
+async fn wait_for_signal(tx: watch::Sender<bool>) {
+    use signal::unix::{signal, SignalKind};
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+    {
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = sigint.recv() => {}
+        };
+        tx.send(true).unwrap();
+    }
+}
+
+#[cfg(windows)]
+async fn wait_for_signal(tx: watch::Sender<bool>) {
+    {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+        };
+        tx.send(true).unwrap();
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*, reload};
@@ -93,15 +116,7 @@ async fn main() -> Result<(), anyhow::Error> {
         global::set_shutdown_tx(shutdown_tx.clone());
 
         tokio::spawn(async move {
-            let mut sigterm = signal(SignalKind::terminate()).unwrap();
-            let mut sigint = signal(SignalKind::interrupt()).unwrap();
-            loop {
-                tokio::select! {
-                    _ = sigterm.recv() => {}
-                    _ = sigint.recv() => {}
-                };
-                shutdown_tx.send(true).unwrap();
-            }
+            wait_for_signal(shutdown_tx).await;
         });
         shutdown_rx
     };
