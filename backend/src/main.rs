@@ -58,7 +58,7 @@ fn default_log_filter() -> tracing_subscriber::filter::EnvFilter {
 
 #[cfg(unix)]
 async fn wait_for_signal(tx: watch::Sender<bool>) {
-    use signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{signal, SignalKind};
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     {

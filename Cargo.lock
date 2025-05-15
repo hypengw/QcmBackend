@@ -1553,7 +1553,6 @@ checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 [[package]]
 name = "jellyfin-api"
 version = "0.1.0"
-source = "git+https://github.com/hypengw/qcm-jellyfin-plugin.git?branch=master#770507218fc430f79b86c2dc2097d78fe1fc7b50"
 dependencies = [
  "reqwest",
  "serde",
@@ -2383,7 +2382,6 @@ dependencies = [
 [[package]]
 name = "qcm-plugin-jellyfin"
 version = "0.1.0"
-source = "git+https://github.com/hypengw/qcm-jellyfin-plugin.git?branch=master#770507218fc430f79b86c2dc2097d78fe1fc7b50"
 dependencies = [
  "anyhow",
  "async-trait",
