@@ -1,5 +1,6 @@
 use anyhow;
 use clap::{self, Parser};
+use fts::load_fts_plugin;
 use reverse::process::ReverseEvent;
 use std::{
     collections::HashMap,
@@ -23,6 +24,7 @@ mod api;
 mod convert;
 mod error;
 mod event;
+mod fts;
 mod global;
 mod msg;
 mod reverse;
@@ -80,6 +82,12 @@ async fn wait_for_signal(tx: watch::Sender<bool>) {
     }
 }
 
+#[derive(Debug, sea_orm::FromQueryResult)]
+struct Hello {
+    #[sea_orm(column_index = 0)]
+    message: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*, reload};
@@ -98,6 +106,10 @@ async fn main() -> Result<(), anyhow::Error> {
         .and_then(|l| EnvFilter::try_new(&l).ok())
         .unwrap_or(default_log_filter());
 
+    if !load_fts_plugin() {
+        panic!("Failed to load fts plugin");
+    }
+
     qcm_core::global::init(&args.data);
     qcm_plugins::init();
 
@@ -109,6 +121,26 @@ async fn main() -> Result<(), anyhow::Error> {
     // database
     let db = prepare_db(&args.data).await?;
     let cache_db = prepare_cache_db(&args.data).await?;
+
+    {
+        let stmt = sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "SELECT hello_rust() AS ppp;".to_string(),
+        );
+        if let Some(row) = db.query_one(stmt).await? {
+            match row.try_get("", "ppp") {
+                Ok(s) => {
+                    let s: String = s;
+                    println!("Result: {}", s);
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                }
+            }
+        } else {
+            println!("No result returned");
+        }
+    }
 
     // shutdown watcher
     let mut shutdown_rx = {
