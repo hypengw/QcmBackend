@@ -1,9 +1,11 @@
-mod tokenizer;
 mod entry;
+mod tokenizer;
 
+use crate::fts::tokenizer::FtsTokenizer;
 use libsqlite3_sys as api;
 use std::os::raw::{c_char, c_int};
 
+#[no_mangle]
 extern "C" fn hello_rust(
     ctx: *mut api::sqlite3_context,
     _argc: c_int,
@@ -15,6 +17,42 @@ extern "C" fn hello_rust(
             ctx,
             result.as_ptr() as *const i8,
             result.len() as c_int,
+            api::SQLITE_TRANSIENT(),
+        );
+    }
+}
+
+#[no_mangle]
+extern "C" fn qcm_query(
+    ctx: *mut api::sqlite3_context,
+    argc: c_int,
+    argv: *mut *mut api::sqlite3_value,
+) {
+    if argc < 1 {
+        unsafe {
+            api::sqlite3_result_error(ctx, "Expected 1 argument\0".as_ptr() as *const i8, -1);
+        }
+        return;
+    }
+
+    unsafe {
+        let query_text = api::sqlite3_value_text(*argv.offset(0));
+        if query_text.is_null() {
+            api::sqlite3_result_error(ctx, "Query text is null\0".as_ptr() as *const i8, -1);
+            return;
+        }
+
+        let query = std::ffi::CStr::from_ptr(query_text as *const i8)
+            .to_string_lossy()
+            .into_owned();
+
+        let tokenizer = FtsTokenizer::new();
+        let fts_query = tokenizer.tokenize_query(&query);
+
+        api::sqlite3_result_text(
+            ctx,
+            fts_query.as_ptr() as *const i8,
+            fts_query.len() as c_int,
             api::SQLITE_TRANSIENT(),
         );
     }
@@ -57,9 +95,26 @@ unsafe extern "C" fn sqlite3_qcm_init(
         db,
         b"hello_rust\0".as_ptr() as *const _,
         0,
-        api::SQLITE_UTF8,
+        api::SQLITE_UTF8 | api::SQLITE_DETERMINISTIC,
         std::ptr::null_mut(),
         Some(hello_rust),
+        None,
+        None,
+        None,
+    );
+
+    if rc != api::SQLITE_OK {
+        log::error!("sqlite ec: {}", rc);
+        return rc;
+    }
+
+    rc = api::sqlite3_create_function_v2(
+        db,
+        b"qcm_query\0".as_ptr() as *const _,
+        1,
+        api::SQLITE_UTF8 | api::SQLITE_DETERMINISTIC,
+        std::ptr::null_mut(),
+        Some(qcm_query),
         None,
         None,
         None,

@@ -104,6 +104,23 @@ impl FtsTokenizer {
 
         result
     }
+
+    pub fn tokenize_query(&self, query: &str) -> String {
+        let tokens = self.tokenize(query);
+        let mut fts_conditions = Vec::new();
+
+        for token in tokens {
+            let term = match token {
+                Token::Alphabetic(s, _) => format!("{}*", s), // Match word start
+                Token::Numeric(s, _) => s,                        // Exact match for numbers
+                Token::NGram(s, _) => format!("{}*", s),        // Partial match for n-grams
+            };
+            fts_conditions.push(term);
+        }
+
+        // Combine all conditions with AND
+        fts_conditions.join(" AND ")
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +205,52 @@ mod tests {
                 Token::Alphabetic("def".to_string(), 6),
                 Token::Numeric("456".to_string(), 9)
             ]
+        );
+    }
+
+    #[test]
+    fn test_query_tokenization() {
+        let tokenizer = FtsTokenizer::new();
+        
+        // Test alphabetic query
+        assert_eq!(tokenizer.tokenize_query("Hello"), "hello*");
+        
+        // Test numeric query
+        assert_eq!(tokenizer.tokenize_query("123"), "123");
+        
+        // Test mixed query
+        assert_eq!(
+            tokenizer.tokenize_query("Hello世界123"),
+            "hello* AND 世界* AND 123"
+        );
+        
+        // Test Chinese query
+        assert_eq!(
+            tokenizer.tokenize_query("中国人"),
+            "中国* AND 国人*"
+        );
+    }
+
+    #[test]
+    fn test_complex_query_tokenization() {
+        let tokenizer = FtsTokenizer::new();
+        
+        // Test mixed separators
+        assert_eq!(
+            tokenizer.tokenize_query("Hello-World 123"),
+            "hello* AND world* AND 123"
+        );
+        
+        // Test mixed content with multiple tokens
+        assert_eq!(
+            tokenizer.tokenize_query("abc123世界def456"),
+            "abc* AND 123 AND 世界* AND def* AND 456"
+        );
+        
+        // Test mixed with Chinese characters
+        assert_eq!(
+            tokenizer.tokenize_query("中国abc123"),
+            "中国* AND abc* AND 123"
         );
     }
 }

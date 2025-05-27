@@ -486,17 +486,21 @@ pub async fn process_qcm(
             if let Some(Payload::SearchReq(req)) = payload {
                 let db = &ctx.provider_context.db;
                 let page_params = PageParams::new(req.page, req.page_size);
-                let search_query = format!("{}", req.query);
+                let search_query = req.query.clone();
                 let mut albums_rsp = None;
                 let mut songs_rsp = None;
                 let mut artists_rsp = None;
 
-                let library_ids = req
-                    .library_id
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",");
+                let library_ids = if search_query.is_empty() {
+                    String::new()
+                } else {
+                    req.library_id
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                };
+
                 let format_query = |table: &str, fts: &str| {
                     let db_backend = ctx.provider_context.db.get_database_backend();
                     Statement::from_sql_and_values(
@@ -505,7 +509,7 @@ pub async fn process_qcm(
                             r#"
                                     SELECT {table}.* FROM {table}
                                     INNER JOIN {fts} ON {table}.id = {fts}.rowid
-                                    WHERE {fts} MATCH ? AND {table}.library_id IN ({library_ids})
+                                    WHERE {fts} MATCH qcm_query(?) AND {table}.library_id IN ({library_ids})
                                     "#
                         ),
                         [search_query.clone().into()],
@@ -513,7 +517,6 @@ pub async fn process_qcm(
                 };
 
                 for search_type in &req.types {
-                    log::warn!("search: {}", search_type);
                     let search_type: msg::SearchType =
                         msg::SearchType::try_from(search_type.clone())
                             .map_err(|_| ProcessError::NoSuchSearchType(search_type.to_string()))?;
