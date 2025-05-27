@@ -1,4 +1,4 @@
-use super::tokenizer::FtsTokenizer;
+use super::tokenizer::{FtsTokenizer, Token};
 use libsqlite3_sys as api;
 use std::ffi::CStr;
 
@@ -56,15 +56,18 @@ pub unsafe extern "C" fn tokenize(
 
     for token in tokens {
         if let Some(callback) = x_token {
-            let start_pos = text.find(&token).unwrap_or(0) as i32;
-            let token_len = token.len() as i32;
+            let (token_str, start_pos) = match token {
+                Token::Alphabetic(s, pos) | Token::Numeric(s, pos) | Token::NGram(s, pos) => (s, pos),
+            };
+            let token_len = token_str.len() as i32;
+            let start_pos_i32 = start_pos as i32;
             callback(
                 p_ctx,
                 flags,
-                token.as_ptr() as *const i8,
+                token_str.as_ptr() as *const i8,
                 token_len,
-                start_pos,
-                start_pos + token_len,
+                start_pos_i32,
+                start_pos_i32 + token_len,
             );
         }
     }

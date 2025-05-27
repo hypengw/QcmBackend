@@ -46,6 +46,8 @@ pub enum ProcessError {
     NoSuchItemType(String),
     #[error("No such image type: {0}")]
     NoSuchImageType(String),
+    #[error("No such search type: {0}")]
+    NoSuchSearchType(String),
     #[error("Unsupported item type: {0}")]
     UnsupportedItemType(String),
     #[error("Not Found")]

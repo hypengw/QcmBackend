@@ -88,7 +88,7 @@ unsafe extern "C" fn sqlite3_qcm_init(
 
     rc = fts_api.xCreateTokenizer.unwrap()(
         fts_api_p,
-        "qcm_tokenizer\0".as_ptr() as *const i8,
+        "qcm\0".as_ptr() as *const i8,
         std::ptr::null_mut(),
         &mut tokenizer,
         None,

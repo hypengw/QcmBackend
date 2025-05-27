@@ -472,6 +472,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::NoSuchMix(_) => msg::ErrorCode::NoSuchMix.into(),
                 ProcessError::NoSuchItemType(_) => msg::ErrorCode::NoSuchItemType.into(),
                 ProcessError::NoSuchImageType(_) => msg::ErrorCode::NoSuchImageType.into(),
+                ProcessError::NoSuchSearchType(_) => msg::ErrorCode::NoSuchSearchType.into(),
                 ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),
                 ProcessError::NotFound => msg::ErrorCode::NotFound.into(),
                 ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
@@ -528,5 +529,7 @@ impl_from_for_qcm_msg!(GetArtistAlbumRsp);
 
 impl_from_for_qcm_msg!(GetMixsRsp);
 impl_from_for_qcm_msg!(GetMixRsp);
+
+impl_from_for_qcm_msg!(SearchRsp);
 
 impl_from_for_qcm_msg!(SyncRsp);

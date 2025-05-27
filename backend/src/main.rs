@@ -122,26 +122,6 @@ async fn main() -> Result<(), anyhow::Error> {
     let db = prepare_db(&args.data).await?;
     let cache_db = prepare_cache_db(&args.data).await?;
 
-    {
-        let stmt = sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT hello_rust() AS ppp;".to_string(),
-        );
-        if let Some(row) = db.query_one(stmt).await? {
-            match row.try_get("", "ppp") {
-                Ok(s) => {
-                    let s: String = s;
-                    println!("Result: {}", s);
-                }
-                Err(e) => {
-                    println!("{:?}", e);
-                }
-            }
-        } else {
-            println!("No result returned");
-        }
-    }
-
     // shutdown watcher
     let mut shutdown_rx = {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);

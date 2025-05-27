@@ -6,8 +6,8 @@ use tokio::sync::oneshot;
 
 use qcm_core::model as sqlm;
 use sea_orm::{
-    sea_query, ColumnTrait, ConnectionTrait, EntityTrait, LoaderTrait, ModelTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, QueryTrait, TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName, EntityTrait, FromQueryResult,
+    LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 
 use crate::api::{self, pagination::PageParams};
@@ -16,7 +16,7 @@ use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
     self, AuthProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
-    MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
+    GetSongsRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
 
 fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
@@ -42,6 +42,46 @@ fn extra_insert_album(extra: &mut prost_types::Struct, album: &sqlm::album::Mode
         "album".to_string(),
         serde_json::to_string(&j).unwrap().into(),
     );
+}
+
+async fn to_rsp_songs(
+    db: &DatabaseConnection,
+    songs: Vec<sqlm::song::Model>,
+) -> Result<(Vec<msg::model::Song>, Vec<prost_types::Struct>), ProcessError> {
+    let artists = songs
+        .load_many_to_many(sqlm::artist::Entity, sqlm::rel_song_artist::Entity, db)
+        .await?;
+
+    let mut items = Vec::new();
+    let mut extras = Vec::new();
+
+    for (song, artists) in songs.into_iter().zip(artists.into_iter()) {
+        items.push(song.qcm_into());
+        let mut extra = prost_types::Struct::default();
+        extra_insert_artists(&mut extra, &artists);
+        extras.push(extra);
+    }
+    Ok((items, extras))
+}
+
+async fn to_rsp_albums(
+    db: &DatabaseConnection,
+    albums: Vec<sqlm::album::Model>,
+) -> Result<(Vec<msg::model::Album>, Vec<prost_types::Struct>), ProcessError> {
+    let artists = albums
+        .load_many_to_many(sqlm::artist::Entity, sqlm::rel_album_artist::Entity, db)
+        .await?;
+
+    let mut items = Vec::new();
+    let mut extras = Vec::new();
+
+    for (album, artists) in albums.into_iter().zip(artists.into_iter()) {
+        items.push(album.qcm_into());
+        let mut extra = prost_types::Struct::default();
+        extra_insert_artists(&mut extra, &artists);
+        extras.push(extra);
+    }
+    Ok((items, extras))
 }
 
 pub async fn process_qcm(
@@ -275,24 +315,7 @@ pub async fn process_qcm(
                 let total = paginator.num_items().await?;
                 let albums = paginator.fetch_page(page_params.page).await?;
 
-                let artists = albums
-                    .load_many_to_many(
-                        sqlm::artist::Entity,
-                        sqlm::rel_album_artist::Entity,
-                        &ctx.provider_context.db,
-                    )
-                    .await?;
-
-                let mut items = Vec::new();
-                let mut extras = Vec::new();
-
-                for (album, artists) in albums.into_iter().zip(artists.into_iter()) {
-                    items.push(album.qcm_into());
-
-                    let mut extra = prost_types::Struct::default();
-                    extra_insert_artists(&mut extra, &artists);
-                    extras.push(extra);
-                }
+                let (items, extras) = to_rsp_albums(&ctx.provider_context.db, albums).await?;
 
                 let rsp = GetAlbumsRsp {
                     items,
@@ -448,26 +471,125 @@ pub async fn process_qcm(
                 let total = paginator.num_items().await?;
                 let albums = paginator.fetch_page(page_params.page).await?;
 
-                let artists = albums
-                    .load_many_to_many(sqlm::artist::Entity, sqlm::rel_album_artist::Entity, db)
-                    .await?;
-
-                let mut items = Vec::new();
-                let mut extras = Vec::new();
-
-                for (album, artists) in albums.into_iter().zip(artists.into_iter()) {
-                    items.push(album.qcm_into());
-
-                    let mut extra = prost_types::Struct::default();
-                    extra_insert_artists(&mut extra, &artists);
-                    extras.push(extra);
-                }
+                let (items, extras) = to_rsp_albums(db, albums).await?;
 
                 let rsp = msg::GetArtistAlbumRsp {
                     items,
                     extras,
                     total: total as i32,
                     has_more: page_params.has_more(total),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::SearchReq => {
+            if let Some(Payload::SearchReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+                let page_params = PageParams::new(req.page, req.page_size);
+                let search_query = format!("{}", req.query);
+                let mut albums_rsp = None;
+                let mut songs_rsp = None;
+                let mut artists_rsp = None;
+
+                let library_ids = req
+                    .library_id
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let format_query = |table: &str, fts: &str| {
+                    let db_backend = ctx.provider_context.db.get_database_backend();
+                    Statement::from_sql_and_values(
+                        db_backend,
+                        format!(
+                            r#"
+                                    SELECT {table}.* FROM {table}
+                                    INNER JOIN {fts} ON {table}.id = {fts}.rowid
+                                    WHERE {fts} MATCH ? AND {table}.library_id IN ({library_ids})
+                                    "#
+                        ),
+                        [search_query.clone().into()],
+                    )
+                };
+
+                for search_type in &req.types {
+                    log::warn!("search: {}", search_type);
+                    let search_type: msg::SearchType =
+                        msg::SearchType::try_from(search_type.clone())
+                            .map_err(|_| ProcessError::NoSuchSearchType(search_type.to_string()))?;
+                    match search_type {
+                        msg::SearchType::Album => {
+                            let entity = sqlm::album::Entity::default();
+                            let table = entity.table_name();
+                            let fts = format!("{table}_fts");
+                            let albums_query =
+                                sqlm::album::Entity::find().from_raw_sql(format_query(table, &fts));
+
+                            let paginator = albums_query.paginate(db, page_params.page_size);
+                            let total = paginator.num_items().await?;
+                            let albums = paginator.fetch_page(page_params.page).await?;
+
+                            let (items, extras) = to_rsp_albums(db, albums).await?;
+
+                            albums_rsp = Some(GetAlbumsRsp {
+                                items,
+                                extras,
+                                total: total as i32,
+                                has_more: page_params.has_more(total),
+                            });
+                        }
+                        msg::SearchType::Song => {
+                            let entity = sqlm::song::Entity::default();
+                            let table = entity.table_name();
+                            let fts = format!("{table}_fts");
+                            let query =
+                                sqlm::song::Entity::find().from_raw_sql(format_query(table, &fts));
+
+                            let paginator = query.paginate(db, page_params.page_size);
+                            let total = paginator.num_items().await?;
+                            let songs = paginator.fetch_page(page_params.page).await?;
+
+                            let (items, extras) = to_rsp_songs(db, songs).await?;
+
+                            songs_rsp = Some(GetSongsRsp {
+                                items,
+                                extras,
+                                total: total as i32,
+                                has_more: page_params.has_more(total),
+                            });
+                        }
+                        msg::SearchType::Artist => {
+                            let entity = sqlm::artist::Entity::default();
+                            let table = entity.table_name();
+                            let fts = format!("{table}_fts");
+                            let query = sqlm::artist::Entity::find()
+                                .from_raw_sql(format_query(table, &fts));
+                            let page_params = PageParams::new(req.page, req.page_size);
+
+                            let paginator = query.paginate(db, page_params.page_size);
+                            let total = paginator.num_items().await?;
+
+                            let artists = paginator
+                                .fetch_page(page_params.page)
+                                .await?
+                                .into_iter()
+                                .map(|a| a.qcm_into())
+                                .collect();
+
+                            artists_rsp = Some(GetArtistsRsp {
+                                items: artists,
+                                extras: Vec::new(),
+                                total: total as i32,
+                                has_more: page_params.has_more(total),
+                            });
+                        }
+                    }
+                }
+
+                let rsp = msg::SearchRsp {
+                    albums: albums_rsp,
+                    artists: artists_rsp,
+                    songs: songs_rsp,
                 };
                 return Ok(rsp.qcm_into());
             }
