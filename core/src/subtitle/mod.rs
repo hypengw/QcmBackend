@@ -15,17 +15,25 @@ pub struct Subtitle {
 
 impl Subtitle {
     pub fn from_lrc(lrc: &str) -> Option<Self> {
-        None
-        // lrc::parse(lrc).ok().map(|lrc| {
-        //     let items = lrc
-        //         .into_iter()
-        //         .map(|item| SubtitleItem {
-        //             start: item.start,
-        //             end: item.end,
-        //             text: item.text.map(|text| text.to_string()),
-        //         })
-        //         .collect();
-        //     Subtitle { items }
-        // })
+        lrc::parse(lrc).ok().map(|lrc_items| {
+            let items = lrc_items
+                .into_iter()
+                .filter_map(|item| match item {
+                    lrc::LrcTag::Time(text, timestamps) => {
+                        if timestamps.is_empty() {
+                            None
+                        } else {
+                            Some(SubtitleItem {
+                                start: Some(timestamps[0]),
+                                end: timestamps.get(1).cloned(),
+                                text: Some(text.to_string()),
+                            })
+                        }
+                    }
+                    _ => None,
+                })
+                .collect();
+            Subtitle { items }
+        })
     }
 }
