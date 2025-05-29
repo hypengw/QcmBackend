@@ -7,6 +7,7 @@ pub mod plugin;
 pub mod http;
 pub mod global;
 pub mod event;
+pub mod subtitle;
 pub use anyhow::Result;
 pub use anyhow::Error;
 pub use anyhow::Error as AnyError;

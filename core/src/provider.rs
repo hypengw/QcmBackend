@@ -3,6 +3,7 @@ use crate::{
     event::Event,
     http,
     model::type_enum::{ImageType, ItemType},
+    subtitle::Subtitle,
     Result,
 };
 use reqwest::Response;
@@ -135,6 +136,8 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
         item_id: &str,
         headers: Option<http::HeaderMap>,
     ) -> Result<Response, ProviderError>;
+
+    async fn subtitle(&self, item_id: &str) -> Result<Subtitle, ProviderError>;
 }
 
 struct ProviderCommonDataInner {

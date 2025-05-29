@@ -16,6 +16,7 @@ use qcm_core::{
     http::{CookieStoreRwLock, HasCookieJar, HeaderMap, HttpClient},
     model::type_enum::ImageType,
     provider::{AuthInfo, Context, Provider},
+    subtitle::Subtitle,
     AnyError, Result,
 };
 use reqwest::Response;
@@ -58,6 +59,7 @@ struct LuaImpl {
     qr: Option<LuaFunction>,
     image: LuaFunction,
     audio: LuaFunction,
+    subtitle: LuaFunction,
 }
 
 pub struct LuaProvider {
@@ -154,6 +156,9 @@ impl LuaProvider {
                 audio: provider_table
                     .get::<LuaFunction>("audio")
                     .map_err(|_| anyhow!("audio func not found"))?,
+                subtitle: provider_table
+                    .get::<LuaFunction>("subtitle")
+                    .map_err(|_| anyhow!("subtitle func not found"))?,
             },
             lua,
         };
@@ -297,6 +302,21 @@ impl Provider for LuaProvider {
             let mut ud_rsp = ud.borrow_mut::<LuaResponse>().map_err(AnyError::from)?;
             let rsp = ud_rsp.0.take().ok_or(anyhow!("response not found"))?;
             Ok(rsp)
+        } else {
+            Err(ProviderError::NotFound)
+        }
+    }
+    async fn subtitle(&self, item_id: &str) -> Result<Subtitle, ProviderError> {
+        let val = self
+            .funcs
+            .subtitle
+            .call_async::<LuaValue>(item_id)
+            .await
+            .map_err(|e| anyhow!(e))?;
+        if val.is_string() {
+            let lrc = val.to_string().unwrap();
+            let subtitle = Subtitle::from_lrc(&lrc).ok_or_else(|| ProviderError::NotFound)?;
+            Ok(subtitle)
         } else {
             Err(ProviderError::NotFound)
         }

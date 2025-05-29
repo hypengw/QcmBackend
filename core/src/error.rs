@@ -8,6 +8,8 @@ pub enum ProviderError {
     IO(#[from] std::io::Error),
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
+    #[error("parse error: {0}")]
+    ParseSubtitle(String),
     #[error("Lua error: {0}")]
     Lua(String),
     #[error("Not auth")]
