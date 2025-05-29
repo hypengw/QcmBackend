@@ -14,8 +14,8 @@ pub struct Subtitle {
 }
 
 impl Subtitle {
-    pub fn from_lrc(lrc: &str) -> Option<Self> {
-        lrc::parse(lrc).ok().map(|lrc_items| {
+    pub fn from_lrc(lrc: &str) -> Result<Self, lrc::error::Error<&str>> {
+        lrc::parse(lrc).map(|lrc_items| {
             let items = lrc_items
                 .into_iter()
                 .filter_map(|item| match item {

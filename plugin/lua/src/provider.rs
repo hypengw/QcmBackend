@@ -315,7 +315,8 @@ impl Provider for LuaProvider {
             .map_err(|e| anyhow!(e))?;
         if val.is_string() {
             let lrc = val.to_string().unwrap();
-            let subtitle = Subtitle::from_lrc(&lrc).ok_or_else(|| ProviderError::NotFound)?;
+            let subtitle = Subtitle::from_lrc(&lrc)
+                .map_err(|e| ProviderError::ParseSubtitle(format!("{:?}", e)))?;
             Ok(subtitle)
         } else {
             Err(ProviderError::NotFound)

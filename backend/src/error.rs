@@ -50,6 +50,8 @@ pub enum ProcessError {
     NoSuchSearchType(String),
     #[error("Unsupported item type: {0}")]
     UnsupportedItemType(String),
+    #[error("parse error: {0}")]
+    ParseSubtitle(String),
     #[error("Not Found")]
     NotFound,
     #[error("Infallible")]
@@ -73,6 +75,7 @@ impl From<qcm_core::error::ProviderError> for ProcessError {
         match e {
             ProviderError::Infallible(e) => ProcessError::Infallible(e),
             ProviderError::NotFound => ProcessError::NotFound,
+            ProviderError::ParseSubtitle(e) => ProcessError::ParseSubtitle(e),
             e => ProcessError::Internal(e.into()),
         }
     }

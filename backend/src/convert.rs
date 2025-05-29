@@ -448,6 +448,22 @@ impl QcmFrom<AuthResult> for msg::UpdateProviderRsp {
     }
 }
 
+impl QcmFrom<core::subtitle::Subtitle> for msg::model::Subtitle {
+    fn qcm_from(v: core::subtitle::Subtitle) -> Self {
+        Self {
+            items: v
+                .items
+                .into_iter()
+                .map(|item| msg::model::SubtitleItem {
+                    start: item.start.unwrap_or(-1),
+                    end: item.end.unwrap_or(-1),
+                    text: item.text.unwrap_or(String::new()),
+                })
+                .collect(),
+        }
+    }
+}
+
 impl QcmFrom<ProcessError> for msg::Rsp {
     fn qcm_from(v: ProcessError) -> Self {
         Self {
@@ -474,6 +490,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::NoSuchImageType(_) => msg::ErrorCode::NoSuchImageType.into(),
                 ProcessError::NoSuchSearchType(_) => msg::ErrorCode::NoSuchSearchType.into(),
                 ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),
+                ProcessError::ParseSubtitle(_) => msg::ErrorCode::ParseSubtitle.into(),
                 ProcessError::NotFound => msg::ErrorCode::NotFound.into(),
                 ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
                 ProcessError::Infallible(_) => {
@@ -531,5 +548,6 @@ impl_from_for_qcm_msg!(GetMixsRsp);
 impl_from_for_qcm_msg!(GetMixRsp);
 
 impl_from_for_qcm_msg!(SearchRsp);
+impl_from_for_qcm_msg!(GetSubtitleRsp);
 
 impl_from_for_qcm_msg!(SyncRsp);

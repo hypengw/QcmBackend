@@ -4,7 +4,7 @@ use qcm_core::{event::Event as CoreEvent, global, Result};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
-use qcm_core::model as sqlm;
+use qcm_core::model::{self as sqlm, provider};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName, EntityTrait, FromQueryResult,
     LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
@@ -478,6 +478,31 @@ pub async fn process_qcm(
                     extras,
                     total: total as i32,
                     has_more: page_params.has_more(total),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetSubtitleReq => {
+            if let Some(Payload::GetSubtitleReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                let (native_id, provider_id): (String, i64) =
+                    sqlm::song::Entity::find_by_id(req.song_id)
+                        .select_only()
+                        .column(sqlm::song::Column::NativeId)
+                        .column(sqlm::library::Column::ProviderId)
+                        .left_join(sqlm::library::Entity)
+                        .into_tuple()
+                        .one(db)
+                        .await?
+                        .ok_or(ProcessError::NoSuchSong(req.song_id.to_string()))?;
+
+                let provider = global::provider(provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
+
+                let subtitle = provider.subtitle(&native_id).await?;
+                let rsp = msg::GetSubtitleRsp {
+                    subtitle: Some(subtitle.qcm_into()),
                 };
                 return Ok(rsp.qcm_into());
             }
