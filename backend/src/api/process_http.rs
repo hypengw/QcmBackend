@@ -12,10 +12,10 @@ use qcm_core::http;
 use qcm_core::model::type_enum::ImageType;
 use qcm_core::{anyhow, model as sqlm, model::type_enum::ItemType, Result};
 use sea_orm::{
-    sea_query::Expr, EntityTrait, FromQueryResult, IntoSimpleExpr, JoinType, QuerySelect,
-    QueryTrait, RelationTrait,
+    sea_query::{Expr, Query},
+    EntityTrait, FromQueryResult, IntoSimpleExpr, JoinType, QuerySelect, QueryTrait, RelationTrait,
 };
-use sea_orm::{ConnectionTrait, QueryFilter};
+use sea_orm::{Condition, ConnectionTrait, EntityOrSelect, QueryFilter};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -57,6 +57,12 @@ pub async fn process_http_post(
     })
 }
 
+fn filter_image_type(image_type: ImageType) -> Condition {
+    Condition::any()
+        .add(Expr::col((sqlm::image::Entity, sqlm::image::Column::ImageType)).eq(image_type))
+        .add(Expr::col((sqlm::image::Entity, sqlm::image::Column::Id)).is_null())
+}
+
 async fn process_http_get_image(
     ctx: &Arc<BackendContext>,
     item_type: ItemType,
@@ -64,22 +70,6 @@ async fn process_http_get_image(
     id: i64,
 ) -> Result<Response<ResponseBody>, ProcessError> {
     let db = &ctx.provider_context.db;
-
-    let gen_cond = |item_type: ItemType, table_alias: Option<&str>| {
-        let tstr = table_alias.map(|s| s.to_string());
-        move |_left: _, right: _| {
-            Expr::col((right, sqlm::image::Column::ImageType))
-                .eq(image_type)
-                .into_condition()
-                .add(match &tstr {
-                    Some(t) => {
-                        Expr::col((Alias::new(t), sqlm::image::Column::ItemType)).eq(item_type)
-                    }
-                    None => Expr::col((sqlm::image::Entity, sqlm::image::Column::ItemType))
-                        .eq(item_type),
-                })
-        }
-    };
 
     match item_type {
         ItemType::Album => {
@@ -91,10 +81,7 @@ async fn process_http_get_image(
                     .column(sqlm::image::Column::NativeId)
                     .left_join(sqlm::library::Entity)
                     .left_join(sqlm::image::Entity)
-                    .filter(
-                        Expr::col((sqlm::image::Entity, sqlm::image::Column::ImageType))
-                            .eq(image_type),
-                    )
+                    .filter(filter_image_type(image_type))
                     .into_tuple()
                     .one(db)
                     .await?
@@ -110,46 +97,54 @@ async fn process_http_get_image(
             .await
         }
         ItemType::Song => {
-            let (native_id, album_native_id, provider_id, image_native_id, album_image_native_id): (
-                String,
-                String,
-                i64,
-                Option<String>,
-                Option<String>,
-            ) = sqlm::song::Entity::find_by_id(id)
-                .select_only()
-                .column(sqlm::song::Column::NativeId)
-                .column(sqlm::album::Column::NativeId)
-                .column(sqlm::library::Column::ProviderId)
-                .column(sqlm::image::Column::NativeId)
-                .column_as(
-                    Expr::col((Alias::new("image_album"), sqlm::image::Column::NativeId))
-                        .into_simple_expr(),
-                    "image_album_native_id",
-                )
-                .left_join(sqlm::library::Entity)
-                .left_join(sqlm::album::Entity)
-                .join(
-                    JoinType::LeftJoin,
-                    sqlm::song::Relation::Image
-                        .def()
-                        .on_condition(gen_cond(ItemType::Song, None))
-                        .into(),
-                )
-                .join_as(
-                    JoinType::LeftJoin,
-                    sqlm::album::Relation::Image
-                        .def()
-                        .on_condition(gen_cond(ItemType::Album, Some("image_album")))
-                        .into(),
-                    Alias::new("image_album"),
-                )
-                .into_tuple()
-                .one(db)
-                .await?
-                .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
+            let (mut native_id, provider_id, mut image_native_id): (String, i64, Option<String>) =
+                sqlm::song::Entity::find_by_id(id)
+                    .select_only()
+                    .column(sqlm::song::Column::NativeId)
+                    .column(sqlm::library::Column::ProviderId)
+                    .column(sqlm::image::Column::NativeId)
+                    .left_join(sqlm::library::Entity)
+                    .left_join(sqlm::image::Entity)
+                    .filter(filter_image_type(image_type))
+                    .into_tuple()
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
 
-            let image_native_id = image_native_id.or(album_image_native_id);
+            if image_native_id.is_none() {
+                let (album_native_id, album_image_native_id): (Option<String>, Option<String>) =
+                    sqlm::album::Entity::find()
+                        .select_only()
+                        .column(sqlm::album::Column::NativeId)
+                        .column(sqlm::image::Column::NativeId)
+                        .left_join(sqlm::image::Entity)
+                        .filter(
+                            Expr::col((sqlm::album::Entity, sqlm::album::Column::Id)).in_subquery(
+                                Query::select()
+                                    .column((sqlm::album::Entity, sqlm::album::Column::Id))
+                                    .from(sqlm::song::Entity)
+                                    .inner_join(
+                                        sqlm::album::Entity,
+                                        sqlm::album::Relation::Song.def(),
+                                    )
+                                    .and_where(
+                                        Expr::col((sqlm::song::Entity, sqlm::song::Column::Id))
+                                            .eq(id),
+                                    )
+                                    .to_owned(),
+                            ),
+                        )
+                        .filter(filter_image_type(image_type))
+                        .into_tuple()
+                        .one(db)
+                        .await?
+                        .ok_or(ProcessError::NoSuchSong(id.to_string()))?;
+                image_native_id = album_image_native_id;
+                if let Some(album_native_id) = album_native_id {
+                    native_id = album_native_id;
+                }
+            }
+
             media_get_image(
                 ctx,
                 provider_id,
@@ -168,10 +163,7 @@ async fn process_http_get_image(
                     .column(sqlm::image::Column::NativeId)
                     .left_join(sqlm::library::Entity)
                     .left_join(sqlm::image::Entity)
-                    .filter(
-                        Expr::col((sqlm::image::Entity, sqlm::image::Column::ImageType))
-                            .eq(image_type),
-                    )
+                    .filter(filter_image_type(image_type))
                     .into_tuple()
                     .one(db)
                     .await?
