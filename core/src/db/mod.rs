@@ -1,5 +1,8 @@
 pub mod sync;
 pub mod values;
+pub mod basic;
+
+pub use basic::QueryBuilder;
 pub use const_chunks::IteratorConstChunks;
 use sea_orm::{
     sea_query::{self, IntoIden, IntoIndexColumn},
