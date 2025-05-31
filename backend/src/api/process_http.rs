@@ -11,11 +11,11 @@ use prost::{self, Message};
 use qcm_core::http;
 use qcm_core::model::type_enum::ImageType;
 use qcm_core::{anyhow, model as sqlm, model::type_enum::ItemType, Result};
-use sea_orm::ConnectionTrait;
 use sea_orm::{
     sea_query::Expr, EntityTrait, FromQueryResult, IntoSimpleExpr, JoinType, QuerySelect,
     QueryTrait, RelationTrait,
 };
+use sea_orm::{ConnectionTrait, QueryFilter};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -90,12 +90,10 @@ async fn process_http_get_image(
                     .column(sqlm::library::Column::ProviderId)
                     .column(sqlm::image::Column::NativeId)
                     .left_join(sqlm::library::Entity)
-                    .join(
-                        JoinType::LeftJoin,
-                        sqlm::album::Relation::Image
-                            .def()
-                            .on_condition(gen_cond(ItemType::Album, None))
-                            .into(),
+                    .left_join(sqlm::image::Entity)
+                    .filter(
+                        Expr::col((sqlm::image::Entity, sqlm::image::Column::ImageType))
+                            .eq(image_type),
                     )
                     .into_tuple()
                     .one(db)
@@ -169,12 +167,10 @@ async fn process_http_get_image(
                     .column(sqlm::library::Column::ProviderId)
                     .column(sqlm::image::Column::NativeId)
                     .left_join(sqlm::library::Entity)
-                    .join(
-                        JoinType::LeftJoin,
-                        sqlm::artist::Relation::Image
-                            .def()
-                            .on_condition(gen_cond(ItemType::Artist, None))
-                            .into(),
+                    .left_join(sqlm::image::Entity)
+                    .filter(
+                        Expr::col((sqlm::image::Entity, sqlm::image::Column::ImageType))
+                            .eq(image_type),
                     )
                     .into_tuple()
                     .one(db)

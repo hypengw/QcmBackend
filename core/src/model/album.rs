@@ -42,6 +42,11 @@ pub enum Relation {
         on_condition = r#"Expr::col(super::image::Column::ItemType).eq(ItemType::Album)"#
     )]
     Image,
+    #[sea_orm(
+        has_many = "super::favorite::Entity",
+        on_condition = r#"Expr::col(super::favorite::Column::ItemType).eq(ItemType::Album)"#
+    )]
+    Favorite,
 }
 
 impl Related<super::library::Entity> for Entity {
