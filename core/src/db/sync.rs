@@ -166,6 +166,12 @@ pub async fn sync_drop_before(
         .exec(txn)
         .await?;
 
+    sqlm::mix::Entity::delete_many()
+        .filter(sqlm::mix::Column::EditTime.lt(now))
+        .filter(sqlm::mix::Column::ProviderId.eq(provider_id))
+        .exec(txn)
+        .await?;
+
     Ok(())
 }
 

@@ -464,6 +464,14 @@ impl QcmFrom<core::subtitle::Subtitle> for msg::model::Subtitle {
     }
 }
 
+impl QcmTryFrom<msg::model::ItemType> for core::model::type_enum::ItemType {
+    type Error = ProcessError;
+    fn qcm_try_from(t: msg::model::ItemType) -> Result<Self, ProcessError> {
+        let t_i32: i32 = t.into();
+        Self::try_from(t_i32).map_err(|_| ProcessError::NoSuchItemType(t_i32.to_string()))
+    }
+}
+
 impl QcmFrom<ProcessError> for msg::Rsp {
     fn qcm_from(v: ProcessError) -> Self {
         Self {

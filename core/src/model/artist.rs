@@ -37,10 +37,10 @@ pub enum Relation {
     )]
     Image,
     #[sea_orm(
-        has_many = "super::favorite::Entity",
-        on_condition = r#"Expr::col(super::favorite::Column::ItemType).eq(ItemType::Artist)"#
+        has_many = "super::dynamic::Entity",
+        on_condition = r#"Expr::col(super::dynamic::Column::ItemType).eq(ItemType::Artist)"#
     )]
-    Favorite,
+    Dynamic,
     #[sea_orm(has_many = "super::rel_album_artist::Entity")]
     RelAlbum,
     #[sea_orm(has_many = "super::rel_song_artist::Entity")]

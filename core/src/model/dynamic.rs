@@ -2,14 +2,23 @@ use super::type_enum::ItemType;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "favorite")]
+#[derive(Clone, Debug, Default, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "dynamic")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub library_id: i64,
     pub item_id: i64,
     pub item_type: ItemType,
+    #[serde(default)]
+    #[sea_orm(default)]
+    pub play_count: i64,
+    #[serde(default)]
+    #[sea_orm(default)]
+    pub is_favorite: bool,
+    #[serde(default)]
+    #[sea_orm(default, nullable)]
+    pub last_position: Option<i64>,
     #[serde(default = "chrono::Utc::now")]
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub edit_time: DateTimeUtc,

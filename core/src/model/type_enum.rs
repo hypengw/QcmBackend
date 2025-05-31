@@ -1,3 +1,4 @@
+use num_enum::TryFromPrimitive;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString};
@@ -13,8 +14,10 @@ use strum_macros::{Display, EnumString};
     EnumIter,
     EnumString,
     DeriveActiveEnum,
+    TryFromPrimitive,
 )]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
+#[repr(i32)]
 pub enum CacheType {
     Image = 0,
     Audio = 1,
@@ -33,10 +36,12 @@ pub enum CacheType {
     Deserialize,
     EnumIter,
     EnumString,
+    TryFromPrimitive,
     DeriveActiveEnum,
 )]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 #[strum(ascii_case_insensitive)]
+#[repr(i32)]
 pub enum ImageType {
     #[strum(to_string = "Primary")]
     Primary = 0,
@@ -54,6 +59,7 @@ pub enum ImageType {
     Copy,
     Debug,
     Clone,
+    Default,
     PartialEq,
     Display,
     Eq,
@@ -62,10 +68,14 @@ pub enum ImageType {
     EnumIter,
     EnumString,
     DeriveActiveEnum,
+    TryFromPrimitive,
 )]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 #[strum(ascii_case_insensitive)]
+#[repr(i32)]
 pub enum ItemType {
+    #[default]
+    UnSpecified = 0,
     Provider = 1,
     Library = 2,
 

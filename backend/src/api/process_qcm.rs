@@ -6,8 +6,9 @@ use tokio::sync::oneshot;
 
 use qcm_core::model::{self as sqlm, provider};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName, EntityTrait, FromQueryResult,
-    LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
+    sea_query, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName, EntityTrait,
+    FromQueryResult, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    Statement,
 };
 
 use crate::api::{self, pagination::PageParams};
@@ -620,6 +621,40 @@ pub async fn process_qcm(
                     songs: songs_rsp,
                 };
                 return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::SetFavoriteReq => {
+            if let Some(Payload::SetFavoriteReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+                use sqlm::type_enum::ItemType;
+                let item_type: ItemType = req
+                    .item_type
+                    .try_into()
+                    .map_err(|_| ProcessError::NoSuchItemType(req.item_type.to_string()))?;
+
+                use sea_orm::Set;
+
+                match item_type {
+                    ItemType::Album | ItemType::Song | ItemType::Artist => {
+                        let m = sqlm::dynamic::ActiveModel {
+                            id: Set(req.id),
+                            item_type: Set(item_type.into()),
+                            is_favorite: Set(req.value),
+                            ..Default::default()
+                        };
+
+                        sqlm::dynamic::Entity::insert(m)
+                            .on_conflict(
+                                sea_query::OnConflict::column(sqlm::dynamic::Column::Id)
+                                    .update_column(sqlm::dynamic::Column::IsFavorite)
+                                    .to_owned(),
+                            )
+                            .exec(db)
+                            .await?;
+                    }
+                    _ => {}
+                }
+                return Ok(Rsp::default().qcm_into());
             }
         }
         MessageType::SyncReq => {

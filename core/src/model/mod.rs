@@ -22,4 +22,4 @@ pub mod rel_album_artist;
 pub mod rel_mix_song;
 pub mod rel_song_artist;
 
-pub mod favorite;
+pub mod dynamic;

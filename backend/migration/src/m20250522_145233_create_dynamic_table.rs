@@ -12,39 +12,56 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(sqlm::favorite::Entity)
+                    .table(sqlm::dynamic::Entity)
                     .col(
-                        ColumnDef::new(sqlm::favorite::Column::Id)
+                        ColumnDef::new(sqlm::dynamic::Column::Id)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(sqlm::favorite::Column::LibraryId)
+                        ColumnDef::new(sqlm::dynamic::Column::LibraryId)
                             .big_integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(sqlm::favorite::Column::ItemId)
+                        ColumnDef::new(sqlm::dynamic::Column::ItemId)
                             .big_integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(sqlm::favorite::Column::ItemType)
+                        ColumnDef::new(sqlm::dynamic::Column::ItemType)
                             .string()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(sqlm::favorite::Column::EditTime)
+                        ColumnDef::new(sqlm::dynamic::Column::PlayCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(sqlm::dynamic::Column::IsFavorite)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(sqlm::dynamic::Column::LastPosition)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(sqlm::dynamic::Column::EditTime)
                             .timestamp_with_time_zone()
                             .not_null()
                             .default(SimpleExpr::Keyword(Keyword::CurrentTimestamp)),
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-favorite-library_id")
-                            .from(sqlm::favorite::Entity, sqlm::favorite::Column::LibraryId)
+                            .name("fk-dynamic-library_id")
+                            .from(sqlm::dynamic::Entity, sqlm::dynamic::Column::LibraryId)
                             .to(sqlm::library::Entity, sqlm::library::Column::LibraryId)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
@@ -57,9 +74,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx-favorite-library_id")
-                    .table(sqlm::favorite::Entity)
-                    .col(sqlm::favorite::Column::LibraryId)
+                    .name("idx-dynamic-library_id")
+                    .table(sqlm::dynamic::Entity)
+                    .col(sqlm::dynamic::Column::LibraryId)
                     .to_owned(),
             )
             .await?;
@@ -67,10 +84,10 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx-favorite-item")
-                    .table(sqlm::favorite::Entity)
-                    .col(sqlm::favorite::Column::ItemId)
-                    .col(sqlm::favorite::Column::ItemType)
+                    .name("idx-dynamic-item")
+                    .table(sqlm::dynamic::Entity)
+                    .col(sqlm::dynamic::Column::ItemId)
+                    .col(sqlm::dynamic::Column::ItemType)
                     .to_owned(),
             )
             .await?;
@@ -80,7 +97,7 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(sqlm::favorite::Entity).to_owned())
+            .drop_table(Table::drop().table(sqlm::dynamic::Entity).to_owned())
             .await
     }
 }
