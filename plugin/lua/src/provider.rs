@@ -1,3 +1,4 @@
+use crate::enums;
 use crate::error::FromLuaError;
 use crate::util::to_lua;
 use mlua::prelude::*;
@@ -56,6 +57,7 @@ struct LuaImpl {
     check: LuaFunction,
     login: LuaFunction,
     sync: LuaFunction,
+    favorite: LuaFunction,
     qr: Option<LuaFunction>,
     image: LuaFunction,
     audio: LuaFunction,
@@ -104,6 +106,7 @@ impl LuaProvider {
             qcm_table.set("inner", LuaInner(inner.clone()))?;
             qcm_table.set("crypto", create_crypto_module(&lua)?)?;
             qcm_table.set("json", create_json_module(&lua)?)?;
+            qcm_table.set("enum", enums::create_module(&lua)?)?;
 
             let inner = inner.clone();
             qcm_table.set(
@@ -149,6 +152,9 @@ impl LuaProvider {
                 sync: provider_table
                     .get::<LuaFunction>("sync")
                     .map_err(|_| anyhow!("sync func not found"))?,
+                favorite: provider_table
+                    .get::<LuaFunction>("favorite")
+                    .map_err(|_| anyhow!("favorite func not found"))?,
                 qr: provider_table.get::<LuaFunction>("qr").ok(),
                 image: provider_table
                     .get::<LuaFunction>("image")
@@ -233,6 +239,26 @@ impl Provider for LuaProvider {
             db::sync::sync_drop_before(&txn, id, now).await?;
             txn.commit().await?;
         }
+        Ok(())
+    }
+    async fn favorite(
+        &self,
+        ctx: &Context,
+        item_id: &str,
+        item_type: sqlm::type_enum::ItemType,
+        value: bool,
+    ) -> Result<(), ProviderError> {
+        let res = self
+            .funcs
+            .favorite
+            .call_async::<LuaValue>((
+                LuaContext(ctx.clone(), self.id()),
+                item_id,
+                item_type as i32,
+                value,
+            ))
+            .await
+            .map_err(ProviderError::from_err)?;
         Ok(())
     }
 
@@ -480,6 +506,28 @@ impl LuaUserData for LuaContext {
             let exclude = [sqlm::image::Column::Id];
             let iter = models.into_iter().map(|i| {
                 let mut a: sqlm::image::ActiveModel = i.into();
+                a.id = NotSet;
+                a
+            });
+
+            DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            txn.commit().await.map_err(mlua::Error::external)?;
+            Ok(())
+        });
+        methods.add_async_method("sync_dynamics", |lua, this, models: LuaValue| async move {
+            let models: Vec<sqlm::dynamic::Model> = lua.from_value(models)?;
+
+            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+            let conflict = [
+                sqlm::dynamic::Column::ItemId,
+                sqlm::dynamic::Column::ItemType,
+            ];
+            let exclude = [sqlm::dynamic::Column::Id];
+            let iter = models.into_iter().map(|i| {
+                let mut a: sqlm::dynamic::ActiveModel = i.into();
                 a.id = NotSet;
                 a
             });

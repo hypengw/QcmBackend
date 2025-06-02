@@ -12,3 +12,4 @@ pub use anyhow::Result;
 pub use anyhow::Error;
 pub use anyhow::Error as AnyError;
 pub use anyhow::anyhow as anyhow;
+pub use strum::IntoEnumIterator;

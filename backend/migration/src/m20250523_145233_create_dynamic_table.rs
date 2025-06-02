@@ -32,8 +32,14 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(sqlm::dynamic::Column::ItemType)
-                            .string()
+                            .integer()
                             .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(sqlm::dynamic::Column::IsExternal)
+                            .boolean()
+                            .not_null()
+                            .default(false),
                     )
                     .col(
                         ColumnDef::new(sqlm::dynamic::Column::PlayCount)
@@ -70,17 +76,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Create indexes
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx-dynamic-library_id")
-                    .table(sqlm::dynamic::Entity)
-                    .col(sqlm::dynamic::Column::LibraryId)
-                    .to_owned(),
-            )
-            .await?;
-
         manager
             .create_index(
                 Index::create()
@@ -88,6 +83,7 @@ impl MigrationTrait for Migration {
                     .table(sqlm::dynamic::Entity)
                     .col(sqlm::dynamic::Column::ItemId)
                     .col(sqlm::dynamic::Column::ItemType)
+                    .unique()
                     .to_owned(),
             )
             .await?;

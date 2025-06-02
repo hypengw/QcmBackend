@@ -117,6 +117,13 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
     async fn check(&self, ctx: &Context) -> Result<(), ProviderError>;
     async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError>;
     async fn sync(&self, ctx: &Context) -> Result<(), ProviderError>;
+    async fn favorite(
+        &self,
+        ctx: &Context,
+        item_id: &str,
+        item_type: ItemType,
+        value: bool,
+    ) -> Result<(), ProviderError>;
 
     async fn qr(&self, _ctx: &Context) -> Result<QrInfo, ProviderError> {
         Err(ProviderError::NotImplemented)

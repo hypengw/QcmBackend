@@ -1,4 +1,4 @@
-use num_enum::TryFromPrimitive;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString};
@@ -69,6 +69,7 @@ pub enum ImageType {
     EnumString,
     DeriveActiveEnum,
     TryFromPrimitive,
+    IntoPrimitive
 )]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 #[strum(ascii_case_insensitive)]

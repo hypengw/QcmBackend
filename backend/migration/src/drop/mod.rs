@@ -1,1 +1,2 @@
 pub mod m20220101_000003_create_table;
+pub mod m20250522_145233_create_dynamic_table;

@@ -43,7 +43,7 @@ pub enum Relation {
     )]
     Image,
     #[sea_orm(
-        has_many = "super::dynamic::Entity",
+        has_one = "super::dynamic::Entity",
         on_condition = r#"Expr::col(super::dynamic::Column::ItemType).eq(ItemType::Album)"#
     )]
     Dynamic,
@@ -74,6 +74,11 @@ impl Related<super::artist::Entity> for Entity {
 impl Related<super::image::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Image.def()
+    }
+}
+impl Related<super::dynamic::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Dynamic.def()
     }
 }
 

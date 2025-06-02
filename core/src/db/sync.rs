@@ -1,4 +1,5 @@
 use super::basic::QueryBuilder;
+use super::DbChunkOper;
 use crate::model as sqlm;
 use sea_orm::sea_query::{DeleteStatement, SqliteQueryBuilder};
 use sea_orm::{prelude::DateTimeUtc, DatabaseTransaction, EntityTrait};
@@ -11,6 +12,12 @@ pub async fn sync_drop_before(
     now: DateTimeUtc,
 ) -> Result<(), sea_orm::DbErr> {
     use sea_query::{Alias, Asterisk, CommonTableExpression, Expr, Query, WithClause};
+
+    // clean library first
+    sqlm::library::Entity::delete_many()
+        .filter(sqlm::library::Column::EditTime.lt(now))
+        .exec(txn)
+        .await?;
 
     let ids: Vec<i64> = sqlm::library::Entity::find()
         .select_only()
@@ -407,5 +414,19 @@ pub async fn sync_song_album_ids(
         builder.build(&stmt).to_string()
     );
     txn.execute(Statement::from_string(builder, raw)).await?;
+    Ok(())
+}
+
+pub async fn sync_dynamic_items<I>(txn: &DatabaseTransaction, item_commons: I) -> Result<(), DbErr>
+where
+    I: IntoIterator<Item = sqlm::dynamic::ActiveModel>,
+{
+    let conflict = [
+        sqlm::dynamic::Column::ItemId,
+        sqlm::dynamic::Column::ItemType,
+    ];
+    let exclude = [sqlm::dynamic::Column::Id];
+    DbChunkOper::<50>::insert(txn, item_commons, &conflict, &exclude).await?;
+
     Ok(())
 }

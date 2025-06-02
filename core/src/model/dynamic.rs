@@ -12,6 +12,9 @@ pub struct Model {
     pub item_type: ItemType,
     #[serde(default)]
     #[sea_orm(default)]
+    pub is_external: bool,
+    #[serde(default)]
+    #[sea_orm(default)]
     pub play_count: i64,
     #[serde(default)]
     #[sea_orm(default)]

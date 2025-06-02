@@ -1,10 +1,11 @@
 use prost::{self, Message};
 use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
+use sea_orm::ActiveValue::NotSet;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
-use qcm_core::model::{self as sqlm, provider};
+use qcm_core::model::{self as sqlm, dynamic, provider};
 use sea_orm::{
     sea_query, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName, EntityTrait,
     FromQueryResult, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -45,21 +46,40 @@ fn extra_insert_album(extra: &mut prost_types::Struct, album: &sqlm::album::Mode
     );
 }
 
+fn extra_insert_dynamic(extra: &mut prost_types::Struct, dy: &sqlm::dynamic::Model) {
+    let j = serde_json::json!({
+        "is_favorite": dy.is_favorite
+    });
+    extra.fields.insert(
+        "dynamic".to_string(),
+        serde_json::to_string(&j).unwrap().into(),
+    );
+}
+
 async fn to_rsp_songs(
     db: &DatabaseConnection,
     songs: Vec<sqlm::song::Model>,
+    album: Option<&sqlm::album::Model>,
 ) -> Result<(Vec<msg::model::Song>, Vec<prost_types::Struct>), ProcessError> {
     let artists = songs
         .load_many_to_many(sqlm::artist::Entity, sqlm::rel_song_artist::Entity, db)
         .await?;
 
+    let dynamics = songs.load_one(sqlm::dynamic::Entity, db).await?;
+
     let mut items = Vec::new();
     let mut extras = Vec::new();
 
-    for (song, artists) in songs.into_iter().zip(artists.into_iter()) {
+    for ((song, artists), dy) in songs.into_iter().zip(artists.into_iter()).zip(dynamics) {
         items.push(song.qcm_into());
         let mut extra = prost_types::Struct::default();
         extra_insert_artists(&mut extra, &artists);
+        if let Some(dy) = dy {
+            extra_insert_dynamic(&mut extra, &dy);
+        }
+        if let Some(album) = &album {
+            extra_insert_album(&mut extra, &album);
+        }
         extras.push(extra);
     }
     Ok((items, extras))
@@ -73,13 +93,18 @@ async fn to_rsp_albums(
         .load_many_to_many(sqlm::artist::Entity, sqlm::rel_album_artist::Entity, db)
         .await?;
 
+    let dynamics = albums.load_one(sqlm::dynamic::Entity, db).await?;
+
     let mut items = Vec::new();
     let mut extras = Vec::new();
 
-    for (album, artists) in albums.into_iter().zip(artists.into_iter()) {
+    for ((album, artists), dy) in albums.into_iter().zip(artists.into_iter()).zip(dynamics) {
         items.push(album.qcm_into());
         let mut extra = prost_types::Struct::default();
         extra_insert_artists(&mut extra, &artists);
+        if let Some(dy) = dy {
+            extra_insert_dynamic(&mut extra, &dy);
+        }
         extras.push(extra);
     }
     Ok((items, extras))
@@ -258,33 +283,29 @@ pub async fn process_qcm(
             if let Some(Payload::GetAlbumReq(req)) = payload {
                 let db = &ctx.provider_context.db;
 
-                let album = sqlm::album::Entity::find_by_id(req.id)
+                let (album, dy) = sqlm::album::Entity::find_by_id(req.id)
+                    .find_also_related(sqlm::dynamic::Entity)
                     .one(db)
                     .await?
                     .ok_or(ProcessError::NoSuchAlbum(req.id.to_string()))?;
 
                 let artists = album.find_related(sqlm::artist::Entity).all(db).await?;
 
-                let mut songs = Vec::new();
-                let mut song_extras = Vec::new();
+                let (songs, song_extras) = {
+                    let songs = sqlm::song::Entity::find()
+                        .filter(sqlm::song::Column::AlbumId.eq(album.id))
+                        .order_by_asc(sqlm::song::Column::TrackNumber)
+                        .all(db)
+                        .await?;
 
-                for (song, artists) in sqlm::song::Entity::find()
-                    .filter(sqlm::song::Column::AlbumId.eq(album.id))
-                    .order_by_asc(sqlm::song::Column::TrackNumber)
-                    .find_with_related(sqlm::artist::Entity)
-                    .all(db)
-                    .await?
-                {
-                    songs.push(song.qcm_into());
-
-                    let mut extra = prost_types::Struct::default();
-                    extra_insert_artists(&mut extra, &artists);
-                    extra_insert_album(&mut extra, &album);
-                    song_extras.push(extra);
-                }
+                    to_rsp_songs(db, songs, Some(&album)).await?
+                };
 
                 let mut extra = prost_types::Struct::default();
                 extra_insert_artists(&mut extra, &artists);
+                if let Some(dy) = dy {
+                    extra_insert_dynamic(&mut extra, &dy);
+                }
 
                 let rsp = msg::GetAlbumRsp {
                     item: Some(album.qcm_into()),
@@ -578,7 +599,7 @@ pub async fn process_qcm(
                             let total = paginator.num_items().await?;
                             let songs = paginator.fetch_page(page_params.page).await?;
 
-                            let (items, extras) = to_rsp_songs(db, songs).await?;
+                            let (items, extras) = to_rsp_songs(db, songs, None).await?;
 
                             songs_rsp = Some(GetSongsRsp {
                                 items,
@@ -632,22 +653,68 @@ pub async fn process_qcm(
                     .try_into()
                     .map_err(|_| ProcessError::NoSuchItemType(req.item_type.to_string()))?;
 
-                use sea_orm::Set;
+                use sea_orm::{sea_query::Expr, Set};
+
+                let (library_id, provider_id, native_id): (i64, i64, String) = {
+                    let query = sqlm::library::Entity::find()
+                        .select_only()
+                        .column(sqlm::library::Column::LibraryId)
+                        .column(sqlm::library::Column::ProviderId);
+                    match item_type {
+                        ItemType::Album => query
+                            .column(sqlm::album::Column::NativeId)
+                            .inner_join(sqlm::album::Entity)
+                            .filter(
+                                Expr::col((sqlm::album::Entity, sqlm::album::Column::Id))
+                                    .eq(req.id),
+                            ),
+                        ItemType::Artist => query
+                            .column(sqlm::artist::Column::NativeId)
+                            .inner_join(sqlm::artist::Entity)
+                            .filter(
+                                Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id))
+                                    .eq(req.id),
+                            ),
+                        ItemType::Song => query
+                            .column(sqlm::song::Column::NativeId)
+                            .inner_join(sqlm::song::Entity)
+                            .filter(
+                                Expr::col((sqlm::song::Entity, sqlm::song::Column::Id)).eq(req.id),
+                            ),
+                        _ => query,
+                    }
+                    .into_tuple()
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NotFound)?
+                };
+
+                let provider = global::provider(provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
+
+                provider
+                    .favorite(&ctx.provider_context, &native_id, item_type, req.value)
+                    .await?;
 
                 match item_type {
                     ItemType::Album | ItemType::Song | ItemType::Artist => {
                         let m = sqlm::dynamic::ActiveModel {
-                            id: Set(req.id),
+                            id: NotSet,
+                            item_id: Set(req.id),
                             item_type: Set(item_type.into()),
                             is_favorite: Set(req.value),
+                            library_id: Set(library_id),
                             ..Default::default()
                         };
 
                         sqlm::dynamic::Entity::insert(m)
                             .on_conflict(
-                                sea_query::OnConflict::column(sqlm::dynamic::Column::Id)
-                                    .update_column(sqlm::dynamic::Column::IsFavorite)
-                                    .to_owned(),
+                                sea_query::OnConflict::columns([
+                                    sqlm::dynamic::Column::ItemId,
+                                    sqlm::dynamic::Column::ItemType,
+                                ])
+                                .update_column(sqlm::dynamic::Column::IsFavorite)
+                                .to_owned(),
                             )
                             .exec(db)
                             .await?;
