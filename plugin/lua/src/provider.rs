@@ -22,7 +22,6 @@ use qcm_core::{
 };
 use reqwest::Response;
 use sea_orm::*;
-use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::{
     path::{Path, PathBuf},
@@ -31,6 +30,7 @@ use std::{
 
 use crate::crypto::create_crypto_module;
 use crate::http::{LuaClient, LuaResponse};
+use serde::{Deserialize, Serialize};
 
 struct LuaProviderInner {
     common: ProviderCommonData,
@@ -62,6 +62,12 @@ struct LuaImpl {
     image: LuaFunction,
     audio: LuaFunction,
     subtitle: LuaFunction,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LuaSyncOption {
+    #[serde(default)]
+    exclude: Vec<String>,
 }
 
 pub struct LuaProvider {
@@ -517,28 +523,41 @@ impl LuaUserData for LuaContext {
             txn.commit().await.map_err(mlua::Error::external)?;
             Ok(())
         });
-        methods.add_async_method("sync_dynamics", |lua, this, models: LuaValue| async move {
-            let models: Vec<sqlm::dynamic::Model> = lua.from_value(models)?;
+        methods.add_async_method(
+            "sync_dynamics",
+            |lua, this, (models, lua_exclude): (LuaValue, LuaValue)| async move {
+                let models: Vec<sqlm::dynamic::Model> = lua.from_value(models)?;
+                let opts: Option<LuaSyncOption> = lua.from_value(lua_exclude)?;
 
-            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-            let conflict = [
-                sqlm::dynamic::Column::ItemId,
-                sqlm::dynamic::Column::ItemType,
-            ];
-            let exclude = [sqlm::dynamic::Column::Id];
-            let iter = models.into_iter().map(|i| {
-                let mut a: sqlm::dynamic::ActiveModel = i.into();
-                a.id = NotSet;
-                a
-            });
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+                let conflict = [
+                    sqlm::dynamic::Column::ItemId,
+                    sqlm::dynamic::Column::ItemType,
+                ];
+                let mut exclude = vec![sqlm::dynamic::Column::Id];
 
-            DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
-                .await
-                .map_err(mlua::Error::external)?;
+                if let Some(opts) = opts {
+                    for s in opts.exclude {
+                        if s == "is_favorite" {
+                            exclude.push(sqlm::dynamic::Column::IsFavorite)
+                        }
+                    }
+                }
 
-            txn.commit().await.map_err(mlua::Error::external)?;
-            Ok(())
-        });
+                let iter = models.into_iter().map(|i| {
+                    let mut a: sqlm::dynamic::ActiveModel = i.into();
+                    a.id = NotSet;
+                    a
+                });
+
+                DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(())
+            },
+        );
         methods.add_async_method(
             "sync_song_album_ids",
             |lua, this, (library_id, models): (i64, LuaValue)| async move {

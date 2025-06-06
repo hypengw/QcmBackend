@@ -324,7 +324,9 @@ pub async fn process_qcm(
                     req.sort.try_into().unwrap_or(msg::model::AlbumSort::Title);
                 let sort_col: sqlm::album::Column = sort.qcm_into();
                 let paginator = sqlm::album::Entity::find()
+                    .left_join(sqlm::dynamic::Entity)
                     .filter(sqlm::album::Column::LibraryId.is_in(req.library_id.clone()))
+                    .filter(sqlm::dynamic::Column::IsExternal.eq(false))
                     .order_by(
                         sort_col,
                         match req.sort_asc {
