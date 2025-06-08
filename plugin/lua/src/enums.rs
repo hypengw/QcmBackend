@@ -1,5 +1,6 @@
 use mlua::prelude::*;
 use qcm_core::model::type_enum::ItemType;
+use qcm_core::event::SyncState;
 use qcm_core::IntoEnumIterator;
 use std::fmt::Display;
 
@@ -19,5 +20,6 @@ where
 pub fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let t = lua.create_table()?;
     t.set("ItemType", register_enum::<ItemType>(lua)?)?;
+    t.set("SyncState", register_enum::<SyncState>(lua)?)?;
     Ok(t)
 }

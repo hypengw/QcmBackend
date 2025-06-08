@@ -4,7 +4,7 @@ use crate::util::to_lua;
 use mlua::prelude::*;
 use qcm_core::db::sync::sync_song_album_ids;
 use qcm_core::db::{self, DbChunkOper};
-use qcm_core::event::SyncCommit;
+use qcm_core::event::{SyncCommit, SyncState};
 use qcm_core::model as sqlm;
 use qcm_core::provider::{
     AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, ProviderSession, QrInfo,
@@ -234,11 +234,20 @@ impl Provider for LuaProvider {
     async fn sync(&self, ctx: &Context) -> Result<(), ProviderError> {
         let now = chrono::Utc::now();
 
-        self.funcs
+        let res = self
+            .funcs
             .sync
-            .call_async::<()>(LuaContext(ctx.clone(), self.id()))
+            .call_async::<LuaValue>(LuaContext(ctx.clone(), self.id()))
             .await
             .map_err(ProviderError::from_err)?;
+
+        if res.is_integer() {
+            let val = res.as_i32().and_then(|v| SyncState::try_from(v).ok());
+            match val {
+                Some(SyncState::NotAuth) => return Err(ProviderError::NotAuth),
+                _ => {}
+            }
+        }
 
         if let Some(id) = self.id() {
             let txn = ctx.db.begin().await?;

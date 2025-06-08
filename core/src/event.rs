@@ -1,6 +1,27 @@
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+use serde::{Deserialize, Serialize};
+use strum_macros::{Display, EnumIter, EnumString};
 use tokio::sync::oneshot;
 
+#[derive(
+    Copy,
+    Debug,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    Display,
+    Serialize,
+    Deserialize,
+    EnumIter,
+    EnumString,
+    TryFromPrimitive,
+    IntoPrimitive,
+)]
+#[strum(ascii_case_insensitive)]
+#[repr(i32)]
 pub enum SyncState {
+    #[default]
     Finished = 0,
     Syncing = 1,
     NotAuth = 2,
