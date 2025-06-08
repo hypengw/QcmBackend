@@ -1,10 +1,18 @@
 use tokio::sync::oneshot;
+
+pub enum SyncState {
+    Finished = 0,
+    Syncing = 1,
+    NotAuth = 2,
+    NetworkError = 3,
+    UknownError = 4,
+}
+
 pub enum SyncCommit {
-    Start,
     AddAlbum(i32),
     AddArtist(i32),
     AddSong(i32),
-    End,
+    SetState(SyncState),
 }
 pub enum Event {
     ProviderSync {
@@ -16,4 +24,15 @@ pub enum Event {
         commit: SyncCommit,
     },
     End,
+}
+
+impl From<crate::error::ProviderError> for SyncState {
+    fn from(e: crate::error::ProviderError) -> Self {
+        use crate::error::ProviderError;
+        match e {
+            ProviderError::NotAuth => SyncState::NotAuth,
+            ProviderError::Request(_) => SyncState::NetworkError,
+            e => SyncState::UknownError,
+        }
+    }
 }

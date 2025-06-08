@@ -1,7 +1,7 @@
 use crate::event::{BackendContext, BackendEvent, Event};
 use crate::msg::model::AuthInfo;
-use qcm_core::event::Event as CoreEvent;
 use qcm_core::event::SyncCommit;
+use qcm_core::event::{Event as CoreEvent, SyncState};
 use qcm_core::model as sqlm;
 use qcm_core::provider::Provider;
 use qcm_core::{self, provider};
@@ -45,20 +45,25 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
                         let id = p.id().unwrap();
                         let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
                             id,
-                            commit: SyncCommit::Start,
+                            commit: SyncCommit::SetState(SyncState::Syncing),
                         });
 
                         match p.sync(&ctx).await {
                             Err(err) => {
                                 log::error!("{:?}", err);
+                                let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
+                                    id,
+                                    commit: SyncCommit::SetState(err.into()),
+                                });
                             }
-                            _ => {}
+                            Ok(_) => {
+                                let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
+                                    id,
+                                    commit: SyncCommit::SetState(SyncState::Finished),
+                                });
+                            }
                         }
                         log::info!("sync end: {}", name);
-                        let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
-                            id,
-                            commit: SyncCommit::End,
-                        });
                     }
                 });
             }
@@ -144,14 +149,11 @@ pub async fn process_backend_event(
 
 fn merge_sync_status(v: &mut msg::model::ProviderSyncStatus, m: SyncCommit) {
     match m {
-        SyncCommit::Start => {
+        SyncCommit::SetState(state) => {
             let id = v.id;
             *v = msg::model::ProviderSyncStatus::default();
             v.id = id;
-            v.state = msg::model::SyncState::Syncing as i32;
-        }
-        SyncCommit::End => {
-            v.state = msg::model::SyncState::Finished as i32;
+            v.state = state as i32;
         }
         SyncCommit::AddAlbum(n) => {
             v.album += n;
