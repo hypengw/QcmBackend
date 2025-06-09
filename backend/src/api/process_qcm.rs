@@ -193,7 +193,9 @@ pub async fn process_qcm(
                 let tmp_provider = global::get_tmp_provider(&req.tmp_provider)
                     .ok_or(ProcessError::NoSuchProvider(req.tmp_provider.clone()))?;
                 tmp_provider.set_id(Some(req.provider_id));
+
                 // replace
+                api::db::add_provider(&ctx.provider_context.db, tmp_provider.clone()).await?;
                 global::add_provider(tmp_provider.clone());
                 return Ok(Rsp::default().qcm_into());
             }
