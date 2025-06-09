@@ -12,6 +12,7 @@ pub enum BackendEvent {
     NewProvider { id: i64 },
     UpdateProvider { id: i64 },
     DeleteProvider { id: i64 },
+    ReplaceProvider { id: i64 },
     SyncCommit { id: i64, commit: SyncCommit },
     End,
 }
