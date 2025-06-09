@@ -15,6 +15,7 @@ pub async fn sync_drop_before(
 
     // clean library first
     sqlm::library::Entity::delete_many()
+        .filter(sqlm::library::Column::ProviderId.eq(provider_id))
         .filter(sqlm::library::Column::EditTime.lt(now))
         .exec(txn)
         .await?;
