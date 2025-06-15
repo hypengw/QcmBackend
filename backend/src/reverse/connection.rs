@@ -163,3 +163,20 @@ impl Connection {
         }
     }
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoteFileInfo {
+    pub content_type: String,
+    pub content_length: u64,
+    pub accept_ranges: bool,
+    pub content_range: Option<ContentRange>,
+}
+
+impl RemoteFileInfo {
+    pub fn full(&self) -> u64 {
+        self.content_range
+            .as_ref()
+            .map(|cr| cr.full)
+            .unwrap_or(self.content_length)
+    }
+}
