@@ -347,8 +347,8 @@ pub async fn process_cache_event(
                                 Some(cache_info) => cache_to_remote_info(cache_info, &cnn.range),
                                 None => match real_request(&ct, true, cnn.range).await {
                                     Ok((info, _)) => info,
-                                    Err(_) => {
-                                        log::error!("get remote file info failed");
+                                    Err(e) => {
+                                        log::error!("get remote file info failed: {:?}", e);
                                         return;
                                     }
                                 },

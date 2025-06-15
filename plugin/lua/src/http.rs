@@ -135,7 +135,10 @@ impl LuaRequestBuilder {
 
     pub async fn send(&mut self) -> LuaResult<LuaResponse> {
         let (client, req) = self.build_split()?;
-        let response = client.execute(req).await.map_err(mlua::Error::external)?;
+        let response = client.execute(req).await.map_err(|e| {
+            log::error!("{:?}", e);
+            mlua::Error::external(e)
+        })?;
         Ok(LuaResponse(Some(response)))
     }
 }
