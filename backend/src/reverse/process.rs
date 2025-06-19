@@ -247,6 +247,117 @@ async fn real_request(
     }
 }
 
+async fn new_remote_file(
+    key: String,
+    cache_type: CacheType,
+    info: RemoteFileInfo,
+    rsp: Response,
+    io_tx: std::sync::mpsc::Sender<IoEvent>,
+    cursor: Arc<AtomicU64>,
+) {
+    let mut stream = rsp.bytes_stream();
+
+    {
+        let (tx, rx) = oneshot::channel();
+        let _ = io_tx.send(IoEvent::NewWrite(
+            key.clone(),
+            info.content_range
+                .as_ref()
+                .map(|cr| cr.full)
+                .unwrap_or(info.content_length),
+            cache_type,
+            info.clone(),
+            tx,
+        ));
+
+        match rx.await {
+            Ok(true) => {}
+            _ => {
+                return;
+            }
+        }
+    }
+
+    let key = Arc::new(key);
+    while let Some(bytes) = stream.next().await {
+        match bytes {
+            Ok(bytes) => {
+                let len = bytes.len();
+                let mut cursor_raw = cursor.load(std::sync::atomic::Ordering::Relaxed);
+                let _ = io_tx.send(IoEvent::DoWrite(key.clone(), cursor_raw, bytes));
+                cursor_raw += len as u64;
+                cursor.store(cursor_raw, std::sync::atomic::Ordering::Release);
+            }
+            Err(e) => {
+                log::error!("{:?}", e);
+            }
+        }
+    }
+
+    let _ = io_tx.send(IoEvent::EndWrite(key.as_ref().clone()));
+}
+
+async fn process_event_bus(
+    tx: Sender<ReverseEvent>,
+    mut bus_rx: Receiver<EventBus>,
+    io_tx: std::sync::mpsc::Sender<IoEvent>,
+) {
+    let mut resource = BTreeMap::<i64, ConnectResource>::new();
+    loop {
+        match bus_rx.recv().await {
+            Some(ev) => match ev {
+                EventBus::RequestRead(key, id, cursor) => {
+                    let _ = io_tx.send(IoEvent::RequestRead(key, id, cursor));
+                }
+                EventBus::RequestReadIoRsp(id, piece) => {
+                    let _ = tx.send(ReverseEvent::RequestReadIoRsp(id, piece)).await;
+                }
+                EventBus::DoRealRequest(id) => {
+                    if let Some(c) = resource.get(&id) {
+                        if let Err(_) = c.tx.try_send(ConnectionEvent::RealRequest) {
+                            resource.remove(&id);
+                        }
+                    }
+                }
+                EventBus::ReadedBuf(id, bytes, state) => {
+                    if let Some(c) = resource.get(&id) {
+                        if let Err(_) = c.tx.send(ConnectionEvent::ReadedBuf(bytes, state)).await {
+                            resource.remove(&id);
+                        }
+                    }
+                }
+                EventBus::ReadContinue(id) => {
+                    let _ = io_tx.send(IoEvent::ReadContinue(id));
+                }
+                EventBus::NewConnection(id, cnn_tx) => {
+                    resource.insert(id, ConnectResource { tx: cnn_tx });
+                }
+                EventBus::EndConnection(id) => {
+                    resource.remove(&id);
+                    let _ = tx.send(ReverseEvent::EndConnection(id)).await;
+                    let _ = io_tx.send(IoEvent::EndConnection(id));
+                }
+                EventBus::DoRead => {
+                    let _ = io_tx.send(IoEvent::DoRead);
+                }
+                EventBus::NewRemoteFile(key, id, cache_type, info, rsp) => {
+                    let _ = tx
+                        .send(ReverseEvent::NewRemoteFile(key, id, cache_type, info, rsp))
+                        .await;
+                }
+                EventBus::FinishFile(key, cache_type, info) => {
+                    let _ = tx
+                        .send(ReverseEvent::FinishFile(key, cache_type, info))
+                        .await;
+                }
+            },
+            None => {
+                break;
+            }
+        }
+    }
+}
+
 pub async fn process_cache_event(
     tx: Sender<ReverseEvent>,
     rx: Receiver<ReverseEvent>,
@@ -255,66 +366,11 @@ pub async fn process_cache_event(
 ) -> Result<()> {
     let (io_tx, io_rx) = std::sync::mpsc::channel();
     let bus_tx: Sender<EventBus> = {
-        let (bus_tx, mut rx) = tokio::sync::mpsc::channel(20);
+        let (bus_tx, bus_rx) = tokio::sync::mpsc::channel(20);
         let tx = tx.clone();
         let io_tx = io_tx.clone();
         tokio::spawn(async move {
-            let mut resource = BTreeMap::<i64, ConnectResource>::new();
-            loop {
-                match rx.recv().await {
-                    Some(ev) => match ev {
-                        EventBus::RequestRead(key, id, cursor) => {
-                            let _ = io_tx.send(IoEvent::RequestRead(key, id, cursor));
-                        }
-                        EventBus::RequestReadIoRsp(id, piece) => {
-                            let _ = tx.send(ReverseEvent::RequestReadIoRsp(id, piece)).await;
-                        }
-                        EventBus::DoRealRequest(id) => {
-                            if let Some(c) = resource.get(&id) {
-                                if let Err(_) = c.tx.try_send(ConnectionEvent::RealRequest) {
-                                    resource.remove(&id);
-                                }
-                            }
-                        }
-                        EventBus::ReadedBuf(id, bytes, state) => {
-                            if let Some(c) = resource.get(&id) {
-                                if let Err(_) =
-                                    c.tx.send(ConnectionEvent::ReadedBuf(bytes, state)).await
-                                {
-                                    resource.remove(&id);
-                                }
-                            }
-                        }
-                        EventBus::ReadContinue(id) => {
-                            let _ = io_tx.send(IoEvent::ReadContinue(id));
-                        }
-                        EventBus::NewConnection(id, cnn_tx) => {
-                            resource.insert(id, ConnectResource { tx: cnn_tx });
-                        }
-                        EventBus::EndConnection(id) => {
-                            resource.remove(&id);
-                            let _ = tx.send(ReverseEvent::EndConnection(id)).await;
-                            let _ = io_tx.send(IoEvent::EndConnection(id));
-                        }
-                        EventBus::DoRead => {
-                            let _ = io_tx.send(IoEvent::DoRead);
-                        }
-                        EventBus::NewRemoteFile(key, id, cache_type, info, rsp) => {
-                            let _ = tx
-                                .send(ReverseEvent::NewRemoteFile(key, id, cache_type, info, rsp))
-                                .await;
-                        }
-                        EventBus::FinishFile(key, cache_type, info) => {
-                            let _ = tx
-                                .send(ReverseEvent::FinishFile(key, cache_type, info))
-                                .await;
-                        }
-                    },
-                    None => {
-                        break;
-                    }
-                }
-            }
+            process_event_bus(tx, bus_rx, io_tx).await;
         });
         bus_tx
     };
@@ -409,54 +465,7 @@ pub async fn process_cache_event(
                     let handle = tokio::spawn({
                         let cursor = cursor.clone();
                         async move {
-                            let mut stream = rsp.bytes_stream();
-
-                            {
-                                let (tx, rx) = oneshot::channel();
-                                let _ = io_tx.send(IoEvent::NewWrite(
-                                    key.clone(),
-                                    info.content_range
-                                        .as_ref()
-                                        .map(|cr| cr.full)
-                                        .unwrap_or(info.content_length),
-                                    cache_type,
-                                    info.clone(),
-                                    tx,
-                                ));
-
-                                match rx.await {
-                                    Ok(true) => {}
-                                    _ => {
-                                        return;
-                                    }
-                                }
-                            }
-
-                            let key = Arc::new(key);
-                            while let Some(bytes) = stream.next().await {
-                                match bytes {
-                                    Ok(bytes) => {
-                                        let len = bytes.len();
-                                        let mut cursor_raw =
-                                            cursor.load(std::sync::atomic::Ordering::Relaxed);
-                                        let _ = io_tx.send(IoEvent::DoWrite(
-                                            key.clone(),
-                                            cursor_raw,
-                                            bytes,
-                                        ));
-                                        cursor_raw += len as u64;
-                                        cursor.store(
-                                            cursor_raw,
-                                            std::sync::atomic::Ordering::Release,
-                                        );
-                                    }
-                                    Err(e) => {
-                                        log::error!("{:?}", e);
-                                    }
-                                }
-                            }
-
-                            let _ = io_tx.send(IoEvent::EndWrite(key.as_ref().clone()));
+                            new_remote_file(key, cache_type, info, rsp, io_tx, cursor).await;
                         }
                     });
                     ctx.tasks.insert(
@@ -620,6 +629,7 @@ async fn process_connection(
                                 }
                                 Err(e) => {
                                     log::error!("{:?}", e);
+                                    break;
                                 }
                             }
                         }
