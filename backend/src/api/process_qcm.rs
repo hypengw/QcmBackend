@@ -485,13 +485,24 @@ pub async fn process_qcm(
             if let Some(Payload::GetArtistAlbumReq(req)) = payload {
                 let db = &ctx.provider_context.db;
                 let page_params = PageParams::new(req.page, req.page_size);
+                let sort: msg::model::AlbumSort = req
+                    .sort
+                    .try_into()
+                    .unwrap_or(msg::model::AlbumSort::PublishTime);
+                let sort_col: sqlm::album::Column = sort.qcm_into();
 
                 let artist = sqlm::artist::Entity::find_by_id(req.id)
                     .one(db)
                     .await?
                     .ok_or(ProcessError::NoSuchArtist(req.id.to_string()))?;
 
-                let albums_query = artist.find_related(sqlm::album::Entity);
+                let albums_query = artist.find_related(sqlm::album::Entity).order_by(
+                    sort_col,
+                    match req.sort_asc {
+                        true => sea_orm::Order::Asc,
+                        false => sea_orm::Order::Desc,
+                    },
+                );
                 let paginator = albums_query.paginate(db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
