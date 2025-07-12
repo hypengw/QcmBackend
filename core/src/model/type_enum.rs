@@ -69,7 +69,7 @@ pub enum ImageType {
     EnumString,
     DeriveActiveEnum,
     TryFromPrimitive,
-    IntoPrimitive
+    IntoPrimitive,
 )]
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 #[strum(ascii_case_insensitive)]
@@ -88,4 +88,27 @@ pub enum ItemType {
 
     Song = 101,
     Program = 102,
+}
+
+#[derive(
+    Copy,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    EnumIter,
+    EnumString,
+    DeriveActiveEnum,
+    TryFromPrimitive,
+)]
+#[sea_orm(rs_type = "i32", db_type = "Integer")]
+#[repr(i32)]
+pub enum AlbumType {
+    Album = 0,
+    Compilation = 1,
+    EP = 2,
+    Single = 3,
+    Soundtrack = 4,
 }
