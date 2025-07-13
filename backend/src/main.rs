@@ -27,6 +27,7 @@ mod event;
 mod fts;
 mod global;
 mod msg;
+mod http;
 mod reverse;
 mod task;
 

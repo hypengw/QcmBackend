@@ -10,15 +10,15 @@ use qcm_core::Result;
 use sea_orm::{sea_query, QuerySelect};
 use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter};
 
-use super::body_type::{self, ResponseBody, StreamItem};
-use super::connection::{
-    default_range, parse_content_range, range_start, Connection, ContentRange, Range,
-    RemoteFileInfo,
-};
+use super::connection::{Connection, RemoteFileInfo};
 use super::io::ReadState;
-use super::piece;
-use crate::error::{HttpError, ProcessError};
-use crate::reverse::connection::{format_range, range_in_full};
+use crate::error::ProcessError;
+use crate::http::{
+    body_type::{self, ResponseBody, StreamItem},
+    error::HttpError,
+    piece,
+    range::{parse_content_range, HttpContentRange, HttpRange},
+};
 use crate::reverse::io::IoContext;
 use reqwest::Response;
 use std::collections::BTreeMap;
@@ -37,12 +37,19 @@ use tokio::sync::oneshot;
 type Creator = Box<
     dyn Fn(
             bool,
-            Option<Range>,
+            Option<HttpRange>,
         ) -> Pin<Box<dyn Future<Output = Result<Response, ProcessError>> + Send>>
         + Send
         + Sync
         + 'static,
 >;
+
+/*
+connection:
+
+
+
+ */
 
 enum EventBus {
     RequestRead(String, i64, u64),
@@ -91,11 +98,13 @@ enum IoEvent {
     EndWrite(String),
 }
 
-pub fn wrap_creator<Fut>(ct: impl Fn(bool, Option<Range>) -> Fut + Send + Sync + 'static) -> Creator
+pub fn wrap_creator<Fut>(
+    ct: impl Fn(bool, Option<HttpRange>) -> Fut + Send + Sync + 'static,
+) -> Creator
 where
     Fut: Future<Output = Result<Response, ProcessError>> + Send + 'static,
 {
-    Box::new(move |head: bool, r: Option<Range>| Box::pin(ct(head, r)))
+    Box::new(move |head: bool, r: Option<HttpRange>| Box::pin(ct(head, r)))
 }
 
 async fn query_cache_info(db: &DatabaseConnection, key: &str) -> Option<sqlm::cache::Model> {
@@ -113,14 +122,17 @@ async fn query_cache_info(db: &DatabaseConnection, key: &str) -> Option<sqlm::ca
     }
 }
 
-fn cache_to_remote_info(cache_info: &sqlm::cache::Model, range: &Option<Range>) -> RemoteFileInfo {
+fn cache_to_remote_info(
+    cache_info: &sqlm::cache::Model,
+    range: &Option<HttpRange>,
+) -> RemoteFileInfo {
     let full = cache_info.content_length as u64;
     match range {
         Some(range) => RemoteFileInfo {
-            content_length: full - range_start(range, full),
+            content_length: full - range.start(full),
             content_type: cache_info.content_type.clone(),
             accept_ranges: true,
-            content_range: ContentRange::from_range(
+            content_range: HttpContentRange::from_range(
                 range.clone(),
                 cache_info.content_length as u64,
             ),
@@ -136,7 +148,7 @@ fn cache_to_remote_info(cache_info: &sqlm::cache::Model, range: &Option<Range>) 
 
 fn create_rsp(
     id: i64,
-    range: &Option<Range>,
+    range: &Option<HttpRange>,
     info: &RemoteFileInfo,
 ) -> (
     hyper::Response<ResponseBody>,
@@ -145,8 +157,8 @@ fn create_rsp(
     let (stream_tx, stream_rx) = futures::channel::mpsc::channel(4);
     let rsp = match (range, &info.content_range) {
         (Some(r), Some(cr)) => {
-            if range_in_full(&r, cr.full) {
-                log::debug!(target: "reverse", "rsp({}) range: {}, content range: {}", id, format_range(&r), cr);
+            if r.in_full(cr.full) {
+                log::debug!(target: "reverse", "rsp({}) range: {}, content range: {}", id, r, cr);
                 hyper::Response::builder()
                     .status(hyper::StatusCode::PARTIAL_CONTENT)
                     .header(hyper::header::CONTENT_TYPE, &info.content_type)
@@ -200,7 +212,7 @@ struct ProcessCtx {
 async fn real_request(
     ct: &Creator,
     head: bool,
-    range: Option<Range>,
+    range: Option<HttpRange>,
 ) -> Result<(RemoteFileInfo, reqwest::Response), ProcessError> {
     let rsp = ct(head, range).await;
     match rsp {
@@ -401,7 +413,7 @@ pub async fn process_cache_event(
                         let info = {
                             match &cache_info {
                                 Some(cache_info) => cache_to_remote_info(cache_info, &cnn.range),
-                                None => match real_request(&ct, true, cnn.range).await {
+                                None => match real_request(&ct, true, cnn.range.clone()).await {
                                     Ok((info, _)) => info,
                                     Err(e) => {
                                         log::error!("get remote file info failed: {:?}", e);
@@ -538,11 +550,11 @@ async fn process_connection(
     _db: DatabaseConnection,
     ct: Creator,
 ) -> Result<()> {
-    let range = cnn.range;
     let mut rx = rx;
     let start = cnn.start(remote_info.full());
     let mut cursor = start;
     let mut stream_tx = stream_tx;
+    let range = cnn.range;
 
     match cache_info.and_then(|info| info.blob) {
         Some(bytes) => {
@@ -615,7 +627,7 @@ async fn process_connection(
                             }
                         }
                         ConnectionEvent::RealRequest => {
-                            match real_request(&ct, false, range).await {
+                            match real_request(&ct, false, range.clone()).await {
                                 Ok((info, rsp)) => {
                                     let _ = bus_tx
                                         .send(EventBus::NewRemoteFile(

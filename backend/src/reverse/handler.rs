@@ -11,11 +11,15 @@ use qcm_core::{model as sql_model, model::type_enum::ImageType, Result};
 use sea_orm::EntityTrait;
 use std::sync::Arc;
 
-use super::connection::{format_range, parse_range, Connection, Range};
+use super::connection::Connection;
 use super::process::{wrap_creator, ReverseEvent};
-use crate::error::{HttpError, ProcessError};
+use crate::error::ProcessError;
 use crate::event::BackendContext;
-use crate::reverse::body_type::ResponseBody;
+use crate::http::{
+    body_type::ResponseBody,
+    error::HttpError,
+    range::{parse_range, HttpRange},
+};
 
 pub async fn media_get_image(
     ctx: &Arc<BackendContext>,
@@ -28,7 +32,7 @@ pub async fn media_get_image(
         let ctx = ctx.clone();
         let item_id = item_id.to_string();
         let image_id = image_id.map(|s| s.to_string());
-        move |_: bool, _r: Option<Range>| {
+        move |_: bool, _r: Option<HttpRange>| {
             let ctx = ctx.clone();
             let item_id = item_id.clone();
             let image_id = image_id.clone();
@@ -97,14 +101,14 @@ pub async fn media_get_audio(
             let ctx = ctx.clone();
             let native_id = native_id.to_string();
             let headers = headers.clone();
-            move |_: bool, r: Option<Range>| {
+            move |_: bool, r: Option<HttpRange>| {
                 let ctx = ctx.clone();
                 let native_id = native_id.clone();
                 let mut headers = headers.clone();
                 if let Some(r) = r {
                     headers.insert(
                         hyper::header::RANGE,
-                        hyper::header::HeaderValue::from_str(&format_range(&r)).unwrap(),
+                        hyper::header::HeaderValue::from_str(&format!("{}", r)).unwrap(),
                     );
                 }
 

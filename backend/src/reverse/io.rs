@@ -1,5 +1,5 @@
 use super::connection::RemoteFileInfo;
-use super::piece;
+use crate::http::piece;
 use bytes::{BufMut, Bytes, BytesMut};
 use qcm_core::model::type_enum::CacheType;
 use std::collections::BTreeMap;

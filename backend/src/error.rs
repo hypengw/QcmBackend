@@ -5,6 +5,7 @@ use qcm_core::anyhow;
 use sea_orm::error as orm_error;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
+use super::http::error::HttpError;
 
 #[derive(Debug, Error)]
 pub enum ProcessError {
@@ -79,18 +80,6 @@ impl From<qcm_core::error::ProviderError> for ProcessError {
             e => ProcessError::Internal(e.into()),
         }
     }
-}
-
-#[derive(Debug, Error)]
-pub enum HttpError {
-    #[error(transparent)]
-    Reqwest(#[from] reqwest::Error),
-    #[error("Hyper body error: {0}")]
-    HyperBody(#[from] hyper::Error),
-    #[error("Unsupported range: {0}")]
-    UnsupportedRange(String),
-    #[error("Infallible")]
-    Infallible(#[from] std::convert::Infallible),
 }
 
 impl From<HttpError> for ProcessError {

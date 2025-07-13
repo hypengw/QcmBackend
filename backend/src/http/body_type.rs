@@ -4,7 +4,8 @@ use http_body_util::{combinators, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Body, Bytes, Frame, Incoming};
 use std::pin::Pin;
 
-use crate::error::{HttpError, ProcessError};
+use super::error::HttpError;
+use crate::error::ProcessError;
 
 /// Type for synthetic boxed body
 pub type BoxBody = combinators::BoxBody<Bytes, HttpError>;

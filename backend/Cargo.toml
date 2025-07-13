@@ -39,7 +39,9 @@ hyper = { version = "1", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["server-auto"] }
 http-body-util = "0.1"
 hyper-tungstenite = "0.17"
-http-range-header = "0.4"
+http-range-header = "0"
+http-range = "0"
+http-content-range = "0"
 scopeguard = "1"
 futures = "0.3"
 tracing-subscriber = { version = "0.3", features = [
