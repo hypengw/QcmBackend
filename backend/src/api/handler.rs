@@ -6,8 +6,7 @@ use crate::convert::*;
 use crate::global as bglobal;
 use crate::http::body_type::ResponseBody;
 use crate::msg::{self, QcmMessage, Rsp};
-use crate::reverse;
-use crate::reverse::process::ReverseEvent;
+use crate::reverse::ReverseEvent;
 use crate::task::TaskManagerOper;
 use crate::{
     error::ProcessError,
@@ -19,12 +18,10 @@ use hyper::body::{Body, Bytes, Frame, Incoming};
 use hyper::{Request, Response, StatusCode};
 use hyper_tungstenite::HyperWebsocket;
 use prost::{self, Message};
-use qcm_core::anyhow;
 use qcm_core::provider::Context;
 use qcm_core::Result;
 use scopeguard::guard;
 use sea_orm::{Database, DatabaseConnection};
-use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::mpsc as async_mpsc;
 

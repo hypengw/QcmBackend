@@ -1,23 +1,20 @@
 use anyhow::anyhow;
-use futures_util::{SinkExt, Stream, StreamExt};
-use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, Limited, StreamBody};
-use hyper::body::{Body, Bytes, Frame, Incoming};
-use hyper::{header, Request, Response};
+use futures_util::StreamExt;
+use http_body_util::{combinators::BoxBody, BodyExt, StreamBody};
+use hyper::body::Frame;
+use hyper::Response;
 use qcm_core::crypto;
 use qcm_core::http;
-use qcm_core::model::image;
 use qcm_core::model::type_enum::CacheType;
-use qcm_core::{model as sql_model, model::type_enum::ImageType, Result};
-use sea_orm::EntityTrait;
+use qcm_core::{model::type_enum::ImageType, Result};
 use std::sync::Arc;
 
 use super::connection::Connection;
-use super::process::{wrap_creator, ReverseEvent};
+use super::reverse::{wrap_creator, ReverseEvent};
 use crate::error::ProcessError;
 use crate::event::BackendContext;
 use crate::http::{
     body_type::ResponseBody,
-    error::HttpError,
     range::{parse_range, HttpRange},
 };
 

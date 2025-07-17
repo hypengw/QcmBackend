@@ -71,3 +71,18 @@ pub async fn blob_chunk(
         })
         .ok_or(DbErr::Custom(String::new()))
 }
+
+pub async fn query_by_key(db: &DatabaseConnection, key: &str) -> Option<Model> {
+    use sea_orm::ColumnTrait;
+    match Entity::find()
+        .filter(Column::Key.eq(key.to_string()))
+        .one(db)
+        .await
+    {
+        Ok(info) => info,
+        Err(e) => {
+            log::error!("{:?}", e);
+            None
+        }
+    }
+}

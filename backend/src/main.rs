@@ -1,7 +1,18 @@
+mod api;
+mod convert;
+mod error;
+mod event;
+mod fts;
+mod global;
+mod http;
+mod msg;
+mod reverse;
+mod task;
+
 use anyhow;
 use clap::{self, Parser};
 use fts::load_fts_plugin;
-use reverse::process::ReverseEvent;
+use reverse::ReverseEvent;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -19,17 +30,6 @@ use tokio::{
 
 use migration::{CacheDBMigrator, Migrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
-
-mod api;
-mod convert;
-mod error;
-mod event;
-mod fts;
-mod global;
-mod msg;
-mod http;
-mod reverse;
-mod task;
 
 use api::handler::handle_request;
 
@@ -137,14 +137,16 @@ async fn main() -> Result<(), anyhow::Error> {
     let reverse_ev = {
         let cache_db = cache_db.clone();
         let cache_dir = args.cache.clone();
+        let oper = oper.clone();
         let (tx, rx) = tokio::sync::mpsc::channel(512);
         tokio::spawn({
             let tx = tx.clone();
             async move {
-                match reverse::process::process_cache_event(
+                match reverse::ReverseHandler::process(
                     tx,
                     rx,
                     cache_db,
+                    oper,
                     cache_dir.join("QcmBackend"),
                 )
                 .await

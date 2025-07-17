@@ -1,10 +1,32 @@
 use super::connection::RemoteFileInfo;
 use crate::http::piece;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes};
 use qcm_core::model::type_enum::CacheType;
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+pub enum IoEvent {
+    RequestRead(
+        String, // cnn key
+        i64,    // cnn id
+        u64,    // curosr
+        bool,   // has cache entry
+    ),
+    DoRead,
+    ReadContinue(i64),
+    NewWrite(
+        String,
+        u64,
+        CacheType,
+        RemoteFileInfo,
+        tokio::sync::oneshot::Sender<bool>,
+    ),
+    DoWrite(Arc<String>, u64, Bytes),
+    EndConnection(i64),
+    EndWrite(String),
+}
 
 #[derive(Debug, Clone)]
 pub enum ReadState {
@@ -14,7 +36,7 @@ pub enum ReadState {
 }
 pub struct DownloadFile {
     meta: piece::FileMeta,
-    file: std::fs::File,
+    file: Option<std::fs::File>,
     pub cache_type: CacheType,
     pub remote_info: RemoteFileInfo,
     pub rc: i64,
@@ -25,6 +47,7 @@ pub struct Reader {
     key: String,
     piece: piece::Piece,
     state: ReadState,
+    has_writer: bool,
 }
 
 pub struct Waiter {
@@ -76,7 +99,7 @@ impl IoContext {
         })
     }
 
-    fn end_file(f: &DownloadFile, key: &str, readers: &mut Readers) {
+    fn end_file(f: &mut DownloadFile, key: &str, readers: &mut Readers) {
         let path = f.meta.path.clone();
 
         log::debug!(target: "reverse", "finish file: {}", key);
@@ -92,8 +115,15 @@ impl IoContext {
         let old = path;
         let path = old.with_file_name(old.file_stem().and_then(|s| s.to_str()).unwrap_or(key));
 
-        if let Err(err) = std::fs::rename(&old, &path) {
-            log::error!(target: "reverse", "{:?}", err);
+        // f.file.close();
+        f.file = None;
+        match std::fs::rename(&old, &path) {
+            Err(err) => {
+                log::error!(target: "reverse", "{:?}", err);
+            }
+            Ok(_) => {
+                f.meta.path = path.clone();
+            }
         }
 
         for (id, (piece, state)) in tmp {
@@ -115,6 +145,7 @@ impl IoContext {
                             key: key.to_string(),
                             piece,
                             state,
+                            has_writer: false,
                         },
                     );
                 }
@@ -137,14 +168,20 @@ impl IoContext {
                 return Ok(());
             }
         };
+        if f.meta.is_end() {
+            return Ok(());
+        }
+
         let len = bytes.len() as u64;
         match f.meta.combine(piece::Piece {
             offset,
             length: len,
         }) {
             true => {
-                f.file.seek(std::io::SeekFrom::Start(offset))?;
-                f.file.write(&bytes)?;
+                if let Some(file) = &mut f.file {
+                    file.seek(std::io::SeekFrom::Start(offset))?;
+                    file.write(&bytes)?;
+                }
             }
             false => {}
         }
@@ -164,14 +201,25 @@ impl IoContext {
 
         if f.meta.is_end() {
             Self::end_file(f, key, &mut self.readers);
+            f.rc = 1;
             on_finish(key, f);
-            self.writers.remove(key);
+            // we wait for on_finish to trigger EndWriter
+            // self.writers.remove(key);
         }
 
         Ok(())
     }
 
     pub fn end(&mut self, id: i64) {
+        if let Some(key) = self.readers.get(&id).and_then(|r| {
+            if r.has_writer {
+                Some(r.key.clone())
+            } else {
+                None
+            }
+        }) {
+            self.end_writer(&key);
+        }
         self.readers.remove(&id);
         self.waiters.remove(&id);
     }
@@ -180,16 +228,47 @@ impl IoContext {
         if let Some(w) = self.writers.get_mut(key) {
             w.rc -= 1;
             if w.rc == 0 {
-                self.writers.remove(key);
+                // self.writers.remove(key);
             }
         }
     }
 
-    pub fn get_piece(&mut self, key: &str, id: i64, cursor: u64) -> Option<piece::Piece> {
+    pub fn get_piece_from_file(&mut self, key: &str, id: i64, cursor: u64) -> Option<piece::Piece> {
+        match self.get_cache_file(&key, cursor) {
+            Ok((file, len, _)) => {
+                let p = piece::Piece {
+                    offset: cursor,
+                    length: len - cursor,
+                };
+                self.readers.insert(
+                    id,
+                    Reader {
+                        file: file,
+                        key: key.to_string(),
+                        piece: p.clone(),
+                        state: ReadState::Reading(0),
+                        has_writer: false,
+                    },
+                );
+                Some(p)
+            }
+            Err(_) => None,
+        }
+    }
+
+    pub fn get_piece_from_wirter(
+        &mut self,
+        key: &str,
+        id: i64,
+        cursor: u64,
+    ) -> Option<piece::Piece> {
         match self.writers.get_mut(key) {
             Some(f) => match f.meta.piece_of(cursor) {
                 Some(p) => {
-                    let _ = f.file.flush();
+                    if let Some(file) = &mut f.file {
+                        let _ = file.flush();
+                    }
+
                     match self.readers.get_mut(&id) {
                         Some(reader) => match reader.file.seek(std::io::SeekFrom::Start(cursor)) {
                             Err(e) => {
@@ -209,6 +288,7 @@ impl IoContext {
                                     None
                                 }
                                 _ => {
+                                    f.rc += 1;
                                     self.readers.insert(
                                         id,
                                         Reader {
@@ -216,6 +296,7 @@ impl IoContext {
                                             key: key.to_string(),
                                             piece: p.clone(),
                                             state: ReadState::Reading(0),
+                                            has_writer: true,
                                         },
                                     );
                                     Some(p)
@@ -230,25 +311,7 @@ impl IoContext {
                 }
                 None => None,
             },
-            None => match self.get_cache_file(&key, cursor) {
-                Ok((file, len, _)) => {
-                    let p = piece::Piece {
-                        offset: cursor,
-                        length: len - cursor,
-                    };
-                    self.readers.insert(
-                        id,
-                        Reader {
-                            file: file,
-                            key: key.to_string(),
-                            piece: p.clone(),
-                            state: ReadState::Reading(0),
-                        },
-                    );
-                    Some(p)
-                }
-                Err(_) => None,
-            },
+            None => None,
         }
     }
 
@@ -289,7 +352,7 @@ impl IoContext {
                                 pieces: BTreeMap::new(),
                             },
                             cache_type,
-                            file,
+                            file: Some(file),
                             remote_info,
                             rc: 1,
                         },
@@ -322,46 +385,46 @@ impl IoContext {
     pub fn do_read(&mut self, on_ok: impl Fn(i64, ReadState, Bytes), on_fail: impl Fn(i64)) {
         // 64K
         let mut buf = [0; 64 * 1024];
-        self.readers
-            .iter_mut()
-            .filter(|(_, v)| match v.state {
-                ReadState::Reading(_) => true,
-                _ => false,
-            })
-            .for_each(|(id, v)| {
-                let mut readed = match v.state {
-                    ReadState::Reading(o) => o,
-                    _ => 0,
-                };
-                let len = std::cmp::min((v.piece.length - readed) as usize, 64 * 1024);
+        self.readers.iter_mut().for_each(|(id, v)| {
+            match v.state {
+                ReadState::Reading(mut readed) => {
+                    // readed start from 0
+                    // and always less than piece.length
+                    if v.piece.length < readed {
+                        panic!("readed should less than piece.length");
+                    }
+                    let len = std::cmp::min((v.piece.length - readed) as usize, 64 * 1024);
 
-                match v.file.read(&mut buf[0..len]) {
-                    Ok(size) => {
-                        let mut bytes_buf = bytes::BytesMut::new();
-                        bytes_buf.put(&buf[0..size]);
-                        if size == 0 {
-                            log::error!("readed zero, {}/{}", readed, v.piece.length);
-                            on_fail(*id);
-                        } else {
-                            readed += size as u64;
-                            if readed == v.piece.length {
-                                v.state = ReadState::End;
+                    match v.file.read(&mut buf[0..len]) {
+                        Ok(size) => {
+                            let mut bytes_buf = bytes::BytesMut::new();
+                            bytes_buf.put(&buf[0..size]);
+                            if size == 0 {
+                                log::error!("readed zero, {}/{}", readed, v.piece.length);
+                                on_fail(*id);
                             } else {
-                                if readed >= 64 * 1024 {
-                                    v.piece.length -= readed;
-                                    v.state = ReadState::Paused;
+                                readed += size as u64;
+                                if readed == v.piece.length {
+                                    v.state = ReadState::End;
                                 } else {
-                                    v.state = ReadState::Reading(readed);
+                                    if readed >= 64 * 1024 {
+                                        v.piece.length -= readed;
+                                        v.state = ReadState::Paused;
+                                    } else {
+                                        v.state = ReadState::Reading(readed);
+                                    }
                                 }
+                                on_ok(*id, v.state.clone(), bytes_buf.freeze());
                             }
-                            on_ok(*id, v.state.clone(), bytes_buf.freeze());
+                        }
+                        Err(e) => {
+                            log::error!("{:?}", e);
+                            on_fail(*id);
                         }
                     }
-                    Err(e) => {
-                        log::error!("{:?}", e);
-                        on_fail(*id);
-                    }
                 }
-            });
+                _ => {}
+            };
+        });
     }
 }

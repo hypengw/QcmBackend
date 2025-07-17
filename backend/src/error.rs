@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use super::http::error::HttpError;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Default)]
 pub enum ProcessError {
     #[error("{0}")]
     Internal(#[from] anyhow::Error),
@@ -57,6 +57,7 @@ pub enum ProcessError {
     NotFound,
     #[error("Infallible")]
     Infallible(#[from] std::convert::Infallible),
+    #[default]
     #[error("")]
     None,
 }
