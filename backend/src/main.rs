@@ -203,14 +203,18 @@ async fn main() -> Result<(), anyhow::Error> {
                         .serve_connection(TokioIo::new(stream), hyper::service::service_fn(service))
                         .with_upgrades();
 
+                    log::debug!(target: "http", "start connection: {}", addr);
+
                     tokio::select! {
                         res = connection => {
                             if let Err(err) = res {
                                 log::error!("Error HTTP connection: {err:?}");
+                            } else {
+                                log::debug!(target: "http", "end connection: {}", addr);
                             }
                         }
                         _ = cnn_shutdown_rx.changed() => {
-                            log::info!("Shutting down connection: {}", addr);
+                            log::info!("shutting down connection: {}", addr);
                         }
                     }
                 }
