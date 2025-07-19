@@ -166,6 +166,7 @@ impl ConnectionHandler {
                     Some(r) => r.start(self.file_info.full()),
                     None => 0,
                 };
+                self.cursor = self.start;
                 self.state = ConnectionState::SendResponse;
             }
             ConnectionState::SendResponse => {
