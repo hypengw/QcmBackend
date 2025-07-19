@@ -91,49 +91,62 @@ pub async fn real_request(
     head: bool,
     range: Option<HttpRange>,
 ) -> Result<(RemoteFileInfo, reqwest::Response), ProcessError> {
-    let rsp = ct(head, range).await;
-    match rsp {
-        Ok(rsp) => {
-            let headers = rsp.headers();
-            let content_type = headers
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_string());
-            let content_length: Option<u64> = headers
-                .get(reqwest::header::CONTENT_LENGTH)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse().ok());
-            let content_range = headers
-                .get(reqwest::header::CONTENT_RANGE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| crate::http::range::parse_content_range(v));
+    let mut out = Err(ProcessError::None);
+    for attempt in 1..=3 {
+        let rsp = ct(head, range.clone()).await;
+        match rsp {
+            Ok(rsp) => {
+                let headers = rsp.headers();
+                let content_type = headers
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|v| v.to_string());
+                let content_length: Option<u64> = headers
+                    .get(reqwest::header::CONTENT_LENGTH)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse().ok());
+                let content_range = headers
+                    .get(reqwest::header::CONTENT_RANGE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| crate::http::range::parse_content_range(v));
 
-            let accept_ranges = {
-                if content_range.is_some() {
-                    true
-                } else {
-                    headers
-                        .get(reqwest::header::ACCEPT_RANGES)
-                        .map(|v| v == "bytes")
-                        .unwrap_or(false)
+                let accept_ranges = {
+                    if content_range.is_some() {
+                        true
+                    } else {
+                        headers
+                            .get(reqwest::header::ACCEPT_RANGES)
+                            .map(|v| v == "bytes")
+                            .unwrap_or(false)
+                    }
+                };
+
+                out = match (content_type, content_length) {
+                    (Some(content_type), Some(content_length)) => Ok((
+                        RemoteFileInfo {
+                            content_type,
+                            content_length,
+                            accept_ranges,
+                            content_range,
+                        },
+                        rsp,
+                    )),
+                    _ => Err(qcm_core::anyhow!("content_type/content_length not valid").into()),
+                };
+                break;
+            }
+            Err(e) => {
+                out = Err(e);
+                // wait
+                if attempt < 3 {
+                    // 1s -> 2s -> 4s
+                    let backoff = std::time::Duration::from_secs(2u64.pow(attempt - 1));
+                    tokio::time::sleep(backoff).await;
                 }
-            };
-
-            match (content_type, content_length) {
-                (Some(content_type), Some(content_length)) => Ok((
-                    RemoteFileInfo {
-                        content_type,
-                        content_length,
-                        accept_ranges,
-                        content_range,
-                    },
-                    rsp,
-                )),
-                _ => Err(qcm_core::anyhow!("content_type/content_length not valid").into()),
             }
         }
-        Err(e) => Err(e),
     }
+    return out;
 }
 
 pub fn create_rsp(

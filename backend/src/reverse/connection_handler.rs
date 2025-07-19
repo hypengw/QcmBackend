@@ -272,33 +272,24 @@ impl ConnectionHandler {
                 }
             },
             ConnectionState::QueryRemoteFile => {
-                for attempt in 1..=3 {
-                    match real_request(&self.ct, false, self.range.clone()).await {
-                        Ok((info, rsp)) => {
-                            let ev = EventBus::NewRemoteFile(
-                                self.key.clone(),
-                                self.id,
-                                self.cache_type,
-                                info,
-                                rsp,
-                            );
-                            if !self.bus_send(ev).await {
-                                self.state = ConnectionState::Finished;
-                            } else {
-                                self.state = ConnectionState::WaitingForPiece;
-                            }
-                            break;
+                match real_request(&self.ct, false, self.range.clone()).await {
+                    Ok((info, rsp)) => {
+                        let ev = EventBus::NewRemoteFile(
+                            self.key.clone(),
+                            self.id,
+                            self.cache_type,
+                            info,
+                            rsp,
+                        );
+                        if !self.bus_send(ev).await {
+                            self.state = ConnectionState::Finished;
+                        } else {
+                            self.state = ConnectionState::WaitingForPiece;
                         }
-                        Err(e) => {
-                            log::error!("{:?}", e);
-                            self.state = ConnectionState::Error(e);
-                            // wait
-                            if attempt < 3 {
-                                // 1s -> 2s -> 4s
-                                let backoff = std::time::Duration::from_secs(2u64.pow(attempt - 1));
-                                tokio::time::sleep(backoff).await;
-                            }
-                        }
+                    }
+                    Err(e) => {
+                        log::error!("{:?}", e);
+                        self.state = ConnectionState::Error(e);
                     }
                 }
             }
