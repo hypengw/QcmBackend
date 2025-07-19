@@ -6,7 +6,7 @@ use qcm_core::model::type_enum::CacheType;
 use tokio::sync::mpsc::Sender;
 
 pub enum EventBus {
-    // from cnn or io
+    // from cnn
     // update io reader state and make io send readedbuf
     RequestRead(
         String, // cnn key
@@ -14,8 +14,6 @@ pub enum EventBus {
         u64,    // cursor
         bool,   // has cache entry
     ),
-
-    // from cnn
     ReadContinue(i64 /* cnn id */),
     NewRemoteFile(String, i64, CacheType, RemoteFileInfo, reqwest::Response),
 

@@ -19,21 +19,24 @@ pub fn process_io(
                     ctx.end_writer(&key);
                 }
                 IoEvent::RequestRead(key, id, cursor, has_cache) => {
-                    // when two reader and one writer
-                    // we keep finished writer
-                    // try clean writer after sql finished if no reader
-                    // try clean writer when clean reader
+                    log::debug!(target: "reverse", "cnn {} RequestRead", id);
                     let mut p = None;
 
-                    if has_cache {
-                        p = ctx.get_piece_from_file(&key, id, cursor);
-                    }
-                    if p.is_none() {
-                        p = ctx.get_piece_from_wirter(&key, id, cursor);
-                    }
-                    if p.is_none() {
-                        ctx.add_waiter(id, &key, cursor);
-                        let _ = tx.try_send(EventBus::NoCache(id));
+                    if !ctx.can_read(id) {
+                        if has_cache {
+                            p = ctx.get_piece_from_file(&key, id, cursor);
+                        }
+                        if p.is_none() {
+                            p = ctx.get_piece_from_wirter(&key, id, cursor);
+                        }
+                        if p.is_none() {
+                            ctx.add_waiter(id, &key, cursor);
+
+                            log::debug!(target: "reverse", "cnn {} no cache", id);
+                            let _ = tx.try_send(EventBus::NoCache(id));
+                        } else {
+                            ctx.remove_waiter(id);
+                        }
                     }
                 }
                 IoEvent::ReadContinue(id) => {

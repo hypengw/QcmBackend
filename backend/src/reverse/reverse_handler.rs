@@ -80,17 +80,22 @@ impl ReverseHandler {
     fn remove_task(&mut self, id: i64, cancel: bool) {
         if cancel {
             if let Some(t) = self.tasks.get(&id) {
+                log::debug!(target: "reverse", "cnn {} cancel remote file", id);
                 self.task_oper.canel(t.task_id);
             }
         }
-        self.tasks.remove(&id);
+        if let Some(_) = self.tasks.remove(&id) {
+            log::debug!(target: "reverse", "cnn {} end remote file", id);
+        }
     }
 
     fn cancel_task_by_key(&mut self, key: &str) {
         let mut to_rm: Vec<i64> = Vec::new();
         for (k, v) in self.tasks.iter() {
             if v.key == key {
-                to_rm.push(*k);
+                let id = *k;
+                log::debug!(target: "reverse", "cnn {} cancel remote file", id);
+                to_rm.push(id);
             }
         }
         for k in to_rm {
@@ -226,6 +231,7 @@ async fn new_remote_file(
         match rx.await {
             Ok(true) => {}
             _ => {
+                log::error!("new writer failed");
                 return;
             }
         }

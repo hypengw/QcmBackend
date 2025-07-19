@@ -118,6 +118,14 @@ impl ConnectionHandler {
     }
 
     async fn request_read(&mut self) -> bool {
+        log::debug!(
+            target: "reverse",
+            "cnn {} request read: {}/{}, start: {}",
+            self.id,
+            self.cursor,
+            self.file_info.content_length,
+            self.start,
+        );
         let ev = EventBus::RequestRead(
             self.key.clone(),
             self.id,
@@ -188,7 +196,7 @@ impl ConnectionHandler {
                 }
             }
             ConnectionState::ServingFromDB(bytes) => {
-                log::debug!(target: "reverse", "stream({}) from db", self.id);
+                log::debug!(target: "reverse", "cnn {} stream from db", self.id);
                 let cursor = self.start as usize;
                 let len = bytes.len();
 
@@ -217,14 +225,19 @@ impl ConnectionHandler {
                         {
                             let old = self.cursor;
                             self.cursor += bs.len() as u64;
+                            let cursor = self.cursor;
+                            let full = self.file_info.full();
                             log::debug!(
                                 target: "reverse",
-                                "cnn {} streaming, ({} -> {}) / {}",
+                                "cnn {} streaming: ({} -> {}) / {}",
                                 self.id,
                                 old,
                                 self.cursor,
                                 self.file_info.full()
                             );
+                            if cursor > full {
+                                log::error!(target: "reverse", "cnn {} overflow", self.id);
+                            }
                         }
 
                         match state {
@@ -235,13 +248,6 @@ impl ConnectionHandler {
                             }
                             ReadState::End => {
                                 if self.start + self.file_info.content_length > self.cursor {
-                                    log::debug!(
-                                        target: "reverse",
-                                        "request read: {}/{}, start: {}",
-                                        self.cursor,
-                                        self.file_info.content_length,
-                                        self.start,
-                                    );
                                     if !self.request_read().await {
                                         return true;
                                     }

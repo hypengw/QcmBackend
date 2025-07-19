@@ -49,6 +49,15 @@ pub struct Reader {
     state: ReadState,
     has_writer: bool,
 }
+impl Reader {
+    pub fn get_offset(&self) -> u64 {
+        let o = match &self.state {
+            ReadState::Reading(o) => *o,
+            _ => 0,
+        };
+        return self.piece.offset + o;
+    }
+}
 
 pub struct Waiter {
     key: String,
@@ -99,14 +108,16 @@ impl IoContext {
         })
     }
 
-    fn end_file(f: &mut DownloadFile, key: &str, readers: &mut Readers) {
+    fn end_file(f: &mut DownloadFile, key: &str, readers: &mut Readers, waiters: &mut Waiters) {
         let path = f.meta.path.clone();
 
         log::debug!(target: "reverse", "finish file: {}", key);
-        let mut tmp = BTreeMap::<i64, (piece::Piece, ReadState)>::new();
-        for (id, v) in readers.iter() {
+        let mut tmp = BTreeMap::<i64, (u64, piece::Piece, ReadState)>::new();
+        for (id, v) in readers.iter_mut() {
             if v.key == key {
-                tmp.insert(*id, (v.piece.clone(), v.state.clone()));
+                let offset = v.file.stream_position().unwrap_or(0);
+                let piece = v.piece.clone();
+                tmp.insert(*id, (offset, piece, v.state.clone()));
             }
         }
         for (id, _) in tmp.iter() {
@@ -115,7 +126,6 @@ impl IoContext {
         let old = path;
         let path = old.with_file_name(old.file_stem().and_then(|s| s.to_str()).unwrap_or(key));
 
-        // f.file.close();
         f.file = None;
         match std::fs::rename(&old, &path) {
             Err(err) => {
@@ -126,30 +136,39 @@ impl IoContext {
             }
         }
 
-        for (id, (piece, state)) in tmp {
+        // update reader to use finished file
+        for (id, (offset, _, _)) in tmp {
             match std::fs::File::open(&path).and_then(|mut f| {
-                f.seek(std::io::SeekFrom::Start(
-                    piece.offset
-                        + match state {
-                            ReadState::Reading(o) => o,
-                            _ => 0,
-                        },
-                ))?;
-                Ok(f)
+                f.seek(std::io::SeekFrom::End(0))?;
+                let len = f.stream_position()?;
+                f.seek(std::io::SeekFrom::Start(offset))?;
+                let piece = piece::Piece {
+                    offset: offset,
+                    length: len.saturating_sub(offset),
+                };
+                if piece.length == 0 {
+                    log::warn!(target: "reverse", "offset may overflow");
+                }
+                log::debug!(target: "reverse", "cnn {} translate cache: piece {}/{} len {}", id, piece.offset, piece.length, len);
+                Ok((f, piece))
             }) {
-                Ok(file) => {
+                Ok((file, piece)) => {
+                    waiters.remove(&id);
                     readers.insert(
                         id,
                         Reader {
                             file,
                             key: key.to_string(),
                             piece,
-                            state,
+                            state: ReadState::Reading(0),
                             has_writer: false,
                         },
                     );
                 }
-                _ => continue,
+                Err(e) => {
+                    log::error!("{:?}", e);
+                    continue;
+                }
             }
         }
     }
@@ -186,25 +205,39 @@ impl IoContext {
             false => {}
         }
 
-        {
-            let mut ids = Vec::new();
-            for (id, v) in self.waiters.iter() {
-                if v.key == key && v.start >= offset && v.start < offset + len {
-                    ids.push(*id);
-                    on_notify(&v.key, *id, v.start);
-                }
-            }
-            for id in ids {
-                self.waiters.remove(&id);
-            }
-        }
-
         if f.meta.is_end() {
-            Self::end_file(f, key, &mut self.readers);
+            Self::end_file(f, key, &mut self.readers, &mut self.waiters);
             f.rc = 1;
             on_finish(key, f);
             // we wait for on_finish to trigger EndWriter
             // self.writers.remove(key);
+        }
+        {
+            let mut ids = Vec::new();
+            for (id, v) in self.waiters.iter() {
+                if v.key == key && v.start >= offset && v.start < offset + len {
+                    ids.push((*id, v.start));
+                    // log::debug!(target: "reverse", "cnn {} notify request {}", id, v.start);
+                    // on_notify(&v.key, *id, v.start);
+                }
+            }
+            for (id, start) in ids {
+                if let Some(r) = self.readers.get(&id) {
+                    let offset = r.get_offset();
+                    if offset != start {
+                        log::error!(
+                            "cnn {} reader({}) and waiter({}) no sync",
+                            id,
+                            offset,
+                            start
+                        );
+                    }
+                }
+                if self.get_piece_from_wirter(key, id, start).is_none() {
+                    log::error!("cnn {} not found piece", id);
+                }
+                self.waiters.remove(&id);
+            }
         }
 
         Ok(())
@@ -228,9 +261,18 @@ impl IoContext {
         if let Some(w) = self.writers.get_mut(key) {
             w.rc -= 1;
             if w.rc == 0 {
-                // self.writers.remove(key);
+                self.writers.remove(key);
             }
         }
+    }
+
+    pub fn can_read(&mut self, id: i64) -> bool {
+        if let Some(r) = self.readers.get(&id) {
+            if let ReadState::Reading(_) = r.state {
+                return true;
+            }
+        }
+        return false;
     }
 
     pub fn get_piece_from_file(&mut self, key: &str, id: i64, cursor: u64) -> Option<piece::Piece> {
@@ -262,6 +304,7 @@ impl IoContext {
         id: i64,
         cursor: u64,
     ) -> Option<piece::Piece> {
+        log::debug!(target: "reverse", "cnn {} get_piece_from_wirter, {}", id, cursor);
         match self.writers.get_mut(key) {
             Some(f) => match f.meta.piece_of(cursor) {
                 Some(p) => {
@@ -323,6 +366,10 @@ impl IoContext {
                 start,
             },
         );
+    }
+
+    pub fn remove_waiter(&mut self, id: i64) {
+        self.waiters.remove(&id);
     }
 
     pub fn set_reader_state(&mut self, id: i64, state: ReadState) -> bool {
@@ -395,6 +442,8 @@ impl IoContext {
                     }
                     let len = std::cmp::min((v.piece.length - readed) as usize, 64 * 1024);
 
+                    log::debug!(target: "reverse", "cnn {} do read {} len {}", id, v.piece.offset + readed, len);
+
                     match v.file.read(&mut buf[0..len]) {
                         Ok(size) => {
                             let mut bytes_buf = bytes::BytesMut::new();
@@ -405,9 +454,11 @@ impl IoContext {
                             } else {
                                 readed += size as u64;
                                 if readed == v.piece.length {
+                                    v.piece.offset += readed;
                                     v.state = ReadState::End;
                                 } else {
                                     if readed >= 64 * 1024 {
+                                        v.piece.offset += readed;
                                         v.piece.length -= readed;
                                         v.state = ReadState::Paused;
                                     } else {
