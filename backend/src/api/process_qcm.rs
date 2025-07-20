@@ -1,3 +1,4 @@
+use migration::query;
 use prost::{self, Message};
 use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
@@ -14,6 +15,7 @@ use sea_orm::{
 
 use crate::api::{self, pagination::PageParams};
 use crate::convert::QcmInto;
+use crate::db::filter::SelectQcmMsgFilters;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
@@ -175,7 +177,8 @@ pub async fn process_qcm(
                 let provider = global::get_tmp_provider(&req.tmp_provider)
                     .ok_or(ProcessError::NoSuchProvider(req.tmp_provider.clone()))?;
                 provider.set_name(&req.name);
-                let id = api::db::add_provider(&ctx.provider_context.db, provider.clone()).await?;
+                let id =
+                    crate::db::add_provider(&ctx.provider_context.db, provider.clone()).await?;
                 provider.set_id(Some(id));
 
                 global::add_provider(provider.clone());
@@ -195,7 +198,7 @@ pub async fn process_qcm(
                 tmp_provider.set_id(Some(req.provider_id));
 
                 // replace
-                api::db::add_provider(&ctx.provider_context.db, tmp_provider.clone()).await?;
+                crate::db::add_provider(&ctx.provider_context.db, tmp_provider.clone()).await?;
                 global::add_provider(tmp_provider.clone());
                 return Ok(Rsp::default().qcm_into());
             }
@@ -219,7 +222,7 @@ pub async fn process_qcm(
                         let info = auth_info.clone().qcm_into();
                         match new_provider.auth(&ctx.provider_context, &info).await? {
                             AuthResult::Ok => {
-                                super::db::add_provider(
+                                crate::db::add_provider(
                                     &ctx.provider_context.db,
                                     new_provider.clone(),
                                 )
@@ -234,7 +237,7 @@ pub async fn process_qcm(
                     // do update
                     None => {
                         provider.set_name(&req.name);
-                        super::db::add_provider(&ctx.provider_context.db, provider).await?;
+                        crate::db::add_provider(&ctx.provider_context.db, provider).await?;
                     }
                 }
                 let _ = ctx
@@ -325,18 +328,20 @@ pub async fn process_qcm(
                 let sort: msg::model::AlbumSort =
                     req.sort.try_into().unwrap_or(msg::model::AlbumSort::Title);
                 let sort_col: sqlm::album::Column = sort.qcm_into();
-                let paginator = sqlm::album::Entity::find()
+                let query = sqlm::album::Entity::find()
                     .left_join(sqlm::dynamic::Entity)
                     .filter(sqlm::album::Column::LibraryId.is_in(req.library_id.clone()))
                     .filter(sqlm::dynamic::Column::IsExternal.eq(false))
+                    .qcm_filters(&req.filters)
                     .order_by(
                         sort_col,
                         match req.sort_asc {
                             true => sea_orm::Order::Asc,
                             false => sea_orm::Order::Desc,
                         },
-                    )
-                    .paginate(&ctx.provider_context.db, page_params.page_size);
+                    );
+
+                let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
                 let albums = paginator.fetch_page(page_params.page).await?;

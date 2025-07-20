@@ -1,3 +1,6 @@
+pub mod filter;
+
+use filter::IntFilterTrait;
 use qcm_core::model as sqlm;
 use qcm_core::provider::Provider;
 use sea_orm::*;
@@ -5,6 +8,7 @@ use sea_orm::{sea_query, DatabaseConnection, EntityTrait};
 use std::sync::Arc;
 
 use crate::error::ProcessError;
+use crate::msg::{self, filter::AlbumFilter};
 
 pub async fn add_provider(
     db: &DatabaseConnection,

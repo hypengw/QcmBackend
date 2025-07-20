@@ -15,43 +15,43 @@ enum FilterType {
 enum StringCondition {
   STRING_CONDITION_UNSPECIFIED = 0;
   STRING_CONDITION_IS = 1;
-  STRING_CONDITION_CONTAINS = 2;
+  STRING_CONDITION_IS_NOT = 2;
+  STRING_CONDITION_CONTAINS = 3;
+  STRING_CONDITION_CONTAINS_NOT = 4;
 }
 
 enum IntCondition {
   INT_CONDITION_UNSPECIFIED = 0;
   INT_CONDITION_EQUAL = 1;
-  INT_CONDITION_LESS = 2;
-  INT_CONDITION_LESS_EQUAL = 3;
+  INT_CONDITION_EQUAL_NOT = 2;
+  INT_CONDITION_LESS = 3;
+  INT_CONDITION_LESS_EQUAL = 4;
+  INT_CONDITION_GREATER = 5;
+  INT_CONDITION_GREATER_EQUAL = 6;
 }
 
 message TitleFilter {
   string value = 1;
   StringCondition condition = 2;
-  bool not = 3;
 }
 
 message NameFilter {
   string value = 1;
   StringCondition condition = 2;
-  bool not = 3;
 }
 
 message AlbumTitleFilter {
   string value = 1;
   StringCondition condition = 2;
-  bool not = 3;
 }
 message ArtistNameFilter {
   string value = 1;
   StringCondition condition = 2;
-  bool not = 3;
 }
 
 message TrackCountFilter {
   int32 value = 1;
   IntCondition condition = 2;
-  bool not = 3;
 }
 
 message AlbumFilter {

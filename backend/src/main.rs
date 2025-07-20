@@ -7,6 +7,7 @@ mod global;
 mod http;
 mod msg;
 mod reverse;
+mod db;
 mod task;
 
 use anyhow;
