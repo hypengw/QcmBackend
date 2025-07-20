@@ -54,6 +54,27 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                             Expr::exists(subquery)
                         })
                 }
+                Some(Payload::AlbumArtistIdFilter(id)) => id
+                    .get_expr(Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id)).into())
+                    .map(|expr| {
+                        let subquery: SelectStatement = Query::select()
+                            .expr(Expr::val(1)) // SELECT 1
+                            .from(sqlm::artist::Entity)
+                            .inner_join(
+                                sqlm::rel_album_artist::Entity,
+                                sqlm::rel_album_artist::Relation::Artist.def(),
+                            )
+                            .and_where(
+                                Expr::col((
+                                    sqlm::rel_album_artist::Entity,
+                                    sqlm::rel_album_artist::Column::AlbumId,
+                                ))
+                                .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
+                            )
+                            .and_where(expr)
+                            .to_owned();
+                        Expr::exists(subquery)
+                    }),
                 Some(Payload::TitleFilter(title)) => {
                     title.get_expr_from_col(sqlm::album::Column::Name)
                 }
@@ -71,7 +92,7 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
         select
     }
 }
-pub trait StringFilterTrait {
+trait StringFilterTrait {
     fn get_condition(&self) -> StringCondition;
     fn get_value(&self) -> &str;
 
@@ -86,7 +107,7 @@ pub trait StringFilterTrait {
     }
 }
 
-pub trait IntFilterTrait {
+trait IntFilterTrait {
     fn get_condition(&self) -> IntCondition;
     fn get_value(&self) -> i64;
 
@@ -98,6 +119,20 @@ pub trait IntFilterTrait {
     }
     fn get_expr(&self, col: Expr) -> Option<SimpleExpr> {
         return int_condition_to_expr(col, self.get_condition(), self.get_value());
+    }
+}
+
+trait IdFilterTrait {
+    fn get_value(&self) -> i64;
+
+    fn get_expr_from_col<C>(&self, col: C) -> Option<SimpleExpr>
+    where
+        C: sea_orm::ColumnTrait,
+    {
+        self.get_expr(Expr::col(col))
+    }
+    fn get_expr(&self, col: Expr) -> Option<SimpleExpr> {
+        Some(col.eq(self.get_value()))
     }
 }
 
@@ -126,11 +161,21 @@ macro_rules! impl_string_filter {
         }
     };
 }
+macro_rules! impl_id_filter {
+    ($ty:ty) => {
+        impl IdFilterTrait for $ty {
+            fn get_value(&self) -> i64 {
+                self.value
+            }
+        }
+    };
+}
 
 impl_int_filter!(msg::filter::TrackCountFilter);
 impl_string_filter!(msg::filter::NameFilter);
 impl_string_filter!(msg::filter::TitleFilter);
 impl_string_filter!(msg::filter::ArtistNameFilter);
+impl_id_filter!(msg::filter::AlbumArtistIdFilter);
 
 pub fn int_condition_to_expr(col: Expr, cond: IntCondition, val: i64) -> Option<SimpleExpr> {
     match cond {
