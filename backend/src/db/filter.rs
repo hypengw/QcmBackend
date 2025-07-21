@@ -50,6 +50,7 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                                         .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
                                 )
                                 .and_where(artist_name_expr)
+                                .limit(1)
                                 .to_owned();
                             Expr::exists(subquery)
                         })
@@ -72,6 +73,7 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                                 .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
                             )
                             .and_where(expr)
+                            .limit(1)
                             .to_owned();
                         Expr::exists(subquery)
                     }),
@@ -96,6 +98,7 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                                     .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
                             )
                             .and_where(expr)
+                            .limit(1)
                             .to_owned();
                         Expr::exists(subquery)
                     }),
