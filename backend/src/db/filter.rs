@@ -75,6 +75,30 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                             .to_owned();
                         Expr::exists(subquery)
                     }),
+                Some(Payload::ArtistIdFilter(id)) => id
+                    .get_expr(
+                        Expr::col((
+                            sqlm::rel_song_artist::Entity,
+                            sqlm::rel_song_artist::Column::ArtistId,
+                        ))
+                        .into(),
+                    )
+                    .map(|expr| {
+                        let subquery: SelectStatement = Query::select()
+                            .expr(Expr::val(1)) // SELECT 1
+                            .from(sqlm::song::Entity)
+                            .inner_join(
+                                sqlm::rel_song_artist::Entity,
+                                sqlm::rel_song_artist::Relation::Song.def(),
+                            )
+                            .and_where(
+                                Expr::col((sqlm::song::Entity, sqlm::song::Column::AlbumId))
+                                    .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
+                            )
+                            .and_where(expr)
+                            .to_owned();
+                        Expr::exists(subquery)
+                    }),
                 Some(Payload::TitleFilter(title)) => {
                     title.get_expr_from_col(sqlm::album::Column::Name)
                 }
@@ -175,6 +199,7 @@ impl_int_filter!(msg::filter::TrackCountFilter);
 impl_string_filter!(msg::filter::NameFilter);
 impl_string_filter!(msg::filter::TitleFilter);
 impl_string_filter!(msg::filter::ArtistNameFilter);
+impl_id_filter!(msg::filter::ArtistIdFilter);
 impl_id_filter!(msg::filter::AlbumArtistIdFilter);
 
 pub fn int_condition_to_expr(col: Expr, cond: IntCondition, val: i64) -> Option<SimpleExpr> {
