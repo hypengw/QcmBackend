@@ -9,6 +9,7 @@ mod m20250418_145233_create_table;
 mod m20250521_145233_create_fts_table;
 mod m20250523_145233_create_dynamic_table;
 mod m20250718_000001_create_rel_index;
+mod m20250814_000001_album_add_col;
 
 pub struct Migrator;
 pub use cache::CacheDBMigrator;
@@ -53,6 +54,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250521_145233_create_fts_table::Migration),
             Box::new(m20250523_145233_create_dynamic_table::Migration),
             Box::new(m20250718_000001_create_rel_index::Migration),
+            Box::new(m20250814_000001_album_add_col::Migration),
         ]
     }
 

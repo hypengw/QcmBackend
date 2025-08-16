@@ -1,10 +1,15 @@
 use crate::msg::{
     self,
-    filter::{AlbumFilter, IntCondition, StringCondition},
+    filter::{AlbumFilter, ArtistFilter, IntCondition, StringCondition},
 };
-use qcm_core::model as sqlm;
-use sea_orm::sea_query::{Expr, SimpleExpr};
+use chrono::TimeZone;
+use qcm_core::{model as sqlm, plugin::Plugin};
+use sea_orm::{
+    sea_query::{Expr, SimpleExpr},
+    Condition,
+};
 use sea_orm::{QueryFilter, RelationTrait};
+use uuid::fmt::Simple;
 
 pub trait SelectQcmMsgFilters: Sized {
     type Filter;
@@ -108,7 +113,11 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                 Some(Payload::TrackFilter(track)) => {
                     track.get_expr_from_col(sqlm::album::Column::TrackCount)
                 }
-
+                Some(Payload::DurationFilter(duration)) => None,
+                Some(Payload::YearFilter(year)) => {
+                    year.get_expr_from_col(sqlm::album::Column::PublishTime)
+                }
+                Some(Payload::AddedDateFilter(added)) => None,
                 None => None,
             };
 
@@ -119,6 +128,33 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
         select
     }
 }
+
+impl SelectQcmMsgFilters for sea_orm::Select<sqlm::artist::Entity> {
+    type Filter = ArtistFilter;
+
+    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    where
+        I: IntoIterator<Item = &'a Self::Filter>,
+        Self::Filter: 'a,
+    {
+        use msg::filter::album_filter::Payload;
+        use sea_orm::sea_query::{Expr, Query, SelectStatement};
+        let mut select = self;
+
+        for f in filters {
+            let expr = match &f.payload {
+                Some(e) => None::<SimpleExpr>,
+                None => None,
+            };
+
+            if let Some(expr) = expr {
+                select = select.filter(expr);
+            }
+        }
+        select
+    }
+}
+
 trait StringFilterTrait {
     fn get_condition(&self) -> StringCondition;
     fn get_value(&self) -> &str;
@@ -204,6 +240,54 @@ impl_string_filter!(msg::filter::TitleFilter);
 impl_string_filter!(msg::filter::ArtistNameFilter);
 impl_id_filter!(msg::filter::ArtistIdFilter);
 impl_id_filter!(msg::filter::AlbumArtistIdFilter);
+
+impl IntFilterTrait for msg::filter::YearFilter {
+    fn get_condition(&self) -> IntCondition {
+        self.condition()
+    }
+    fn get_value(&self) -> i64 {
+        self.value as i64
+    }
+    fn get_expr(&self, col: Expr) -> Option<SimpleExpr> {
+        use chrono::Utc;
+        let dt = Utc
+            .with_ymd_and_hms(self.value, 1, 1, 0, 0, 0)
+            .unwrap()
+            .to_string();
+        match self.condition() {
+            IntCondition::Equal => {
+                // we need to compare instead of equal
+                let dt_next = Utc
+                    .with_ymd_and_hms(self.value + 1, 1, 1, 0, 0, 0)
+                    .unwrap()
+                    .to_string();
+                Some(
+                    Condition::all()
+                        .add(col.clone().gte(dt.clone()))
+                        .add(col.lt(dt_next.clone()))
+                        .into(),
+                )
+            }
+            IntCondition::EqualNot => {
+                let dt_next = Utc
+                    .with_ymd_and_hms(self.value + 1, 1, 1, 0, 0, 0)
+                    .unwrap()
+                    .to_string();
+                Some(
+                    Condition::all()
+                        .add(col.clone().lt(dt.clone()))
+                        .add(col.gt(dt_next.clone()))
+                        .into(),
+                )
+            }
+            IntCondition::Greater => Some(col.gt(dt)),
+            IntCondition::GreaterEqual => Some(col.gte(dt)),
+            IntCondition::Less => Some(col.lt(dt)),
+            IntCondition::LessEqual => Some(col.lte(dt)),
+            IntCondition::Unspecified => None,
+        }
+    }
+}
 
 pub fn int_condition_to_expr(col: Expr, cond: IntCondition, val: i64) -> Option<SimpleExpr> {
     match cond {

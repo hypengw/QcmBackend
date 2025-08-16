@@ -403,6 +403,7 @@ pub async fn process_qcm(
                 let paginator = sqlm::artist::Entity::find()
                     .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_song_artist::Entity)
+                    .qcm_filters(&req.filters)
                     .order_by(
                         sort_col,
                         match req.sort_asc {

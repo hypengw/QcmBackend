@@ -1,6 +1,7 @@
 pub mod sync;
 pub mod values;
 pub mod basic;
+pub mod fts;
 
 pub use basic::QueryBuilder;
 pub use const_chunks::IteratorConstChunks;

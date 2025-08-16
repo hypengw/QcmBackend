@@ -96,6 +96,7 @@ pub enum ItemType {
     Clone,
     PartialEq,
     Eq,
+    Default,
     Serialize,
     Deserialize,
     EnumIter,
@@ -106,9 +107,11 @@ pub enum ItemType {
 #[sea_orm(rs_type = "i32", db_type = "Integer")]
 #[repr(i32)]
 pub enum AlbumType {
+    #[default]
     Album = 0,
-    Compilation = 1,
-    EP = 2,
-    Single = 3,
-    Soundtrack = 4,
+    EP = 1,
+    Single = 2,
+    Soundtrack = 3,
+    Compilation = 4,
+    Live = 5
 }

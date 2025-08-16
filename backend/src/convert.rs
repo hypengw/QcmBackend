@@ -191,6 +191,12 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
                 true => Some(v.sort_name),
                 false => None,
             },
+            duration: v.duration,
+            language: v.language,
+            r#type: v
+                .r#type
+                .try_into()
+                .unwrap_or(sqlm::type_enum::AlbumType::Album),
             added_time: v.added_time.unwrap_or_default().qcm_into(),
             publish_time: v.publish_time.unwrap_or_default().qcm_into(),
             track_count: v.track_count,
@@ -209,6 +215,9 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
             library_id: v.library_id,
             name: v.name,
             sort_name: v.sort_name.unwrap_or_default(),
+            duration: v.duration,
+            language: v.language,
+            r#type: v.r#type as i32,
             added_time: Some(v.added_time.qcm_into()),
             publish_time: Some(v.publish_time.qcm_into()),
             track_count: v.track_count,

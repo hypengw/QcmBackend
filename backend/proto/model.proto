@@ -84,18 +84,30 @@ message Artist {
   google.protobuf.Timestamp edit_time = 10;
 }
 
+enum AlbumType {
+  ALBUM_TYPE_ALBUM = 0;
+  ALBUM_TYPE_EP = 1;
+  ALBUM_TYPE_SINGLE = 2;
+  ALBUM_TYPE_SOUNDTRACK = 3;
+  ALBUM_TYPE_COMPILATION = 4;
+  ALBUM_TYPE_LIVE = 5;
+}
+
 message Album {
   int64 id = 1;
   string native_id = 2;
   int64 library_id = 3;
   string name = 4;
   string sort_name = 5;
-  google.protobuf.Timestamp publish_time = 6;
-  int32 track_count = 7;
-  string description = 8;
-  string company = 9;
-  google.protobuf.Timestamp added_time = 10;
-  google.protobuf.Timestamp edit_time = 11;
+  AlbumType type = 6;
+  int64 duration = 7; 
+  int32 track_count = 8;
+  string description = 9;
+  string company = 10;
+  string language = 11;
+  google.protobuf.Timestamp publish_time = 12;
+  google.protobuf.Timestamp added_time = 13;
+  google.protobuf.Timestamp edit_time = 14;
 }
 
 enum ItemType {

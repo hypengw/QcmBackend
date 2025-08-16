@@ -65,19 +65,6 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        image::Entity,
-                        image::Column::ItemId,
-                        image::Column::ItemType,
-                        image::Column::ImageType
-                    ))
-                    .table(image::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
             .drop_table(Table::drop().table(image::Entity).to_owned())
             .await?;
         Ok(())

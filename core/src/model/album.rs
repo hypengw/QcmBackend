@@ -1,5 +1,5 @@
-use super::type_enum::ItemType;
-use super::util::epoch;
+use super::type_enum::{AlbumType, ItemType};
+use super::util::{epoch, default_language};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -18,9 +18,15 @@ pub struct Model {
     #[serde(default = "epoch")]
     pub added_time: DateTimeUtc,
     pub track_count: i32,
-    #[serde(default = "String::new")]
+    #[serde(default)]
+    pub r#type: AlbumType,
+    #[serde(default)]
+    pub duration: i64,
+    #[serde(default = "default_language")]
+    pub language: String,
+    #[serde(default)]
     pub description: String,
-    #[serde(default = "String::new")]
+    #[serde(default)]
     pub company: String,
     #[serde(default = "chrono::Utc::now")]
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
