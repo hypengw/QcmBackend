@@ -196,7 +196,10 @@ pub async fn process_qcm(
                     .ok_or(ProcessError::NoSuchProvider(req.provider_id.to_string()))?;
                 let tmp_provider = global::get_tmp_provider(&req.tmp_provider)
                     .ok_or(ProcessError::NoSuchProvider(req.tmp_provider.clone()))?;
+
                 tmp_provider.set_id(Some(req.provider_id));
+                // maybe: try use tmp self?
+                tmp_provider.set_name(&_provider.name());
 
                 // replace
                 crate::db::add_provider(&ctx.provider_context.db, tmp_provider.clone()).await?;
