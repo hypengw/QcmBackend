@@ -1,5 +1,6 @@
 use migration::query;
 use prost::{self, Message};
+use qcm_core::db::values::Timestamp;
 use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use sea_orm::ActiveValue::NotSet;
@@ -50,7 +51,7 @@ fn extra_insert_album(extra: &mut prost_types::Struct, album: &sqlm::album::Mode
 
 fn extra_insert_dynamic(extra: &mut prost_types::Struct, dy: &sqlm::dynamic::Model) {
     let j = serde_json::json!({
-        "is_favorite": dy.is_favorite
+        "is_favorite": dy.favorite_at.is_some()
     });
     extra.fields.insert(
         "dynamic".to_string(),
@@ -723,7 +724,10 @@ pub async fn process_qcm(
                             id: NotSet,
                             item_id: Set(req.id),
                             item_type: Set(item_type.into()),
-                            is_favorite: Set(req.value),
+                            favorite_at: Set(match req.value {
+                                true => Some(Timestamp::now()),
+                                false => None,
+                            }),
                             library_id: Set(library_id),
                             ..Default::default()
                         };
@@ -734,7 +738,7 @@ pub async fn process_qcm(
                                     sqlm::dynamic::Column::ItemId,
                                     sqlm::dynamic::Column::ItemType,
                                 ])
-                                .update_column(sqlm::dynamic::Column::IsFavorite)
+                                .update_column(sqlm::dynamic::Column::FavoriteAt)
                                 .to_owned(),
                             )
                             .exec(db)

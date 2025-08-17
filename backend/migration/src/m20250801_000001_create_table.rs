@@ -1,9 +1,20 @@
-use qcm_core::{global::provider, model::*};
+use qcm_core::{db::values::Timestamp, global::provider, model::*};
 use sea_orm::Schema;
 use sea_orm_migration::prelude::*;
 use sea_query;
 
 use crate::{unique_index, unique_index_name};
+
+fn timestamp_col<C>(c: C) -> ColumnDef
+where
+    C: IntoIden,
+{
+    ColumnDef::new(c)
+        .big_integer()
+        .default(Timestamp::now_expr())
+        .not_null()
+        .clone()
+}
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -32,32 +43,29 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(album::Column::Name).string().not_null())
                     .col(ColumnDef::new(album::Column::SortName).string())
                     .col(
-                        ColumnDef::new(album::Column::AddedTime)
-                            .timestamp()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(album::Column::PublishTime)
-                            .timestamp()
-                            .not_null(),
-                    )
-                    .col(
                         ColumnDef::new(album::Column::TrackCount)
                             .integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(album::Column::Description)
-                            .string()
+                        ColumnDef::new(album::Column::DiscCount)
+                            .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(album::Column::Company).string().not_null())
                     .col(
-                        ColumnDef::new(album::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
+                        ColumnDef::new(album::Column::Type)
+                            .integer()
+                            .default(type_enum::AlbumType::Album),
                     )
+                    .col(ColumnDef::new(album::Column::Duration).integer().not_null())
+                    .col(ColumnDef::new(album::Column::Description).string())
+                    .col(ColumnDef::new(album::Column::Company).string())
+                    .col(ColumnDef::new(album::Column::Language).string())
+                    .col(ColumnDef::new(album::Column::PublishTime).big_integer())
+                    .col(ColumnDef::new(album::Column::AddedAt).big_integer())
+                    .col(timestamp_col(album::Column::CreateAt))
+                    .col(timestamp_col(album::Column::UpdateAt))
+                    .col(timestamp_col(album::Column::LastSyncAt))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_album_library")
@@ -111,12 +119,10 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(artist::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
-                    )
+                    .col(ColumnDef::new(artist::Column::AddedAt).big_integer())
+                    .col(timestamp_col(artist::Column::CreateAt))
+                    .col(timestamp_col(artist::Column::UpdateAt))
+                    .col(timestamp_col(artist::Column::LastSyncAt))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_artist_library")
@@ -147,42 +153,56 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
+                    .col(ColumnDef::new(mix::Column::Name).string().not_null())
+                    .col(ColumnDef::new(mix::Column::SortName).string())
+                    .col(ColumnDef::new(mix::Column::TrackCount).integer().not_null())
+                    .col(ColumnDef::new(mix::Column::Description).string().not_null())
+                    .col(ColumnDef::new(mix::Column::AddedAt).big_integer())
+                    .col(timestamp_col(mix::Column::CreateAt))
+                    .col(timestamp_col(mix::Column::UpdateAt))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(remote_mix::Entity)
+                    .if_not_exists()
                     .col(
-                        ColumnDef::new(mix::Column::ProviderId)
+                        ColumnDef::new(remote_mix::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(remote_mix::Column::MixId)
                             .big_integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(mix::Column::Name).string().not_null())
-                    .col(ColumnDef::new(mix::Column::SortName).string())
-                    .col(ColumnDef::new(mix::Column::NativeId).string().not_null())
-                    .col(ColumnDef::new(mix::Column::TrackCount).integer().not_null())
                     .col(
-                        ColumnDef::new(mix::Column::SpecialType)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(mix::Column::Description).string().not_null())
-                    .col(ColumnDef::new(mix::Column::Tags).json().not_null())
-                    .col(
-                        ColumnDef::new(mix::Column::CreateTime)
-                            .timestamp()
+                        ColumnDef::new(remote_mix::Column::ProviderId)
+                            .big_integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(mix::Column::UpdateTime)
-                            .timestamp()
+                        ColumnDef::new(remote_mix::Column::NativeId)
+                            .string()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(mix::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
+                    .col(timestamp_col(remote_mix::Column::LastSyncAt))
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_remote_mix_mix")
+                            .from(remote_mix::Entity, remote_mix::Column::MixId)
+                            .to(mix::Entity, mix::Column::Id)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk_mix_provider")
-                            .from(mix::Entity, mix::Column::ProviderId)
+                            .name("fk_remote_mix_provider")
+                            .from(remote_mix::Entity, remote_mix::Column::ProviderId)
                             .to(provider::Entity, provider::Column::ProviderId)
                             .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
@@ -192,9 +212,9 @@ impl MigrationTrait for Migration {
 
         manager
             .create_index(unique_index!(
-                mix::Entity,
-                mix::Column::NativeId,
-                mix::Column::ProviderId
+                remote_mix::Entity,
+                remote_mix::Column::NativeId,
+                remote_mix::Column::ProviderId
             ))
             .await?;
 
@@ -237,17 +257,11 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(song::Column::CanPlay).boolean().not_null())
                     .col(ColumnDef::new(song::Column::Tags).json().not_null())
                     .col(ColumnDef::new(song::Column::Popularity).double().not_null())
-                    .col(
-                        ColumnDef::new(song::Column::PublishTime)
-                            .timestamp()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(song::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
-                    )
+                    .col(ColumnDef::new(song::Column::PublishTime).big_integer())
+                    .col(ColumnDef::new(album::Column::AddedAt).big_integer())
+                    .col(timestamp_col(album::Column::CreateAt))
+                    .col(timestamp_col(album::Column::UpdateAt))
+                    .col(timestamp_col(album::Column::LastSyncAt))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_song_library")
@@ -295,12 +309,7 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(rel_album_artist::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
-                    )
+                    .col(timestamp_col(rel_album_artist::Column::UpdateAt))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_rel_album_artist_album")
@@ -349,12 +358,7 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(rel_song_artist::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
-                    )
+                    .col(timestamp_col(rel_song_artist::Column::UpdateAt))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_rel_song_artist_song")
@@ -409,12 +413,7 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(rel_mix_song::Column::EditTime)
-                            .timestamp()
-                            .not_null()
-                            .default(Expr::current_timestamp()),
-                    )
+                    .col(timestamp_col(rel_mix_song::Column::UpdateAt))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_rel_mix_song_song")
@@ -439,7 +438,178 @@ impl MigrationTrait for Migration {
                 rel_mix_song::Column::MixId,
                 rel_mix_song::Column::SongId
             ))
-            .await
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(dynamic::Entity)
+                    .col(
+                        ColumnDef::new(dynamic::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(dynamic::Column::LibraryId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(dynamic::Column::ItemId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(dynamic::Column::ItemType)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(dynamic::Column::PlayCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(dynamic::Column::RemotePlayCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(dynamic::Column::IsExternal)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(ColumnDef::new(dynamic::Column::LastPlayedAt).big_integer())
+                    .col(ColumnDef::new(dynamic::Column::RemoteLastPlayedAt).big_integer())
+                    .col(ColumnDef::new(dynamic::Column::FavoriteAt).big_integer())
+                    .col(
+                        ColumnDef::new(dynamic::Column::LastPosition)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(timestamp_col(dynamic::Column::UpdateAt))
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-dynamic-library_id")
+                            .from(dynamic::Entity, dynamic::Column::LibraryId)
+                            .to(library::Entity, library::Column::LibraryId)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx-dynamic-item")
+                    .table(dynamic::Entity)
+                    .col(dynamic::Column::ItemId)
+                    .col(dynamic::Column::ItemType)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(image::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(image::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(image::Column::ItemId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(image::Column::ItemType).string().not_null())
+                    .col(ColumnDef::new(image::Column::ImageType).string().not_null())
+                    .col(
+                        ColumnDef::new(image::Column::LibraryId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(image::Column::NativeId).string())
+                    .col(ColumnDef::new(image::Column::Db).string())
+                    .col(ColumnDef::new(image::Column::Fresh).string().not_null())
+                    .col(
+                        ColumnDef::new(image::Column::Timestamp)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .index(
+                        Index::create()
+                            .unique()
+                            .name("idx-image-unique")
+                            .col(image::Column::ItemId)
+                            .col(image::Column::ItemType)
+                            .col(image::Column::ImageType),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(unique_index!(
+                image::Entity,
+                image::Column::ItemId,
+                image::Column::ItemType,
+                image::Column::ImageType
+            ))
+            .await?;
+
+        manager
+            .create_index(
+                sea_query::Index::create()
+                    .name("rel_song_artist::ArtistId")
+                    .table(rel_song_artist::Entity)
+                    .col(rel_song_artist::Column::ArtistId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                sea_query::Index::create()
+                    .name("rel_song_artist::SongId")
+                    .table(rel_song_artist::Entity)
+                    .col(rel_song_artist::Column::SongId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                sea_query::Index::create()
+                    .name("rel_album_artist::AlbumId")
+                    .table(rel_album_artist::Entity)
+                    .col(rel_album_artist::Column::AlbumId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                sea_query::Index::create()
+                    .name("rel_album_artist::ArtistId")
+                    .table(rel_album_artist::Entity)
+                    .col(rel_album_artist::Column::ArtistId)
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
     }
 
     async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {

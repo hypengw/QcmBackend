@@ -1,6 +1,8 @@
+use crate::db::values::Timestamp;
+use serde::{Deserialize, Serialize};
+
 use super::type_enum::ItemType;
 use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "artist")]
@@ -18,9 +20,20 @@ pub struct Model {
     pub album_count: i32,
     #[serde(default)]
     pub music_count: i32,
-    #[serde(default = "chrono::Utc::now")]
-    #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub edit_time: DateTimeUtc,
+    #[serde(default)]
+    pub added_at: Option<Timestamp>,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub create_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub update_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub last_sync_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

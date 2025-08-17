@@ -113,5 +113,28 @@ pub enum AlbumType {
     Single = 2,
     Soundtrack = 3,
     Compilation = 4,
-    Live = 5
+    Live = 5,
+}
+
+#[derive(
+    Copy,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Default,
+    Serialize,
+    Deserialize,
+    EnumIter,
+    EnumString,
+    DeriveActiveEnum,
+    TryFromPrimitive,
+)]
+#[sea_orm(rs_type = "i32", db_type = "Integer")]
+#[repr(i32)]
+pub enum MixType {
+    #[default]
+    Normal = 0,
+    Remote = 1,
+    Generation = 2,
 }

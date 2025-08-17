@@ -3,37 +3,44 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, DeriveEntityModel)]
-#[sea_orm(table_name = "mix")]
+#[sea_orm(table_name = "remote_mix")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub name: String,
-    pub track_count: i32,
-    #[serde(default)]
-    pub sort_name: Option<String>,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub added_at: Option<Timestamp>,
+    pub mix_id: i64,
+    pub provider_id: i64,
+    pub native_id: String,
 
     #[serde(default = "Timestamp::now")]
     #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub create_at: Timestamp,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub update_at: Timestamp,
+    pub last_sync_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::rel_mix_song::Entity")]
-    RelSong,
+    #[sea_orm(
+        belongs_to = "super::provider::Entity",
+        from = "Column::ProviderId",
+        to = "super::provider::Column::ProviderId"
+    )]
+    Provider,
+    #[sea_orm(
+        belongs_to = "super::mix::Entity",
+        from = "Column::MixId",
+        to = "super::mix::Column::Id"
+    )]
+    Mix,
 }
 
-impl Related<super::rel_mix_song::Entity> for Entity {
+impl Related<super::provider::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::RelSong.def()
+        Relation::Provider.def()
+    }
+}
+
+impl Related<super::mix::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Mix.def()
     }
 }
 

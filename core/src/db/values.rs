@@ -1,8 +1,34 @@
+use chrono::{DateTime, TimeZone, Utc};
 use sea_orm::{
-    sea_query::ArrayType,
-    sea_query::{Value, ValueType, ValueTypeErr},
-    ColumnType, QueryResult,
+    prelude::Expr,
+    sea_query::{ArrayType, SimpleExpr, Value, ValueType, ValueTypeErr},
+    ColumnType, DeriveValueType, QueryResult,
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, DeriveValueType)]
+pub struct Timestamp(i64);
+
+impl Timestamp {
+    pub fn new() -> Self {
+        Timestamp(0)
+    }
+    pub fn from_millis(v: i64) -> Timestamp {
+        Timestamp(v)
+    }
+
+    pub fn as_millis(&self) -> i64 {
+        self.0
+    }
+
+    pub fn now() -> Timestamp {
+        Timestamp(Utc::now().timestamp_millis())
+    }
+
+    pub fn now_expr() -> SimpleExpr {
+        Expr::cust("(strftime('%s','now')*1000)")
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct StringVec(pub Vec<String>);
@@ -58,5 +84,46 @@ impl ValueType for StringVec {
 
     fn column_type() -> ColumnType {
         ColumnType::Json
+    }
+}
+
+impl TryFrom<String> for Timestamp {
+    type Error = chrono::format::ParseError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse().map(|d: DateTime<Utc>| d.into())
+    }
+}
+
+impl From<DateTime<Utc>> for Timestamp {
+    fn from(dt: DateTime<Utc>) -> Self {
+        Timestamp(dt.timestamp_millis())
+    }
+}
+
+impl From<Timestamp> for DateTime<Utc> {
+    fn from(ts: Timestamp) -> Self {
+        match Utc.timestamp_millis_opt(ts.0) {
+            chrono::MappedLocalTime::Single(dt) => dt,
+            _ => DateTime::<Utc>::from_timestamp_nanos(0),
+        }
+    }
+}
+
+impl Serialize for Timestamp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_i64(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Timestamp {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let v = i64::deserialize(deserializer)?;
+        Ok(Timestamp(v))
     }
 }

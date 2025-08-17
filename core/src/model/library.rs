@@ -20,14 +20,9 @@ pub enum Relation {
     Album,
     #[sea_orm(has_many = "super::artist::Entity")]
     Artist,
-    #[sea_orm(has_many = "super::mix::Entity")]
-    Mix,
-    #[sea_orm(has_many = "super::radio::Entity")]
-    Radio,
+
     #[sea_orm(has_many = "super::song::Entity")]
     Song,
-    #[sea_orm(has_many = "super::program::Entity")]
-    Program,
     #[sea_orm(has_many = "super::image::Entity")]
     Image,
     #[sea_orm(

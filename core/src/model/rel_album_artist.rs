@@ -1,3 +1,4 @@
+use crate::db::values::Timestamp;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -8,9 +9,10 @@ pub struct Model {
     pub id: i64,
     pub album_id: i64,
     pub artist_id: i64,
-    #[serde(default = "chrono::Utc::now")]
-    #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub edit_time: DateTimeUtc,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub update_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

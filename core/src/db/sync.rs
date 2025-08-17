@@ -1,5 +1,6 @@
 use super::basic::QueryBuilder;
 use super::DbChunkOper;
+use crate::db::values::Timestamp;
 use crate::model as sqlm;
 use sea_orm::sea_query::{DeleteStatement, SqliteQueryBuilder};
 use sea_orm::{prelude::DateTimeUtc, DatabaseTransaction, EntityTrait};
@@ -13,6 +14,7 @@ pub async fn sync_drop_before(
 ) -> Result<(), sea_orm::DbErr> {
     use sea_query::{Alias, Asterisk, CommonTableExpression, Expr, Query, WithClause};
 
+    let now_ts: Timestamp = now.into();
     // clean library first
     sqlm::library::Entity::delete_many()
         .filter(sqlm::library::Column::ProviderId.eq(provider_id))
@@ -52,9 +54,9 @@ pub async fn sync_drop_before(
                     .and_where(
                         Expr::col((
                             sqlm::rel_album_artist::Entity,
-                            sqlm::rel_album_artist::Column::EditTime,
+                            sqlm::rel_album_artist::Column::UpdateAt,
                         ))
-                        .lt(now),
+                        .lt(now_ts),
                     )
                     .to_owned(),
             )
@@ -116,9 +118,9 @@ pub async fn sync_drop_before(
                     .and_where(
                         Expr::col((
                             sqlm::rel_song_artist::Entity,
-                            sqlm::rel_song_artist::Column::EditTime,
+                            sqlm::rel_song_artist::Column::UpdateAt,
                         ))
-                        .lt(now),
+                        .lt(now_ts),
                     )
                     .to_owned(),
             )
@@ -157,28 +159,28 @@ pub async fn sync_drop_before(
     }
 
     sqlm::album::Entity::delete_many()
-        .filter(sqlm::album::Column::EditTime.lt(now))
+        .filter(sqlm::album::Column::LastSyncAt.lt(now_ts))
         .filter(sqlm::album::Column::LibraryId.is_in(ids.clone()))
         .exec(txn)
         .await?;
 
     sqlm::song::Entity::delete_many()
-        .filter(sqlm::song::Column::EditTime.lt(now))
+        .filter(sqlm::song::Column::LastSyncAt.lt(now_ts))
         .filter(sqlm::song::Column::LibraryId.is_in(ids.clone()))
         .exec(txn)
         .await?;
 
     sqlm::artist::Entity::delete_many()
-        .filter(sqlm::artist::Column::EditTime.lt(now))
+        .filter(sqlm::artist::Column::LastSyncAt.lt(now_ts))
         .filter(sqlm::artist::Column::LibraryId.is_in(ids))
         .exec(txn)
         .await?;
 
-    sqlm::mix::Entity::delete_many()
-        .filter(sqlm::mix::Column::EditTime.lt(now))
-        .filter(sqlm::mix::Column::ProviderId.eq(provider_id))
-        .exec(txn)
-        .await?;
+    // sqlm::mix::Entity::delete_many()
+    //     .filter(sqlm::mix::Column::EditTime.lt(now))
+    //     .filter(sqlm::mix::Column::ProviderId.eq(provider_id))
+    //     .exec(txn)
+    //     .await?;
 
     Ok(())
 }
@@ -244,13 +246,13 @@ pub async fn sync_song_artist_ids(
         .columns([
             sqlm::rel_song_artist::Column::SongId,
             sqlm::rel_song_artist::Column::ArtistId,
-            sqlm::rel_song_artist::Column::EditTime,
+            sqlm::rel_song_artist::Column::UpdateAt,
         ])
         .select_from(relations)
         .unwrap()
         .on_conflict(
             sea_query::OnConflict::columns(conflict)
-                .update_column(sqlm::rel_song_artist::Column::EditTime)
+                .update_column(sqlm::rel_song_artist::Column::UpdateAt)
                 .to_owned(),
         )
         .to_owned()
@@ -326,13 +328,13 @@ pub async fn sync_album_artist_ids(
         .columns([
             sqlm::rel_album_artist::Column::AlbumId,
             sqlm::rel_album_artist::Column::ArtistId,
-            sqlm::rel_album_artist::Column::EditTime,
+            sqlm::rel_album_artist::Column::UpdateAt,
         ])
         .select_from(relations)
         .unwrap()
         .on_conflict(
             sea_query::OnConflict::columns(conflict)
-                .update_column(sqlm::rel_album_artist::Column::EditTime)
+                .update_column(sqlm::rel_album_artist::Column::UpdateAt)
                 .to_owned(),
         )
         .to_owned()

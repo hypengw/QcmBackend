@@ -39,6 +39,7 @@ enum DateCondition {
   DATE_CONDITION_UNSPECIFIED = 0;
   DATE_CONDITION_BEFORE = 1;
   DATE_CONDITION_AFTER = 2;
+  DATE_CONDITION_NULL = 3;
 }
 
 message TitleFilter {
@@ -59,7 +60,7 @@ message DurationFilter {
   IntCondition condition = 2;
 }
 message AddedDateFilter {
-  string value = 1;
+  int64 value = 1;
   DateCondition condition = 2;
 }
 

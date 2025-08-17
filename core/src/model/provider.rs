@@ -21,11 +21,19 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::library::Entity")]
     Library,
+    #[sea_orm(has_many = "super::remote_mix::Entity")]
+    RemoteMix,
 }
 
 impl Related<super::library::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Library.def()
+    }
+}
+
+impl Related<super::remote_mix::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RemoteMix.def()
     }
 }
 

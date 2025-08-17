@@ -6,9 +6,24 @@ use crate::msg::{self, QcmMessage};
 use chrono::Timelike;
 use prost::{EncodeError, Message};
 use qcm_core as core;
+use qcm_core::db::values::Timestamp;
 use qcm_core::model as sqlm;
 use qcm_core::provider::AuthResult;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+trait ToOpt: Sized {
+    fn opt(self) -> Option<Self>;
+}
+
+impl ToOpt for String {
+    fn opt(self) -> Option<Self> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self)
+        }
+    }
+}
 
 pub trait QcmFrom<T>: Sized {
     fn qcm_from(value: T) -> Self;
@@ -54,6 +69,16 @@ where
     }
 }
 
+impl<T, U> QcmFrom<Option<U>> for Option<T>
+where
+    T: QcmFrom<U>,
+{
+    #[inline]
+    fn qcm_from(v: Option<U>) -> Option<T> {
+        v.map(|x| T::qcm_from(x))
+    }
+}
+
 impl QcmFrom<String> for Option<String> {
     fn qcm_from(v: String) -> Self {
         match v.is_empty() {
@@ -85,6 +110,19 @@ impl QcmFrom<sea_orm::entity::prelude::DateTimeUtc> for prost_types::Timestamp {
         Self { seconds, nanos }
     }
 }
+impl QcmFrom<prost_types::Timestamp> for qcm_core::db::values::Timestamp {
+    fn qcm_from(v: prost_types::Timestamp) -> Self {
+        let datetime: chrono::DateTime<chrono::Utc> = v.qcm_into();
+        datetime.into()
+    }
+}
+
+impl QcmFrom<qcm_core::db::values::Timestamp> for prost_types::Timestamp {
+    fn qcm_from(v: qcm_core::db::values::Timestamp) -> Self {
+        let dt: sea_orm::entity::prelude::DateTimeUtc = v.into();
+        dt.qcm_into()
+    }
+}
 
 impl QcmFrom<proto::auth_info::Method> for core::provider::AuthMethod {
     fn qcm_from(value: proto::auth_info::Method) -> Self {
@@ -107,22 +145,6 @@ impl QcmFrom<proto::auth_info::Method> for core::provider::AuthMethod {
     }
 }
 
-impl QcmFrom<Option<core::provider::AuthMethod>> for Option<proto::auth_info::Method> {
-    fn qcm_from(value: Option<core::provider::AuthMethod>) -> Self {
-        match value {
-            Some(some) => Some(some.qcm_into()),
-            None => None,
-        }
-    }
-}
-impl QcmFrom<Option<proto::auth_info::Method>> for Option<core::provider::AuthMethod> {
-    fn qcm_from(value: Option<proto::auth_info::Method>) -> Self {
-        match value {
-            Some(some) => Some(some.qcm_into()),
-            None => None,
-        }
-    }
-}
 impl QcmFrom<proto::AuthInfo> for core::provider::AuthInfo {
     fn qcm_from(value: proto::AuthInfo) -> Self {
         Self {
@@ -192,17 +214,20 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
                 false => None,
             },
             duration: v.duration,
-            language: v.language,
+            language: v.language.opt(),
             r#type: v
                 .r#type
                 .try_into()
                 .unwrap_or(sqlm::type_enum::AlbumType::Album),
-            added_time: v.added_time.unwrap_or_default().qcm_into(),
-            publish_time: v.publish_time.unwrap_or_default().qcm_into(),
+            publish_time: v.publish_time.qcm_into(),
             track_count: v.track_count,
-            description: v.description,
-            company: v.company,
-            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+            disc_count: v.disc_count,
+            description: v.description.opt(),
+            company: v.company.opt(),
+            added_at: v.added_at.qcm_into(),
+            update_at: v.update_at.unwrap_or_default().qcm_into(),
+            create_at: Timestamp::now(),
+            last_sync_at: Timestamp::new(),
         }
     }
 }
@@ -216,14 +241,15 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
             name: v.name,
             sort_name: v.sort_name.unwrap_or_default(),
             duration: v.duration,
-            language: v.language,
+            language: v.language.unwrap_or_default(),
             r#type: v.r#type as i32,
-            added_time: Some(v.added_time.qcm_into()),
-            publish_time: Some(v.publish_time.qcm_into()),
+            publish_time: v.publish_time.qcm_into(),
             track_count: v.track_count,
-            description: v.description,
-            company: v.company,
-            edit_time: Some(v.edit_time.qcm_into()),
+            disc_count: v.disc_count,
+            description: v.description.unwrap_or_default(),
+            company: v.company.unwrap_or_default(),
+            update_at: Some(v.update_at.qcm_into()),
+            added_at: v.added_at.qcm_into(),
         }
     }
 }
@@ -239,7 +265,10 @@ impl QcmFrom<proto::Artist> for core::model::artist::Model {
             description: v.description,
             album_count: v.album_count,
             music_count: v.music_count,
-            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+            update_at: v.update_at.unwrap_or_default().qcm_into(),
+            added_at: v.added_at.qcm_into(),
+            create_at: Timestamp::now(),
+            last_sync_at: Timestamp::new(),
         }
     }
 }
@@ -255,7 +284,8 @@ impl QcmFrom<core::model::artist::Model> for proto::Artist {
             description: v.description,
             album_count: v.album_count,
             music_count: v.music_count,
-            edit_time: Some(v.edit_time.qcm_into()),
+            update_at: Some(v.update_at.qcm_into()),
+            added_at: v.added_at.qcm_into(),
         }
     }
 }
@@ -274,14 +304,17 @@ impl QcmFrom<proto::Song> for core::model::song::Model {
             duration: v.duration as i64,
             can_play: v.can_play,
             popularity: v.popularity,
-            publish_time: v.publish_time.unwrap_or_default().qcm_into(),
+            publish_time: v.publish_time.qcm_into(),
             tags: serde_json::Value::Array(
                 v.tags
                     .into_iter()
                     .map(|t| serde_json::Value::String(t))
                     .collect(),
             ),
-            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+            update_at: Timestamp::now(),
+            added_at: None,
+            create_at: Timestamp::now(),
+            last_sync_at: Timestamp::new(),
         }
     }
 }
@@ -300,7 +333,7 @@ impl QcmFrom<core::model::song::Model> for proto::Song {
             duration: v.duration as f64,
             can_play: v.can_play,
             popularity: v.popularity,
-            publish_time: Some(v.publish_time.qcm_into()),
+            publish_time: v.publish_time.qcm_into(),
             tags: v
                 .tags
                 .as_array()
@@ -311,7 +344,6 @@ impl QcmFrom<core::model::song::Model> for proto::Song {
                         .collect()
                 })
                 .unwrap_or_default(),
-            edit_time: Some(v.edit_time.qcm_into()),
         }
     }
 }
@@ -320,17 +352,13 @@ impl QcmFrom<proto::Mix> for core::model::mix::Model {
     fn qcm_from(v: proto::Mix) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
-            provider_id: v.provider_id,
             name: v.name,
             sort_name: v.sort_name.qcm_into(),
             track_count: v.track_count,
-            special_type: v.special_type,
             description: v.description,
-            create_time: v.create_time.unwrap_or_default().qcm_into(),
-            update_time: v.update_time.unwrap_or_default().qcm_into(),
-            tags: serde_json::Value::String(v.tags),
-            edit_time: v.edit_time.unwrap_or_default().qcm_into(),
+            create_at: v.create_at.unwrap_or_default().qcm_into(),
+            update_at: v.update_at.unwrap_or_default().qcm_into(),
+            added_at: None,
         }
     }
 }
@@ -339,17 +367,12 @@ impl QcmFrom<core::model::mix::Model> for proto::Mix {
     fn qcm_from(v: core::model::mix::Model) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
-            provider_id: v.provider_id,
             name: v.name,
             sort_name: v.sort_name.qcm_into(),
             track_count: v.track_count,
-            special_type: v.special_type,
             description: v.description,
-            create_time: Some(v.create_time.qcm_into()),
-            update_time: Some(v.update_time.qcm_into()),
-            tags: v.tags.as_str().unwrap_or_default().to_string(),
-            edit_time: Some(v.edit_time.qcm_into()),
+            update_at: Some(v.update_at.qcm_into()),
+            create_at: Some(v.create_at.qcm_into()),
         }
     }
 }
@@ -376,7 +399,7 @@ impl QcmFrom<msg::model::AlbumSort> for sqlm::album::Column {
             AlbumSort::Title => Self::Name,
             AlbumSort::SortTitle => Self::SortName,
             AlbumSort::TrackCount => Self::TrackCount,
-            AlbumSort::AddedTime => Self::AddedTime,
+            AlbumSort::AddedTime => Self::AddedAt,
         }
     }
 }

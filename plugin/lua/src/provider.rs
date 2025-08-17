@@ -23,6 +23,8 @@ use qcm_core::{
 use reqwest::Response;
 use sea_orm::*;
 use std::collections::BTreeMap;
+use std::mem::Discriminant;
+use std::str::FromStr;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -67,7 +69,28 @@ struct LuaImpl {
 #[derive(Debug, Serialize, Deserialize)]
 struct LuaSyncOption {
     #[serde(default)]
+    include: Vec<String>,
+    #[serde(default)]
     exclude: Vec<String>,
+}
+
+impl LuaSyncOption {
+    fn generate_exclude<C>(&self) -> Vec<C>
+    where
+        C: sea_orm::ColumnTrait,
+    {
+        let mut out: Vec<C> = Vec::new();
+        let opt_include: Vec<C> = self
+            .include
+            .iter()
+            .filter_map(|s| C::from_str(&s).ok())
+            .collect();
+        if !opt_include.is_empty() {
+            out.extend(C::iter().filter(|c| !qcm_core::db::columns_contains(&opt_include, c)));
+        }
+        out.extend(self.exclude.iter().filter_map(|s| C::from_str(&s).ok()));
+        out
+    }
 }
 
 pub struct LuaProvider {
@@ -534,9 +557,9 @@ impl LuaUserData for LuaContext {
         });
         methods.add_async_method(
             "sync_dynamics",
-            |lua, this, (models, lua_exclude): (LuaValue, LuaValue)| async move {
+            |lua, this, (models, lua_syncopt): (LuaValue, LuaValue)| async move {
                 let models: Vec<sqlm::dynamic::Model> = lua.from_value(models)?;
-                let opts: Option<LuaSyncOption> = lua.from_value(lua_exclude)?;
+                let opts: Option<LuaSyncOption> = lua.from_value(lua_syncopt)?;
 
                 let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
                 let conflict = [
@@ -546,11 +569,7 @@ impl LuaUserData for LuaContext {
                 let mut exclude = vec![sqlm::dynamic::Column::Id];
 
                 if let Some(opts) = opts {
-                    for s in opts.exclude {
-                        if s == "is_favorite" {
-                            exclude.push(sqlm::dynamic::Column::IsFavorite)
-                        }
-                    }
+                    exclude.extend(opts.generate_exclude::<sqlm::dynamic::Column>());
                 }
 
                 let iter = models.into_iter().map(|i| {

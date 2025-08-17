@@ -1,4 +1,5 @@
 use super::type_enum::ItemType;
+use crate::db::values::Timestamp;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -10,21 +11,35 @@ pub struct Model {
     pub library_id: i64,
     pub item_id: i64,
     pub item_type: ItemType,
+
     #[serde(default)]
     #[sea_orm(default)]
     pub is_external: bool,
+
     #[serde(default)]
     #[sea_orm(default)]
     pub play_count: i64,
+
     #[serde(default)]
     #[sea_orm(default)]
-    pub is_favorite: bool,
+    pub remote_play_count: i64,
+
     #[serde(default)]
     #[sea_orm(default, nullable)]
     pub last_position: Option<i64>,
-    #[serde(default = "chrono::Utc::now")]
-    #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub edit_time: DateTimeUtc,
+
+    #[serde(default)]
+    pub last_played_at: Option<Timestamp>,
+
+    #[serde(default)]
+    pub remote_last_played_at: Option<Timestamp>,
+
+    #[serde(default)]
+    pub favorite_at: Option<Timestamp>,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub update_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

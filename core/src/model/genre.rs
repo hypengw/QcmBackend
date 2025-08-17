@@ -1,6 +1,8 @@
+use crate::db::values::Timestamp;
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, DeriveEntityModel)]
 #[sea_orm(table_name = "genre")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -8,7 +10,18 @@ pub struct Model {
     pub library_id: i64,
     pub name: String,
     pub native_id: String,
-    pub edit_time: DateTimeUtc,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub create_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub update_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub last_sync_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

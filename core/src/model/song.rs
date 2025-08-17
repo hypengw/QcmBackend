@@ -1,7 +1,8 @@
+use super::type_enum::ItemType;
 use super::util::{default_json_arr, default_true, epoch};
+use crate::db::values::Timestamp;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use super::type_enum::ItemType;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "song")]
@@ -22,13 +23,25 @@ pub struct Model {
     pub can_play: bool,
     #[serde(default)]
     pub popularity: f64,
-    #[serde(default = "epoch")]
-    pub publish_time: DateTimeUtc,
     #[serde(default = "default_json_arr")]
     pub tags: Json,
-    #[serde(default = "chrono::Utc::now")]
-    #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub edit_time: DateTimeUtc,
+
+    #[serde(default)]
+    pub publish_time: Option<Timestamp>,
+    #[serde(default)]
+    pub added_at: Option<Timestamp>,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub create_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub update_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub last_sync_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -55,6 +68,11 @@ pub enum Relation {
         on_condition = r#"Expr::col(super::dynamic::Column::ItemType).eq(ItemType::Song)"#
     )]
     Dynamic,
+
+    #[sea_orm(has_many = "super::rel_mix_song::Entity")]
+    RelMix,
+    #[sea_orm(has_many = "super::rel_song_artist::Entity")]
+    RelArtist,
 }
 
 impl Related<super::library::Entity> for Entity {
@@ -76,6 +94,16 @@ impl Related<super::image::Entity> for Entity {
 impl Related<super::dynamic::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Dynamic.def()
+    }
+}
+impl Related<super::rel_mix_song::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RelMix.def()
+    }
+}
+impl Related<super::rel_song_artist::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RelArtist.def()
     }
 }
 

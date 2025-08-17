@@ -1,5 +1,6 @@
 use super::type_enum::{AlbumType, ItemType};
-use super::util::{epoch, default_language};
+use super::util::{default_language, epoch};
+use crate::db::values::Timestamp;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -13,24 +14,36 @@ pub struct Model {
     pub name: String,
     #[serde(default)]
     pub sort_name: Option<String>,
-    #[serde(default = "epoch")]
-    pub publish_time: DateTimeUtc,
-    #[serde(default = "epoch")]
-    pub added_time: DateTimeUtc,
     pub track_count: i32,
+    pub disc_count: i32,
+
     #[serde(default)]
     pub r#type: AlbumType,
     #[serde(default)]
     pub duration: i64,
-    #[serde(default = "default_language")]
-    pub language: String,
     #[serde(default)]
-    pub description: String,
+    pub language: Option<String>,
     #[serde(default)]
-    pub company: String,
-    #[serde(default = "chrono::Utc::now")]
-    #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub edit_time: DateTimeUtc,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub company: Option<String>,
+
+    #[serde(default)]
+    pub publish_time: Option<Timestamp>,
+    #[serde(default)]
+    pub added_at: Option<Timestamp>,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub create_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub update_at: Timestamp,
+
+    #[serde(default = "Timestamp::now")]
+    #[sea_orm(default_expr = "Timestamp::now_expr()")]
+    pub last_sync_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
