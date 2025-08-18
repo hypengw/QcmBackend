@@ -1,6 +1,8 @@
 use crate::msg::{
     self,
-    filter::{AlbumFilter, ArtistFilter, DateCondition, IntCondition, StringCondition},
+    filter::{
+        AlbumFilter, ArtistFilter, DateCondition, IntCondition, StringCondition, TypeCondition,
+    },
 };
 use chrono::TimeZone;
 use qcm_core::{db::values::Timestamp, model as sqlm, plugin::Plugin};
@@ -122,6 +124,9 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                 Some(Payload::AddedDateFilter(added)) => {
                     added.get_expr_from_col(sqlm::album::Column::AddedAt)
                 }
+                Some(Payload::TypeFilter(album_type)) => {
+                    album_type.get_expr_from_col(sqlm::album::Column::Type)
+                }
                 None => None,
             };
 
@@ -153,7 +158,33 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::artist::Entity> {
                 Some(Payload::AddedDateFilter(added)) => {
                     added.get_expr_from_col(sqlm::artist::Column::AddedAt)
                 }
-                Some(e) => None::<SimpleExpr>,
+                Some(Payload::AlbumTitleFilter(album_name)) => {
+                    album_name
+                        .get_expr(
+                            Expr::col((sqlm::album::Entity, sqlm::album::Column::Name)).into(),
+                        )
+                        .map(|album_name_expr| {
+                            let subquery: SelectStatement = Query::select()
+                                .expr(Expr::val(1)) // SELECT 1
+                                .from(sqlm::album::Entity)
+                                .inner_join(
+                                    sqlm::rel_album_artist::Entity,
+                                    sqlm::rel_album_artist::Relation::Album.def(),
+                                )
+                                .and_where(
+                                    Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id))
+                                        .equals((
+                                            sqlm::rel_album_artist::Entity,
+                                            sqlm::rel_album_artist::Column::ArtistId,
+                                        )),
+                                )
+                                .and_where(album_name_expr)
+                                .limit(1)
+                                .to_owned();
+                            Expr::exists(subquery)
+                        })
+                }
+                Some(_) => None::<SimpleExpr>,
                 None => None,
             };
 
@@ -192,6 +223,20 @@ trait IntFilterTrait {
     }
     fn get_expr(&self, col: Expr) -> Option<SimpleExpr> {
         return int_condition_to_expr(col, self.get_condition(), self.get_value());
+    }
+}
+trait TypeFilterTrait {
+    fn get_condition(&self) -> TypeCondition;
+    fn get_value(&self) -> i64;
+
+    fn get_expr_from_col<C>(&self, col: C) -> Option<SimpleExpr>
+    where
+        C: sea_orm::ColumnTrait,
+    {
+        self.get_expr(Expr::col(col))
+    }
+    fn get_expr(&self, col: Expr) -> Option<SimpleExpr> {
+        return type_condition_to_expr(col, self.get_condition(), self.get_value());
     }
 }
 
@@ -236,7 +281,18 @@ macro_rules! impl_int_filter {
         }
     };
 }
-
+macro_rules! impl_type_filter {
+    ($ty:ty) => {
+        impl TypeFilterTrait for $ty {
+            fn get_condition(&self) -> TypeCondition {
+                self.condition()
+            }
+            fn get_value(&self) -> i64 {
+                self.value as i64
+            }
+        }
+    };
+}
 macro_rules! impl_date_filter {
     ($ty:ty) => {
         impl DateFilterTrait for $ty {
@@ -249,7 +305,6 @@ macro_rules! impl_date_filter {
         }
     };
 }
-
 macro_rules! impl_string_filter {
     ($ty:ty) => {
         impl StringFilterTrait for $ty {
@@ -277,9 +332,11 @@ impl_int_filter!(msg::filter::DurationFilter);
 impl_string_filter!(msg::filter::NameFilter);
 impl_string_filter!(msg::filter::TitleFilter);
 impl_string_filter!(msg::filter::ArtistNameFilter);
+impl_string_filter!(msg::filter::AlbumTitleFilter);
 impl_id_filter!(msg::filter::ArtistIdFilter);
 impl_id_filter!(msg::filter::AlbumArtistIdFilter);
 impl_date_filter!(msg::filter::AddedDateFilter);
+impl_type_filter!(msg::filter::TypeFilter);
 
 impl IntFilterTrait for msg::filter::YearFilter {
     fn get_condition(&self) -> IntCondition {
@@ -367,5 +424,13 @@ pub fn date_condition_to_expr(
         DateCondition::Before => None,
         DateCondition::Null => None,
         DateCondition::Unspecified => None,
+    }
+}
+
+pub fn type_condition_to_expr(col: Expr, cond: TypeCondition, val: i64) -> Option<SimpleExpr> {
+    match cond {
+        TypeCondition::Is => Some(col.eq(val)),
+        TypeCondition::IsNot => Some(col.ne(val)),
+        TypeCondition::Unspecified => None,
     }
 }
