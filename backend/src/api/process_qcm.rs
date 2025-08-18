@@ -1,6 +1,7 @@
 use migration::query;
 use prost::{self, Message};
 use qcm_core::db::values::Timestamp;
+use qcm_core::model::type_enum::CacheType;
 use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use sea_orm::ActiveValue::NotSet;
@@ -9,9 +10,9 @@ use tokio::sync::oneshot;
 
 use qcm_core::model::{self as sqlm, dynamic, provider};
 use sea_orm::{
-    sea_query, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName, EntityTrait,
-    FromQueryResult, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    Statement,
+    prelude::Expr, sea_query, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName,
+    EntityTrait, FromQueryResult, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Statement,
 };
 
 use crate::api::{self, pagination::PageParams};
@@ -21,7 +22,7 @@ use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
 use crate::msg::{
     self, AuthProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
-    GetSongsRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
+    GetSongsRsp, GetStorageInfoRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
 
 fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
@@ -751,6 +752,43 @@ pub async fn process_qcm(
                     _ => {}
                 }
                 return Ok(Rsp::default().qcm_into());
+            }
+        }
+        MessageType::GetStorageInfoReq => {
+            if let Some(Payload::GetStorageInfoReq(_)) = payload {
+                let db = &ctx.provider_context.cache_db;
+
+                let size: Vec<(i32, i64)> = sqlm::cache::Entity::find()
+                    .select_only()
+                    .column(sqlm::cache::Column::CacheType)
+                    .column_as(Expr::col(sqlm::cache::Column::ContentLength).sum(), "size")
+                    .group_by(sqlm::cache::Column::CacheType)
+                    .into_tuple()
+                    .all(db)
+                    .await?;
+
+                let db_size = qcm_core::db::size::sqlite_sizes(&ctx.provider_context.db).await?;
+                let cache_db_size =
+                    qcm_core::db::size::sqlite_sizes(&ctx.provider_context.cache_db).await?;
+
+                let mut rsp = GetStorageInfoRsp {
+                    media_size: 0,
+                    image_size: 0,
+                    database_size: db_size
+                        .total_disk_bytes
+                        .saturating_add(cache_db_size.total_disk_bytes)
+                        as i64,
+                };
+
+                for (content_type, size) in size {
+                    match content_type {
+                        x if x == sqlm::type_enum::CacheType::Image as i32 => rsp.image_size = size,
+                        x if x == sqlm::type_enum::CacheType::Audio as i32 => rsp.media_size = size,
+                        _ => {}
+                    }
+                }
+
+                return Ok(rsp.qcm_into());
             }
         }
         MessageType::SyncReq => {

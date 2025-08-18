@@ -1,7 +1,8 @@
-pub mod sync;
-pub mod values;
 pub mod basic;
 pub mod fts;
+pub mod size;
+pub mod sync;
+pub mod values;
 
 pub use basic::QueryBuilder;
 pub use const_chunks::IteratorConstChunks;
@@ -156,4 +157,3 @@ impl<const N: usize> DbChunkOper<N> {
         Ok(out)
     }
 }
-

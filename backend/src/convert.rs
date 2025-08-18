@@ -400,6 +400,7 @@ impl QcmFrom<msg::model::AlbumSort> for sqlm::album::Column {
             AlbumSort::SortTitle => Self::SortName,
             AlbumSort::TrackCount => Self::TrackCount,
             AlbumSort::AddedTime => Self::AddedAt,
+            AlbumSort::DiscCount => Self::DiscCount,
         }
     }
 }
@@ -589,4 +590,5 @@ impl_from_for_qcm_msg!(GetMixRsp);
 impl_from_for_qcm_msg!(SearchRsp);
 impl_from_for_qcm_msg!(GetSubtitleRsp);
 
+impl_from_for_qcm_msg!(GetStorageInfoRsp);
 impl_from_for_qcm_msg!(SyncRsp);
