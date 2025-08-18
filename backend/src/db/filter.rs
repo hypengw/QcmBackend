@@ -127,6 +127,9 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                 Some(Payload::TypeFilter(album_type)) => {
                     album_type.get_expr_from_col(sqlm::album::Column::Type)
                 }
+                Some(Payload::DiscCountFilter(disc_count)) => {
+                    disc_count.get_expr_from_col(sqlm::album::Column::DiscCount)
+                }
                 None => None,
             };
 
@@ -337,6 +340,7 @@ impl_id_filter!(msg::filter::ArtistIdFilter);
 impl_id_filter!(msg::filter::AlbumArtistIdFilter);
 impl_date_filter!(msg::filter::AddedDateFilter);
 impl_type_filter!(msg::filter::TypeFilter);
+impl_int_filter!(msg::filter::DiscCountFilter);
 
 impl IntFilterTrait for msg::filter::YearFilter {
     fn get_condition(&self) -> IntCondition {
