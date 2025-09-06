@@ -687,7 +687,7 @@ pub async fn process_qcm(
                     .map_err(|_| ProcessError::NoSuchItemType(req.item_type.to_string()))?;
 
                 let (provider_id, native_id): (i64, String) = {
-                    sqlm::library::Entity::find_by_id(req.id)
+                    sqlm::item::Entity::find_by_id(req.id)
                         .select_only()
                         .column(sqlm::item::Column::ProviderId)
                         .column(sqlm::item::Column::NativeId)
