@@ -33,7 +33,7 @@ pub fn process_io(
                             ctx.add_waiter(id, &key, cursor);
 
                             log::debug!(target: "reverse", "cnn {} no cache", id);
-                            let _ = tx.try_send(EventBus::NoCache(id));
+                            let _ = tx.blocking_send(EventBus::NoCache(id));
                         } else {
                             ctx.remove_waiter(id);
                         }
@@ -45,10 +45,10 @@ pub fn process_io(
                 IoEvent::DoRead => {
                     ctx.do_read(
                         |id, state, bytes| {
-                            let _ = tx.try_send(EventBus::ReadedBuf(id, bytes, state));
+                            let _ = tx.blocking_send(EventBus::ReadedBuf(id, bytes, state));
                         },
                         |id| {
-                            let _ = tx.try_send(EventBus::EndConnection(id));
+                            let _ = tx.blocking_send(EventBus::EndConnection(id));
                         },
                     );
                 }
@@ -62,7 +62,7 @@ pub fn process_io(
                         &bytes,
                         offset,
                         |key, id, start| {
-                            let _ = tx.try_send(EventBus::RequestRead(
+                            let _ = tx.blocking_send(EventBus::RequestRead(
                                 key.to_string(),
                                 id,
                                 start,
@@ -70,7 +70,7 @@ pub fn process_io(
                             ));
                         },
                         |key, f| {
-                            let _ = tx.try_send(EventBus::FinishFile(
+                            let _ = tx.blocking_send(EventBus::FinishFile(
                                 key.to_string(),
                                 f.cache_type,
                                 f.remote_info.clone(),
@@ -87,7 +87,7 @@ pub fn process_io(
         }
 
         for _ in 0..ctx.reading_count() {
-            let _ = tx.try_send(EventBus::DoRead);
+            let _ = tx.blocking_send(EventBus::DoRead);
         }
     }
 }

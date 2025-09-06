@@ -222,15 +222,17 @@ impl IoContext {
                 }
             }
             for (id, start) in ids {
+                let mut start = start;
                 if let Some(r) = self.readers.get(&id) {
                     let offset = r.get_offset();
                     if offset != start {
-                        log::error!(
+                        log::warn!(
                             "cnn {} reader({}) and waiter({}) no sync",
                             id,
                             offset,
                             start
                         );
+                        start = offset;
                     }
                 }
                 if self.get_piece_from_wirter(key, id, start).is_none() {
@@ -313,21 +315,28 @@ impl IoContext {
                     }
 
                     match self.readers.get_mut(&id) {
-                        Some(reader) => match reader.file.seek(std::io::SeekFrom::Start(cursor)) {
-                            Err(e) => {
-                                log::error!("{:?}", e);
-                                None
+                        Some(reader) => {
+                            let cur = reader.get_offset();
+                            if  cur != cursor {
+                                log::error!(target: "reverse", "cnn {} jump from {} to {}", id, cur, cursor);
                             }
-                            _ => {
-                                reader.piece = p.clone();
-                                reader.state = ReadState::Reading(0);
-                                Some(p)
+
+                            match reader.file.seek(std::io::SeekFrom::Start(cursor)) {
+                                Err(e) => {
+                                    log::error!(target: "reverse", "{:?}", e);
+                                    None
+                                }
+                                _ => {
+                                    reader.piece = p.clone();
+                                    reader.state = ReadState::Reading(0);
+                                    Some(p)
+                                }
                             }
-                        },
+                        }
                         None => match std::fs::File::open(&f.meta.path) {
                             Ok(mut file) => match file.seek(std::io::SeekFrom::Start(cursor)) {
                                 Err(e) => {
-                                    log::error!("{:?}", e);
+                                    log::error!(target: "reverse", "{:?}", e);
                                     None
                                 }
                                 _ => {
@@ -346,7 +355,7 @@ impl IoContext {
                                 }
                             },
                             Err(e) => {
-                                log::error!("{:?}", e);
+                                log::error!(target: "reverse", "{:?}", e);
                                 None
                             }
                         },

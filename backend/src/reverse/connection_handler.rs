@@ -237,7 +237,7 @@ impl ConnectionHandler {
                                 self.file_info.full()
                             );
                             if cursor > full {
-                                log::error!(target: "reverse", "cnn {} overflow", self.id);
+                                log::error!(target: "reverse", "cnn {} overflow {} on full {}", self.id, cursor, full);
                             }
                         }
 
