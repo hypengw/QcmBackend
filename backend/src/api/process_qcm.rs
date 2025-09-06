@@ -589,7 +589,7 @@ pub async fn process_qcm(
                                     SELECT {table}.* FROM {table}
                                     INNER JOIN {item_table} ON {item_table}.id = {table}.id
                                     INNER JOIN {fts} ON {table}.id = {fts}.rowid
-                                    WHERE {fts} MATCH qcm_query(?) AND {item_table}.library_id IN ({library_ids})
+                                    WHERE {fts} MATCH ('name:' || qcm_query(?)) AND {item_table}.library_id IN ({library_ids})
                                     "#
                         ),
                         [search_query.clone().into()],
