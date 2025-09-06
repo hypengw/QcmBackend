@@ -20,7 +20,7 @@ impl Subtitle {
                 .into_iter()
                 .filter_map(|item| match item {
                     lrc::LrcTag::Time(text, timestamps) => {
-                        if timestamps.is_empty() {
+                        if timestamps.is_empty() || text.is_empty() {
                             None
                         } else {
                             Some(SubtitleItem {
