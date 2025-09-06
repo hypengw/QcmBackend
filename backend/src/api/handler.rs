@@ -96,8 +96,8 @@ async fn handle_ws(
     let (mut ws_writer, ws_reader) = ws.await?.split();
 
     let (ws_sender, mut ws_receiver) = async_mpsc::channel::<WsMessage>(32);
-    let (ev_sender, mut ev_receiver) = async_mpsc::channel::<event::Event>(32);
-    let (bk_ev_sender, mut bk_ev_receiver) = async_mpsc::channel::<event::BackendEvent>(32);
+    let (ev_sender, mut ev_receiver) = async_mpsc::channel::<event::Event>(1024);
+    let (bk_ev_sender, mut bk_ev_receiver) = async_mpsc::channel::<event::BackendEvent>(1024);
 
     let ctx = Arc::new(BackendContext {
         provider_context: Arc::new(Context {

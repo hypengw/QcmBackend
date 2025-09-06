@@ -1,11 +1,12 @@
 use super::basic::QueryBuilder;
 use super::DbChunkOper;
 use crate::db::values::Timestamp;
-use crate::model as sqlm;
+use crate::model::{self as sqlm, artist};
+use chrono::format::InternalNumeric;
 use sea_orm::sea_query::{DeleteStatement, SqliteQueryBuilder};
 use sea_orm::{prelude::DateTimeUtc, DatabaseTransaction, EntityTrait};
 use sea_orm::{prelude::*, QuerySelect, Statement};
-use sea_orm::{sea_query, Condition};
+use sea_orm::{sea_query, sea_query::Alias, Condition};
 
 pub async fn sync_drop_before(
     txn: &DatabaseTransaction,
@@ -37,17 +38,17 @@ pub async fn sync_drop_before(
                     .column(sqlm::rel_album_artist::Column::AlbumId)
                     .from(sqlm::rel_album_artist::Entity)
                     .inner_join(
-                        sqlm::album::Entity,
+                        sqlm::item::Entity,
                         Condition::all()
                             .add(
                                 Expr::col((
                                     sqlm::rel_album_artist::Entity,
                                     sqlm::rel_album_artist::Column::AlbumId,
                                 ))
-                                .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
+                                .equals((sqlm::item::Entity, sqlm::item::Column::Id)),
                             )
                             .add(
-                                Expr::col((sqlm::album::Entity, sqlm::album::Column::LibraryId))
+                                Expr::col((sqlm::item::Entity, sqlm::item::Column::LibraryId))
                                     .is_in(ids.clone()),
                             ),
                     )
@@ -101,17 +102,17 @@ pub async fn sync_drop_before(
                     .column(sqlm::rel_song_artist::Column::SongId)
                     .from(sqlm::rel_song_artist::Entity)
                     .inner_join(
-                        sqlm::song::Entity,
+                        sqlm::item::Entity,
                         Condition::all()
                             .add(
                                 Expr::col((
                                     sqlm::rel_song_artist::Entity,
                                     sqlm::rel_song_artist::Column::SongId,
                                 ))
-                                .equals((sqlm::song::Entity, sqlm::song::Column::Id)),
+                                .equals((sqlm::item::Entity, sqlm::item::Column::Id)),
                             )
                             .add(
-                                Expr::col((sqlm::song::Entity, sqlm::song::Column::LibraryId))
+                                Expr::col((sqlm::item::Entity, sqlm::item::Column::LibraryId))
                                     .is_in(ids.clone()),
                             ),
                     )
@@ -158,31 +159,75 @@ pub async fn sync_drop_before(
         .await?;
     }
 
-    sqlm::album::Entity::delete_many()
-        .filter(sqlm::album::Column::LastSyncAt.lt(now_ts))
-        .filter(sqlm::album::Column::LibraryId.is_in(ids.clone()))
+    sqlm::item::Entity::delete_many()
+        .filter(sqlm::item::Column::LastSyncAt.lt(now_ts))
+        .filter(sqlm::item::Column::LibraryId.is_in(ids.clone()))
         .exec(txn)
         .await?;
-
-    sqlm::song::Entity::delete_many()
-        .filter(sqlm::song::Column::LastSyncAt.lt(now_ts))
-        .filter(sqlm::song::Column::LibraryId.is_in(ids.clone()))
-        .exec(txn)
-        .await?;
-
-    sqlm::artist::Entity::delete_many()
-        .filter(sqlm::artist::Column::LastSyncAt.lt(now_ts))
-        .filter(sqlm::artist::Column::LibraryId.is_in(ids))
-        .exec(txn)
-        .await?;
-
-    // sqlm::mix::Entity::delete_many()
-    //     .filter(sqlm::mix::Column::EditTime.lt(now))
-    //     .filter(sqlm::mix::Column::ProviderId.eq(provider_id))
-    //     .exec(txn)
-    //     .await?;
 
     Ok(())
+}
+
+fn select_id_from_native_id_map(
+    library_id: i64,
+    ids: Vec<(String, String)>,
+    type1: sqlm::type_enum::ItemType,
+    type2: sqlm::type_enum::ItemType,
+) -> (sea_query::WithClause, sea_query::SelectStatement) {
+    use sea_query::{Asterisk, CommonTableExpression, Expr, Query, WithClause};
+
+    let input_alias = Alias::new("native_id_map");
+    let input_col1 = Alias::new("input_col1");
+    let input_col2 = Alias::new("input_col2");
+    let with_clause = WithClause::new()
+        .cte(
+            CommonTableExpression::new()
+                .query(
+                    Query::select()
+                        .column(Asterisk)
+                        .from_values(ids, Alias::new("input_ids"))
+                        .to_owned(),
+                )
+                .columns([input_col1.clone(), input_col2.clone()])
+                .table_name(input_alias.clone())
+                .to_owned(),
+        )
+        .to_owned();
+
+    let artist_item_alias = Alias::new("artist_item");
+    let now = Timestamp::now();
+    let relations = sea_query::Query::select()
+        .expr(Expr::col((sqlm::item::Entity, sqlm::item::Column::Id)))
+        .expr(Expr::col((
+            artist_item_alias.clone(),
+            sqlm::item::Column::Id,
+        )))
+        .expr(Expr::value(now))
+        .from(sqlm::item::Entity)
+        .inner_join(
+            input_alias.clone(),
+            Expr::col((sqlm::item::Entity, sqlm::item::Column::NativeId))
+                .equals((input_alias.clone(), input_col1.clone())),
+        )
+        .join_as(
+            sea_orm::JoinType::InnerJoin,
+            sqlm::item::Entity,
+            artist_item_alias.clone(),
+            Condition::all()
+                .add(
+                    Expr::col((artist_item_alias.clone(), sqlm::item::Column::LibraryId))
+                        .eq(library_id),
+                )
+                .add(Expr::col((artist_item_alias.clone(), sqlm::item::Column::Type)).eq(type2))
+                .add(
+                    Expr::col((artist_item_alias.clone(), sqlm::item::Column::NativeId))
+                        .equals((input_alias.clone(), input_col2.clone())),
+                ),
+        )
+        .and_where(Expr::col((sqlm::item::Entity, sqlm::item::Column::LibraryId)).eq(library_id))
+        .and_where(Expr::col((sqlm::item::Entity, sqlm::item::Column::Type)).eq(type1))
+        .to_owned();
+    (with_clause, relations)
 }
 
 pub async fn sync_song_artist_ids(
@@ -193,53 +238,18 @@ pub async fn sync_song_artist_ids(
     if ids.is_empty() {
         return Ok(());
     }
-    let now = chrono::Utc::now();
 
     let conflict = [
         sqlm::rel_song_artist::Column::SongId,
         sqlm::rel_song_artist::Column::ArtistId,
     ];
-    use sea_query::{Alias, Asterisk, CommonTableExpression, Expr, Query, WithClause};
 
-    let with_clause = WithClause::new()
-        .cte(
-            CommonTableExpression::new()
-                .query(
-                    Query::select()
-                        .column(Asterisk)
-                        .from_values(ids, Alias::new("input"))
-                        .to_owned(),
-                )
-                .columns([Alias::new("song_item_id"), Alias::new("artist_item_id")])
-                .table_name(Alias::new("item_id_map"))
-                .to_owned(),
-        )
-        .to_owned();
-
-    let relations = sea_query::Query::select()
-        .expr(Expr::col((sqlm::song::Entity, sqlm::song::Column::Id)))
-        .expr(Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id)))
-        .expr(Expr::value(now))
-        .from(sqlm::song::Entity)
-        .inner_join(
-            Alias::new("item_id_map"),
-            Expr::col((sqlm::song::Entity, sqlm::song::Column::NativeId))
-                .equals((Alias::new("item_id_map"), Alias::new("song_item_id"))),
-        )
-        .inner_join(
-            sqlm::artist::Entity,
-            Condition::all()
-                .add(
-                    Expr::col((sqlm::artist::Entity, sqlm::artist::Column::NativeId))
-                        .equals((Alias::new("item_id_map"), Alias::new("artist_item_id"))),
-                )
-                .add(
-                    Expr::col((sqlm::artist::Entity, sqlm::artist::Column::LibraryId))
-                        .eq(library_id),
-                ),
-        )
-        .and_where(Expr::col((sqlm::song::Entity, sqlm::song::Column::LibraryId)).eq(library_id))
-        .to_owned();
+    let (with_clause, relations) = select_id_from_native_id_map(
+        library_id,
+        ids,
+        sqlm::type_enum::ItemType::Song,
+        sqlm::type_enum::ItemType::Artist,
+    );
 
     let stmt = sea_query::Query::insert()
         .into_table(sqlm::rel_song_artist::Entity)
@@ -273,55 +283,18 @@ pub async fn sync_album_artist_ids(
     if ids.is_empty() {
         return Ok(());
     }
-    let now = chrono::Utc::now();
-
-    use sea_query::{Alias, Asterisk, CommonTableExpression, Expr, Query, WithClause};
-    //let al_item_id_map = Alias::new("item_id_map");
 
     let conflict = [
         sqlm::rel_album_artist::Column::AlbumId,
         sqlm::rel_album_artist::Column::ArtistId,
     ];
 
-    let with_clause = WithClause::new()
-        .cte(
-            CommonTableExpression::new()
-                .query(
-                    Query::select()
-                        .column(Asterisk)
-                        .from_values(ids, Alias::new("input"))
-                        .to_owned(),
-                )
-                .columns([Alias::new("album_item_id"), Alias::new("artist_item_id")])
-                .table_name(Alias::new("item_id_map"))
-                .to_owned(),
-        )
-        .to_owned();
-
-    let relations = sea_query::Query::select()
-        .expr(Expr::col((sqlm::album::Entity, sqlm::album::Column::Id)))
-        .expr(Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id)))
-        .expr(Expr::value(now))
-        .from(sqlm::album::Entity)
-        .inner_join(
-            Alias::new("item_id_map"),
-            Expr::col((sqlm::album::Entity, sqlm::album::Column::NativeId))
-                .equals((Alias::new("item_id_map"), Alias::new("album_item_id"))),
-        )
-        .inner_join(
-            sqlm::artist::Entity,
-            Condition::all()
-                .add(
-                    Expr::col((sqlm::artist::Entity, sqlm::artist::Column::NativeId))
-                        .equals((Alias::new("item_id_map"), Alias::new("artist_item_id"))),
-                )
-                .add(
-                    Expr::col((sqlm::artist::Entity, sqlm::artist::Column::LibraryId))
-                        .eq(library_id),
-                ),
-        )
-        .and_where(Expr::col((sqlm::album::Entity, sqlm::album::Column::LibraryId)).eq(library_id))
-        .to_owned();
+    let (with_clause, relations) = select_id_from_native_id_map(
+        library_id,
+        ids,
+        sqlm::type_enum::ItemType::Album,
+        sqlm::type_enum::ItemType::Artist,
+    );
 
     let stmt = sea_query::Query::insert()
         .into_table(sqlm::rel_album_artist::Entity)
@@ -355,43 +328,19 @@ pub async fn sync_song_album_ids(
         return Ok(());
     }
 
-    use sea_query::{Alias, Asterisk, CommonTableExpression, Expr, Query, WithClause};
-    let al_item_id_map = Alias::new("item_id_map");
+    let (mut with_clause, relations) = select_id_from_native_id_map(
+        library_id,
+        ids,
+        sqlm::type_enum::ItemType::Song,
+        sqlm::type_enum::ItemType::Album,
+    );
+    use sea_query::{CommonTableExpression, Expr};
 
-    let relations = sea_query::Query::select()
-        .expr(Expr::col((sqlm::song::Entity, sqlm::song::Column::Id)))
-        .expr(Expr::col((sqlm::album::Entity, sqlm::album::Column::Id)))
-        .from(sqlm::song::Entity)
-        .inner_join(
-            al_item_id_map.clone(),
-            Expr::col((sqlm::song::Entity, sqlm::song::Column::NativeId))
-                .equals((al_item_id_map.clone(), Alias::new("song_item_id"))),
-        )
-        .inner_join(
-            sqlm::album::Entity,
-            Expr::col((sqlm::album::Entity, sqlm::album::Column::NativeId))
-                .equals((al_item_id_map.clone(), Alias::new("album_item_id"))),
-        )
-        .and_where(Expr::col((sqlm::song::Entity, sqlm::song::Column::LibraryId)).eq(library_id))
-        .to_owned();
-
-    let with_clause = WithClause::new()
-        .cte(
-            CommonTableExpression::new()
-                .query(
-                    Query::select()
-                        .column(Asterisk)
-                        .from_values(ids, Alias::new("input"))
-                        .to_owned(),
-                )
-                .columns([Alias::new("song_item_id"), Alias::new("album_item_id")])
-                .table_name(al_item_id_map.clone())
-                .to_owned(),
-        )
+    let with_clause_final = with_clause
         .cte(
             CommonTableExpression::new()
                 .query(relations)
-                .columns([Alias::new("id"), Alias::new("album_id")])
+                .columns([Alias::new("id"), Alias::new("album_id"), Alias::new("update_at")])
                 .table_name(Alias::new("res"))
                 .to_owned(),
         )
@@ -405,7 +354,7 @@ pub async fn sync_song_album_ids(
             Expr::col((Alias::new("res"), Alias::new("album_id"))),
         )
         .to_owned()
-        .with(with_clause)
+        .with(with_clause_final)
         .to_owned();
 
     let raw = format!(
@@ -420,16 +369,20 @@ pub async fn sync_song_album_ids(
     Ok(())
 }
 
-pub async fn sync_dynamic_items<I>(txn: &DatabaseTransaction, item_commons: I) -> Result<(), DbErr>
+pub async fn allocate_items<I>(
+    txn: &DatabaseTransaction,
+    items: I,
+) -> Result<Vec<i64>, DbErr>
 where
-    I: IntoIterator<Item = sqlm::dynamic::ActiveModel>,
+    I: IntoIterator<Item = sqlm::item::ActiveModel>,
 {
     let conflict = [
-        sqlm::dynamic::Column::ItemId,
-        sqlm::dynamic::Column::ItemType,
+        sqlm::item::Column::NativeId,
+        sqlm::item::Column::LibraryId,
+        sqlm::item::Column::ProviderId,
+        sqlm::item::Column::Type,
     ];
-    let exclude = [sqlm::dynamic::Column::Id];
-    DbChunkOper::<50>::insert(txn, item_commons, &conflict, &exclude).await?;
-
-    Ok(())
+    let exclude = [sqlm::item::Column::Id];
+    let out = DbChunkOper::<50>::insert_return_key(txn, items, &conflict, &exclude).await?;
+    Ok(out)
 }

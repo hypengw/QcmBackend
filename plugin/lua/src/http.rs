@@ -306,18 +306,18 @@ pub struct LuaBatchRequest(BatchRequest);
 
 impl UserData for LuaBatchRequest {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("add", |_, this, ud: LuaAnyUserData| {
+        methods.add_async_method("add", |_, this, ud: LuaAnyUserData| async move {
             let mut rsp = ud.borrow_mut::<LuaRequestBuilder>()?;
             let (client, req) = rsp.build_split()?;
-            this.0.add(req, client);
-            Ok(())
+            Ok(this.0.add(req, client).await)
         });
 
-        methods.add_method("add_rsp", |_, this, ud: LuaAnyUserData| {
+        methods.add_async_method("add_rsp", |_, this, ud: LuaAnyUserData| async move {
             let mut rsp = ud.borrow_mut::<LuaResponse>()?;
-            this.0
-                .add_rsp(rsp.0.take().ok_or(mlua::Error::UserDataBorrowError)?);
-            Ok(())
+            Ok(this
+                .0
+                .add_rsp(rsp.0.take().ok_or(mlua::Error::UserDataBorrowError)?)
+                .await)
         });
 
         methods.add_async_method("wait_one", |lua, this, ()| async move {

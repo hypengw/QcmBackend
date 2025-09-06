@@ -473,14 +473,10 @@ impl LuaUserData for LuaContext {
             let models: Vec<sqlm::album::Model> = lua.from_value(models)?;
 
             let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-            let conflict = [
-                sqlm::album::Column::LibraryId,
-                sqlm::album::Column::NativeId,
-            ];
+            let conflict = [sqlm::album::Column::Id];
             let exclude = [sqlm::album::Column::Id];
             let iter = models.into_iter().map(|i| {
-                let mut a: sqlm::album::ActiveModel = i.into();
-                a.id = NotSet;
+                let a: sqlm::album::ActiveModel = i.into();
                 a
             });
 
@@ -495,14 +491,10 @@ impl LuaUserData for LuaContext {
             let models: Vec<sqlm::artist::Model> = lua.from_value(models)?;
 
             let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-            let conflict = [
-                sqlm::artist::Column::LibraryId,
-                sqlm::artist::Column::NativeId,
-            ];
+            let conflict = [sqlm::artist::Column::Id];
             let exclude = [sqlm::artist::Column::Id];
             let iter = models.into_iter().map(|i| {
-                let mut a: sqlm::artist::ActiveModel = i.into();
-                a.id = NotSet;
+                let a: sqlm::artist::ActiveModel = i.into();
                 a
             });
 
@@ -517,11 +509,10 @@ impl LuaUserData for LuaContext {
             let models: Vec<sqlm::song::Model> = lua.from_value(models)?;
 
             let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-            let conflict = [sqlm::song::Column::LibraryId, sqlm::song::Column::NativeId];
+            let conflict = [sqlm::song::Column::Id];
             let exclude = [sqlm::song::Column::Id];
             let iter = models.into_iter().map(|i| {
-                let mut a: sqlm::song::ActiveModel = i.into();
-                a.id = NotSet;
+                let a: sqlm::song::ActiveModel = i.into();
                 a
             });
 
@@ -536,11 +527,7 @@ impl LuaUserData for LuaContext {
             let models: Vec<sqlm::image::Model> = lua.from_value(models)?;
 
             let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-            let conflict = [
-                sqlm::image::Column::ItemId,
-                sqlm::image::Column::ItemType,
-                sqlm::image::Column::ImageType,
-            ];
+            let conflict = [sqlm::image::Column::ItemId, sqlm::image::Column::ImageType];
             let exclude = [sqlm::image::Column::Id];
             let iter = models.into_iter().map(|i| {
                 let mut a: sqlm::image::ActiveModel = i.into();
@@ -562,10 +549,7 @@ impl LuaUserData for LuaContext {
                 let opts: Option<LuaSyncOption> = lua.from_value(lua_syncopt)?;
 
                 let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-                let conflict = [
-                    sqlm::dynamic::Column::ItemId,
-                    sqlm::dynamic::Column::ItemType,
-                ];
+                let conflict = [sqlm::dynamic::Column::Id];
                 let mut exclude = vec![sqlm::dynamic::Column::Id];
 
                 if let Some(opts) = opts {
@@ -573,8 +557,7 @@ impl LuaUserData for LuaContext {
                 }
 
                 let iter = models.into_iter().map(|i| {
-                    let mut a: sqlm::dynamic::ActiveModel = i.into();
-                    a.id = NotSet;
+                    let a: sqlm::dynamic::ActiveModel = i.into();
                     a
                 });
 
@@ -648,6 +631,38 @@ impl LuaUserData for LuaContext {
 
                 txn.commit().await.map_err(mlua::Error::external)?;
                 Ok(())
+            },
+        );
+
+        methods.add_async_method(
+            "allocate_items",
+            |lua, this, (models,): (LuaValue,)| async move {
+                if let LuaValue::Table(t) = models.clone() {
+                    if let Some(pid) = this.1 {
+                        let _ = t.for_each(|_: LuaValue, v: LuaTable| {
+                            if !v.contains_key("provider_id").unwrap_or(false) {
+                                let _ = v.set("provider_id", pid);
+                            }
+                            Ok(())
+                        });
+                    }
+                }
+
+                let models: Vec<sqlm::item::Model> = lua.from_value(models)?;
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+
+                let iter = models.into_iter().map(|i| {
+                    let mut a: sqlm::item::ActiveModel = i.into();
+                    a.id = NotSet;
+                    a
+                });
+
+                let out = qcm_core::db::sync::allocate_items(&txn, iter)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(out)
             },
         );
     }

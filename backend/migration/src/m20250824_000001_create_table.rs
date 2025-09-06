@@ -25,20 +25,93 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
+                    .table(item::Entity)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(item::Column::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(item::Column::NativeId).string().not_null())
+                    .col(ColumnDef::new(item::Column::LibraryId).big_integer())
+                    .col(
+                        ColumnDef::new(item::Column::ProviderId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(item::Column::Type).integer().not_null())
+                    .col(timestamp_col(item::Column::CreateAt))
+                    .col(timestamp_col(item::Column::UpdateAt))
+                    .col(timestamp_col(item::Column::LastSyncAt))
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_album_library")
+                            .from(item::Entity, item::Column::LibraryId)
+                            .to(library::Entity, library::Column::LibraryId)
+                            .on_delete(sea_query::ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name(unique_index_name!(item::Entity, item::Column::NativeId))
+                    .table(item::Entity)
+                    .col(item::Column::NativeId)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .unique()
+                    .name(unique_index_name!(
+                        item::Entity,
+                        item::Column::NativeId,
+                        item::Column::Type,
+                        item::Column::LibraryId
+                    ))
+                    .table(item::Entity)
+                    .col(item::Column::NativeId)
+                    .col(item::Column::Type)
+                    .col(item::Column::LibraryId)
+                    .and_where(Expr::col(item::Column::LibraryId).is_not_null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .unique()
+                    .name(unique_index_name!(
+                        item::Entity,
+                        item::Column::NativeId,
+                        item::Column::Type,
+                        item::Column::ProviderId
+                    ))
+                    .table(item::Entity)
+                    .col(item::Column::NativeId)
+                    .col(item::Column::Type)
+                    .col(item::Column::ProviderId)
+                    .col(item::Column::LibraryId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
                     .table(album::Entity)
                     .if_not_exists()
                     .col(
                         ColumnDef::new(album::Column::Id)
                             .big_integer()
                             .not_null()
-                            .auto_increment()
                             .primary_key(),
-                    )
-                    .col(ColumnDef::new(album::Column::NativeId).string().not_null())
-                    .col(
-                        ColumnDef::new(album::Column::LibraryId)
-                            .big_integer()
-                            .not_null(),
                     )
                     .col(ColumnDef::new(album::Column::Name).string().not_null())
                     .col(ColumnDef::new(album::Column::SortName).string())
@@ -63,25 +136,15 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(album::Column::Language).string())
                     .col(ColumnDef::new(album::Column::PublishTime).big_integer())
                     .col(ColumnDef::new(album::Column::AddedAt).big_integer())
-                    .col(timestamp_col(album::Column::CreateAt))
-                    .col(timestamp_col(album::Column::UpdateAt))
-                    .col(timestamp_col(album::Column::LastSyncAt))
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk_album_library")
-                            .from(album::Entity, album::Column::LibraryId)
-                            .to(library::Entity, library::Column::LibraryId)
+                            .name("fk_album_item_id")
+                            .from(album::Entity, album::Column::Id)
+                            .to(item::Entity, item::Column::Id)
                             .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
-            .await?;
-        manager
-            .create_index(unique_index!(
-                album::Entity,
-                album::Column::NativeId,
-                album::Column::LibraryId
-            ))
             .await?;
 
         manager
@@ -93,17 +156,10 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(artist::Column::Id)
                             .big_integer()
                             .not_null()
-                            .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(artist::Column::NativeId).string().not_null())
                     .col(ColumnDef::new(artist::Column::Name).string().not_null())
                     .col(ColumnDef::new(artist::Column::SortName).string())
-                    .col(
-                        ColumnDef::new(artist::Column::LibraryId)
-                            .big_integer()
-                            .not_null(),
-                    )
                     .col(
                         ColumnDef::new(artist::Column::Description)
                             .string()
@@ -120,25 +176,15 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(artist::Column::AddedAt).big_integer())
-                    .col(timestamp_col(artist::Column::CreateAt))
-                    .col(timestamp_col(artist::Column::UpdateAt))
-                    .col(timestamp_col(artist::Column::LastSyncAt))
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk_artist_library")
-                            .from(artist::Entity, artist::Column::LibraryId)
-                            .to(library::Entity, library::Column::LibraryId)
+                            .name("fk_artist_item_id")
+                            .from(artist::Entity, artist::Column::Id)
+                            .to(item::Entity, item::Column::Id)
                             .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
-            .await?;
-        manager
-            .create_index(unique_index!(
-                artist::Entity,
-                artist::Column::NativeId,
-                artist::Column::LibraryId
-            ))
             .await?;
 
         manager
@@ -230,12 +276,6 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(song::Column::NativeId).string().not_null())
-                    .col(
-                        ColumnDef::new(song::Column::LibraryId)
-                            .big_integer()
-                            .not_null(),
-                    )
                     .col(ColumnDef::new(song::Column::Name).string().not_null())
                     .col(ColumnDef::new(song::Column::SortName).string())
                     .col(ColumnDef::new(song::Column::AlbumId).big_integer())
@@ -259,14 +299,11 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(song::Column::Popularity).double().not_null())
                     .col(ColumnDef::new(song::Column::PublishTime).big_integer())
                     .col(ColumnDef::new(album::Column::AddedAt).big_integer())
-                    .col(timestamp_col(album::Column::CreateAt))
-                    .col(timestamp_col(album::Column::UpdateAt))
-                    .col(timestamp_col(album::Column::LastSyncAt))
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk_song_library")
-                            .from(song::Entity, song::Column::LibraryId)
-                            .to(library::Entity, library::Column::LibraryId)
+                            .name("fk_song_item")
+                            .from(song::Entity, song::Column::Id)
+                            .to(item::Entity, item::Column::Id)
                             .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .foreign_key(
@@ -278,13 +315,6 @@ impl MigrationTrait for Migration {
                     )
                     .to_owned(),
             )
-            .await?;
-        manager
-            .create_index(unique_index!(
-                song::Entity,
-                song::Column::NativeId,
-                song::Column::LibraryId
-            ))
             .await?;
 
         manager
@@ -452,21 +482,6 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(dynamic::Column::LibraryId)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(dynamic::Column::ItemId)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(dynamic::Column::ItemType)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
                         ColumnDef::new(dynamic::Column::PlayCount)
                             .big_integer()
                             .not_null()
@@ -495,24 +510,12 @@ impl MigrationTrait for Migration {
                     .col(timestamp_col(dynamic::Column::UpdateAt))
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-dynamic-library_id")
-                            .from(dynamic::Entity, dynamic::Column::LibraryId)
-                            .to(library::Entity, library::Column::LibraryId)
+                            .name("fk-dynamic-item")
+                            .from(dynamic::Entity, dynamic::Column::Id)
+                            .to(item::Entity, item::Column::Id)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
                     )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx-dynamic-item")
-                    .table(dynamic::Entity)
-                    .col(dynamic::Column::ItemId)
-                    .col(dynamic::Column::ItemType)
-                    .unique()
                     .to_owned(),
             )
             .await?;
@@ -534,13 +537,7 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(image::Column::ItemType).string().not_null())
                     .col(ColumnDef::new(image::Column::ImageType).string().not_null())
-                    .col(
-                        ColumnDef::new(image::Column::LibraryId)
-                            .big_integer()
-                            .not_null(),
-                    )
                     .col(ColumnDef::new(image::Column::NativeId).string())
                     .col(ColumnDef::new(image::Column::Db).string())
                     .col(ColumnDef::new(image::Column::Fresh).string().not_null())
@@ -549,25 +546,23 @@ impl MigrationTrait for Migration {
                             .timestamp()
                             .not_null(),
                     )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-image-item")
+                            .from(image::Entity, image::Column::ItemId)
+                            .to(item::Entity, item::Column::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
                     .index(
                         Index::create()
                             .unique()
                             .name("idx-image-unique")
                             .col(image::Column::ItemId)
-                            .col(image::Column::ItemType)
                             .col(image::Column::ImageType),
                     )
                     .to_owned(),
             )
-            .await?;
-
-        manager
-            .create_index(unique_index!(
-                image::Entity,
-                image::Column::ItemId,
-                image::Column::ItemType,
-                image::Column::ImageType
-            ))
             .await?;
 
         manager

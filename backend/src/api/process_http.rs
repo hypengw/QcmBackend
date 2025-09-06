@@ -68,11 +68,11 @@ async fn process_http_get_image(
         ItemType::Album => {
             let (native_id, provider_id, image_native_id): (String, i64, Option<String>) =
                 sqlm::album::Entity::find_by_id(id)
+                    .inner_join(sqlm::item::Entity)
                     .select_only()
-                    .column(sqlm::album::Column::NativeId)
-                    .column(sqlm::library::Column::ProviderId)
+                    .column(sqlm::item::Column::NativeId)
+                    .column(sqlm::item::Column::ProviderId)
                     .column(sqlm::image::Column::NativeId)
-                    .left_join(sqlm::library::Entity)
                     .left_join(sqlm::image::Entity)
                     .filter(filter_image_type(image_type))
                     .into_tuple()
@@ -92,11 +92,11 @@ async fn process_http_get_image(
         ItemType::Song => {
             let (mut native_id, provider_id, mut image_native_id): (String, i64, Option<String>) =
                 sqlm::song::Entity::find_by_id(id)
+                    .inner_join(sqlm::item::Entity)
                     .select_only()
-                    .column(sqlm::song::Column::NativeId)
-                    .column(sqlm::library::Column::ProviderId)
+                    .column(sqlm::item::Column::NativeId)
+                    .column(sqlm::item::Column::ProviderId)
                     .column(sqlm::image::Column::NativeId)
-                    .left_join(sqlm::library::Entity)
                     .left_join(sqlm::image::Entity)
                     .filter(filter_image_type(image_type))
                     .into_tuple()
@@ -107,8 +107,9 @@ async fn process_http_get_image(
             if image_native_id.is_none() {
                 let (album_native_id, album_image_native_id): (Option<String>, Option<String>) =
                     sqlm::album::Entity::find()
+                        .inner_join(sqlm::item::Entity)
                         .select_only()
-                        .column(sqlm::album::Column::NativeId)
+                        .column(sqlm::item::Column::NativeId)
                         .column(sqlm::image::Column::NativeId)
                         .left_join(sqlm::image::Entity)
                         .filter(
@@ -150,11 +151,11 @@ async fn process_http_get_image(
         ItemType::Artist => {
             let (native_id, provider_id, image_id): (String, i64, Option<String>) =
                 sqlm::artist::Entity::find_by_id(id)
+                    .inner_join(sqlm::item::Entity)
                     .select_only()
-                    .column(sqlm::artist::Column::NativeId)
-                    .column(sqlm::library::Column::ProviderId)
+                    .column(sqlm::item::Column::NativeId)
+                    .column(sqlm::item::Column::ProviderId)
                     .column(sqlm::image::Column::NativeId)
-                    .left_join(sqlm::library::Entity)
                     .left_join(sqlm::image::Entity)
                     .filter(filter_image_type(image_type))
                     .into_tuple()
@@ -217,10 +218,10 @@ pub async fn process_http_get(
                     let id = parse_id(id)?;
                     let (native_id, provider_id): (String, i64) =
                         sqlm::song::Entity::find_by_id(id)
+                            .inner_join(sqlm::item::Entity)
                             .select_only()
-                            .column(sqlm::song::Column::NativeId)
-                            .column(sqlm::library::Column::ProviderId)
-                            .left_join(sqlm::library::Entity)
+                            .column(sqlm::item::Column::NativeId)
+                            .column(sqlm::item::Column::ProviderId)
                             .into_tuple()
                             .one(db)
                             .await?

@@ -334,8 +334,9 @@ pub async fn process_qcm(
                     req.sort.try_into().unwrap_or(msg::model::AlbumSort::Title);
                 let sort_col: sqlm::album::Column = sort.qcm_into();
                 let query = sqlm::album::Entity::find()
+                    .inner_join(sqlm::item::Entity)
                     .left_join(sqlm::dynamic::Entity)
-                    .filter(sqlm::album::Column::LibraryId.is_in(req.library_id.clone()))
+                    .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .filter(sqlm::dynamic::Column::IsExternal.eq(false))
                     .qcm_filters(&req.filters)
                     .order_by(
@@ -370,7 +371,8 @@ pub async fn process_qcm(
                     req.sort.try_into().unwrap_or(msg::model::ArtistSort::Name);
                 let sort_col: sqlm::artist::Column = sort.qcm_into();
                 let paginator = sqlm::artist::Entity::find()
-                    .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
+                    .inner_join(sqlm::item::Entity)
+                    .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_album_artist::Entity)
                     .qcm_filters(&req.filters)
                     .order_by(
@@ -407,7 +409,8 @@ pub async fn process_qcm(
                     req.sort.try_into().unwrap_or(msg::model::ArtistSort::Name);
                 let sort_col: sqlm::artist::Column = sort.qcm_into();
                 let paginator = sqlm::artist::Entity::find()
-                    .filter(sqlm::artist::Column::LibraryId.is_in(req.library_id.clone()))
+                    .inner_join(sqlm::item::Entity)
+                    .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_song_artist::Entity)
                     .qcm_filters(&req.filters)
                     .order_by(
@@ -537,10 +540,10 @@ pub async fn process_qcm(
 
                 let (native_id, provider_id): (String, i64) =
                     sqlm::song::Entity::find_by_id(req.song_id)
+                        .inner_join(sqlm::item::Entity)
                         .select_only()
-                        .column(sqlm::song::Column::NativeId)
-                        .column(sqlm::library::Column::ProviderId)
-                        .left_join(sqlm::library::Entity)
+                        .column(sqlm::item::Column::NativeId)
+                        .column(sqlm::item::Column::ProviderId)
                         .into_tuple()
                         .one(db)
                         .await?
@@ -577,13 +580,16 @@ pub async fn process_qcm(
 
                 let format_query = |table: &str, fts: &str| {
                     let db_backend = ctx.provider_context.db.get_database_backend();
+                    let item_table_et = sqlm::item::Entity::default();
+                    let item_table = item_table_et.table_name();
                     Statement::from_sql_and_values(
                         db_backend,
                         format!(
                             r#"
                                     SELECT {table}.* FROM {table}
+                                    INNER JOIN {item_table} ON {item_table}.id = {table}.id
                                     INNER JOIN {fts} ON {table}.id = {fts}.rowid
-                                    WHERE {fts} MATCH qcm_query(?) AND {table}.library_id IN ({library_ids})
+                                    WHERE {fts} MATCH qcm_query(?) AND {item_table}.library_id IN ({library_ids})
                                     "#
                         ),
                         [search_query.clone().into()],
@@ -680,40 +686,15 @@ pub async fn process_qcm(
                     .try_into()
                     .map_err(|_| ProcessError::NoSuchItemType(req.item_type.to_string()))?;
 
-                use sea_orm::{sea_query::Expr, Set};
-
-                let (library_id, provider_id, native_id): (i64, i64, String) = {
-                    let query = sqlm::library::Entity::find()
+                let (provider_id, native_id): (i64, String) = {
+                    sqlm::library::Entity::find_by_id(req.id)
                         .select_only()
-                        .column(sqlm::library::Column::LibraryId)
-                        .column(sqlm::library::Column::ProviderId);
-                    match item_type {
-                        ItemType::Album => query
-                            .column(sqlm::album::Column::NativeId)
-                            .inner_join(sqlm::album::Entity)
-                            .filter(
-                                Expr::col((sqlm::album::Entity, sqlm::album::Column::Id))
-                                    .eq(req.id),
-                            ),
-                        ItemType::Artist => query
-                            .column(sqlm::artist::Column::NativeId)
-                            .inner_join(sqlm::artist::Entity)
-                            .filter(
-                                Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id))
-                                    .eq(req.id),
-                            ),
-                        ItemType::Song => query
-                            .column(sqlm::song::Column::NativeId)
-                            .inner_join(sqlm::song::Entity)
-                            .filter(
-                                Expr::col((sqlm::song::Entity, sqlm::song::Column::Id)).eq(req.id),
-                            ),
-                        _ => query,
-                    }
-                    .into_tuple()
-                    .one(db)
-                    .await?
-                    .ok_or(ProcessError::NotFound)?
+                        .column(sqlm::item::Column::ProviderId)
+                        .column(sqlm::item::Column::NativeId)
+                        .into_tuple()
+                        .one(db)
+                        .await?
+                        .ok_or(ProcessError::NotFound)?
                 };
 
                 let provider = global::provider(provider_id)
@@ -723,28 +704,24 @@ pub async fn process_qcm(
                     .favorite(&ctx.provider_context, &native_id, item_type, req.value)
                     .await?;
 
+                use sea_orm::Set;
+
                 match item_type {
                     ItemType::Album | ItemType::Song | ItemType::Artist => {
                         let m = sqlm::dynamic::ActiveModel {
-                            id: NotSet,
-                            item_id: Set(req.id),
-                            item_type: Set(item_type.into()),
+                            id: Set(req.id),
                             favorite_at: Set(match req.value {
                                 true => Some(Timestamp::now()),
                                 false => None,
                             }),
-                            library_id: Set(library_id),
                             ..Default::default()
                         };
 
                         sqlm::dynamic::Entity::insert(m)
                             .on_conflict(
-                                sea_query::OnConflict::columns([
-                                    sqlm::dynamic::Column::ItemId,
-                                    sqlm::dynamic::Column::ItemType,
-                                ])
-                                .update_column(sqlm::dynamic::Column::FavoriteAt)
-                                .to_owned(),
+                                sea_query::OnConflict::columns([sqlm::dynamic::Column::Id])
+                                    .update_column(sqlm::dynamic::Column::FavoriteAt)
+                                    .to_owned(),
                             )
                             .exec(db)
                             .await?;
@@ -789,6 +766,31 @@ pub async fn process_qcm(
                 }
 
                 return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::PlaylogReq => {
+            if let Some(Payload::PlaylogReq(req)) = payload {
+                use sea_orm::Set;
+
+                let m = sqlm::dynamic::ActiveModel {
+                    id: Set(req.song_id),
+                    last_played_at: Set(Some(Timestamp::from_millis(req.timestamp))),
+                    play_count: Set(1),
+                    ..Default::default()
+                };
+
+                sqlm::dynamic::Entity::insert(m)
+                    .on_conflict(
+                        sea_query::OnConflict::columns([sqlm::dynamic::Column::Id])
+                            .update_column(sqlm::dynamic::Column::LastPlayedAt)
+                            .value(
+                                sqlm::dynamic::Column::PlayCount,
+                                Expr::col(sqlm::dynamic::Column::PlayCount).add(1),
+                            )
+                            .to_owned(),
+                    )
+                    .exec(&ctx.provider_context.db)
+                    .await?;
             }
         }
         MessageType::SyncReq => {

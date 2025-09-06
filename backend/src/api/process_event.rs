@@ -43,24 +43,33 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
                             let _ = tx.send(tid);
                         }
                         let id = p.id().unwrap();
-                        let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
-                            id,
-                            commit: SyncCommit::SetState(SyncState::Syncing),
-                        });
+                        let _ = ctx
+                            .ev_sender
+                            .send(CoreEvent::SyncCommit {
+                                id,
+                                commit: SyncCommit::SetState(SyncState::Syncing),
+                            })
+                            .await;
 
                         match p.sync(&ctx).await {
                             Err(err) => {
                                 log::error!("{:?}", err);
-                                let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
-                                    id,
-                                    commit: SyncCommit::SetState(err.into()),
-                                });
+                                let _ = ctx
+                                    .ev_sender
+                                    .send(CoreEvent::SyncCommit {
+                                        id,
+                                        commit: SyncCommit::SetState(err.into()),
+                                    })
+                                    .await;
                             }
                             Ok(_) => {
-                                let _ = ctx.ev_sender.try_send(CoreEvent::SyncCommit {
-                                    id,
-                                    commit: SyncCommit::SetState(SyncState::Finished),
-                                });
+                                let _ = ctx
+                                    .ev_sender
+                                    .send(CoreEvent::SyncCommit {
+                                        id,
+                                        commit: SyncCommit::SetState(SyncState::Finished),
+                                    })
+                                    .await;
                             }
                         }
                         log::info!("sync end: {}", name);
@@ -71,7 +80,8 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
         Event::SyncCommit { id, commit } => {
             let _ = ctx
                 .backend_ev
-                .try_send(BackendEvent::SyncCommit { id, commit });
+                .send(BackendEvent::SyncCommit { id, commit })
+                .await;
         }
         Event::End => return Ok(true),
     }

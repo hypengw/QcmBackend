@@ -73,6 +73,7 @@ enum BatchResponseMsg {
     Add(reqwest::Request, reqwest::Client),
     AddRsp(reqwest::Response),
     Wait(oneshot::Sender<Option<Result<Bytes, reqwest::Error>>>),
+    Count(oneshot::Sender<usize>),
 }
 pub struct BatchRequest {
     tx: Sender<BatchResponseMsg>,
@@ -80,7 +81,7 @@ pub struct BatchRequest {
 
 impl BatchRequest {
     pub fn new() -> Self {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<BatchResponseMsg>(100);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<BatchResponseMsg>(64);
 
         tokio::spawn({
             async move {
@@ -102,6 +103,11 @@ impl BatchRequest {
                                 log::error!("Then recv droped");
                             }
                         }
+                        Some(BatchResponseMsg::Count(tx)) => {
+                            if let Err(_) = tx.send(futures.len()) {
+                                log::error!("Then recv droped");
+                            }
+                        }
                         Some(msg) => {
                             futures.push(new_future(msg));
                         }
@@ -115,17 +121,26 @@ impl BatchRequest {
         Self { tx: tx }
     }
 
-    pub fn add(&self, req: reqwest::Request, client: reqwest::Client) {
-        let _ = self.tx.try_send(BatchResponseMsg::Add(req, client));
+    async fn send_with_count(&self, msg: BatchResponseMsg) -> Option<usize> {
+        let _ = self.tx.send(msg).await;
+        let (tx, rx) = oneshot::channel();
+        let _ = self.tx.send(BatchResponseMsg::Count(tx)).await;
+        rx.await.ok()
     }
 
-    pub fn add_rsp(&self, rsp: reqwest::Response) {
-        let _ = self.tx.try_send(BatchResponseMsg::AddRsp(rsp));
+    pub async fn add(&self, req: reqwest::Request, client: reqwest::Client) -> Option<usize> {
+        self.send_with_count(BatchResponseMsg::Add(req, client))
+            .await
+    }
+
+    pub async fn add_rsp(&self, rsp: reqwest::Response) -> Option<usize> {
+        let msg = BatchResponseMsg::AddRsp(rsp);
+        self.send_with_count(msg).await
     }
 
     pub async fn wait_one(&self) -> Option<Result<Bytes, reqwest::Error>> {
         let (tx, rx) = oneshot::channel();
-        let _ = self.tx.try_send(BatchResponseMsg::Wait(tx));
+        let _ = self.tx.send(BatchResponseMsg::Wait(tx)).await;
         match rx.await {
             Ok(rsp) => rsp,
             Err(_) => {

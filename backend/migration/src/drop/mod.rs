@@ -6,3 +6,5 @@ pub mod m20250523_145233_create_dynamic_table;
 pub mod m20250418_145233_create_table;
 pub mod m20250718_000001_create_rel_index;
 pub mod m20250814_000001_album_add_col;
+pub mod m20250801_000001_create_table;
+pub mod m20250815_145233_create_fts_table;

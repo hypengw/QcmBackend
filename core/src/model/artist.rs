@@ -9,11 +9,10 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub native_id: String,
+
     pub name: String,
     #[serde(default)]
     pub sort_name: Option<String>,
-    pub library_id: i64,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -22,47 +21,28 @@ pub struct Model {
     pub music_count: i32,
     #[serde(default)]
     pub added_at: Option<Timestamp>,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub create_at: Timestamp,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub update_at: Timestamp,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub last_sync_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::library::Entity",
-        from = "Column::LibraryId",
-        to = "super::library::Column::LibraryId"
+        belongs_to = "super::item::Entity",
+        from = "Column::Id",
+        to = "super::item::Column::Id"
     )]
-    Library,
-    #[sea_orm(
-        has_many = "super::image::Entity",
-        on_condition = r#"Expr::col(super::image::Column::ItemType).eq(ItemType::Artist)"#
-    )]
+    Item,
+    #[sea_orm(has_many = "super::image::Entity")]
     Image,
-    #[sea_orm(
-        has_many = "super::dynamic::Entity",
-        on_condition = r#"Expr::col(super::dynamic::Column::ItemType).eq(ItemType::Artist)"#
-    )]
-    Dynamic,
     #[sea_orm(has_many = "super::rel_album_artist::Entity")]
     RelAlbum,
     #[sea_orm(has_many = "super::rel_song_artist::Entity")]
     RelSong,
 }
 
-impl Related<super::library::Entity> for Entity {
+
+impl Related<super::item::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Library.def()
+        Relation::Item.def()
     }
 }
 impl Related<super::image::Entity> for Entity {

@@ -206,8 +206,6 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
     fn qcm_from(v: proto::Album) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
-            library_id: v.library_id,
             name: v.name,
             sort_name: match v.sort_name.is_empty() {
                 true => Some(v.sort_name),
@@ -225,9 +223,6 @@ impl QcmFrom<proto::Album> for core::model::album::Model {
             description: v.description.opt(),
             company: v.company.opt(),
             added_at: v.added_at.qcm_into(),
-            update_at: v.update_at.unwrap_or_default().qcm_into(),
-            create_at: Timestamp::now(),
-            last_sync_at: Timestamp::new(),
         }
     }
 }
@@ -236,8 +231,6 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
     fn qcm_from(v: core::model::album::Model) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
-            library_id: v.library_id,
             name: v.name,
             sort_name: v.sort_name.unwrap_or_default(),
             duration: v.duration,
@@ -248,7 +241,6 @@ impl QcmFrom<core::model::album::Model> for proto::Album {
             disc_count: v.disc_count,
             description: v.description.unwrap_or_default(),
             company: v.company.unwrap_or_default(),
-            update_at: Some(v.update_at.qcm_into()),
             added_at: v.added_at.qcm_into(),
         }
     }
@@ -258,17 +250,12 @@ impl QcmFrom<proto::Artist> for core::model::artist::Model {
     fn qcm_from(v: proto::Artist) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
             name: v.name,
             sort_name: v.sort_name.qcm_into(),
-            library_id: v.library_id,
             description: v.description,
             album_count: v.album_count,
             music_count: v.music_count,
-            update_at: v.update_at.unwrap_or_default().qcm_into(),
             added_at: v.added_at.qcm_into(),
-            create_at: Timestamp::now(),
-            last_sync_at: Timestamp::new(),
         }
     }
 }
@@ -277,14 +264,11 @@ impl QcmFrom<core::model::artist::Model> for proto::Artist {
     fn qcm_from(v: core::model::artist::Model) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
             name: v.name,
             sort_name: v.sort_name.qcm_into(),
-            library_id: v.library_id,
             description: v.description,
             album_count: v.album_count,
             music_count: v.music_count,
-            update_at: Some(v.update_at.qcm_into()),
             added_at: v.added_at.qcm_into(),
         }
     }
@@ -294,8 +278,6 @@ impl QcmFrom<proto::Song> for core::model::song::Model {
     fn qcm_from(v: proto::Song) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
-            library_id: v.library_id,
             name: v.name,
             sort_name: v.sort_name.qcm_into(),
             album_id: Some(v.album_id),
@@ -311,10 +293,7 @@ impl QcmFrom<proto::Song> for core::model::song::Model {
                     .map(|t| serde_json::Value::String(t))
                     .collect(),
             ),
-            update_at: Timestamp::now(),
             added_at: None,
-            create_at: Timestamp::now(),
-            last_sync_at: Timestamp::new(),
         }
     }
 }
@@ -323,8 +302,6 @@ impl QcmFrom<core::model::song::Model> for proto::Song {
     fn qcm_from(v: core::model::song::Model) -> Self {
         Self {
             id: v.id,
-            native_id: v.native_id,
-            library_id: v.library_id,
             name: v.name,
             sort_name: v.sort_name.qcm_into(),
             album_id: v.album_id.unwrap_or_default(),
@@ -356,9 +333,9 @@ impl QcmFrom<proto::Mix> for core::model::mix::Model {
             sort_name: v.sort_name.qcm_into(),
             track_count: v.track_count,
             description: v.description,
-            create_at: v.create_at.unwrap_or_default().qcm_into(),
-            update_at: v.update_at.unwrap_or_default().qcm_into(),
             added_at: None,
+            create_at: Timestamp::now(),
+            update_at: Timestamp::now(),
         }
     }
 }
@@ -371,8 +348,6 @@ impl QcmFrom<core::model::mix::Model> for proto::Mix {
             sort_name: v.sort_name.qcm_into(),
             track_count: v.track_count,
             description: v.description,
-            update_at: Some(v.update_at.qcm_into()),
-            create_at: Some(v.create_at.qcm_into()),
         }
     }
 }

@@ -5,6 +5,7 @@ pub mod collection;
 pub mod genre;
 pub mod library;
 pub mod provider;
+pub mod item;
 
 pub mod album;
 pub mod artist;

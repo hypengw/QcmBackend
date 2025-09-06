@@ -8,9 +8,6 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub library_id: i64,
-    pub item_id: i64,
-    pub item_type: ItemType,
 
     #[serde(default)]
     #[sea_orm(default)]
@@ -45,34 +42,28 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::library::Entity",
-        from = "Column::LibraryId",
-        to = "super::library::Column::LibraryId"
+        belongs_to = "super::item::Entity",
+        from = "Column::Id",
+        to = "super::item::Column::Id"
     )]
-    Library,
-    #[sea_orm(
-        belongs_to = "super::album::Entity",
-        from = "Column::ItemId",
-        to = "super::album::Column::Id"
-    )]
-    Album,
+    Item,
     #[sea_orm(
         belongs_to = "super::song::Entity",
-        from = "Column::ItemId",
+        from = "Column::Id",
         to = "super::song::Column::Id"
     )]
     Song,
     #[sea_orm(
-        belongs_to = "super::artist::Entity",
-        from = "Column::ItemId",
-        to = "super::artist::Column::Id"
+        belongs_to = "super::album::Entity",
+        from = "Column::Id",
+        to = "super::album::Column::Id"
     )]
-    Artist,
+    Album,
 }
 
-impl Related<super::library::Entity> for Entity {
+impl Related<super::item::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Library.def()
+        Relation::Item.def()
     }
 }
 impl Related<super::album::Entity> for Entity {
@@ -83,11 +74,6 @@ impl Related<super::album::Entity> for Entity {
 impl Related<super::song::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Song.def()
-    }
-}
-impl Related<super::artist::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Artist.def()
     }
 }
 

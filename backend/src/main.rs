@@ -1,5 +1,6 @@
 mod api;
 mod convert;
+mod db;
 mod error;
 mod event;
 mod fts;
@@ -7,7 +8,6 @@ mod global;
 mod http;
 mod msg;
 mod reverse;
-mod db;
 mod task;
 
 use anyhow;
@@ -254,13 +254,13 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn prepare_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
-    let db_path = data.join("backend.0.db");
+    let db_path = data.join("backend.1.db");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
     let mut opt = sea_orm::ConnectOptions::new(db_url);
     opt.sqlx_logging(true)
         .sqlx_logging_level(log::LevelFilter::Debug)
-        .sqlx_slow_statements_logging_settings(log::LevelFilter::Debug, Duration::from_secs(1));
+        .sqlx_slow_statements_logging_settings(log::LevelFilter::Info, Duration::from_secs(1));
 
     // mmap_size 128MB
     // journal_size_limit 64MB

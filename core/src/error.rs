@@ -1,4 +1,7 @@
+use std::error::Error as StdError;
+use std::sync::Arc;
 use thiserror::Error;
+type DynStdError = dyn StdError + Send + Sync;
 
 #[derive(Debug, Error)]
 pub enum ProviderError {
@@ -12,6 +15,14 @@ pub enum ProviderError {
     ParseSubtitle(String),
     #[error("Lua error: {0}")]
     Lua(String),
+    #[error(transparent)]
+    External(Arc<DynStdError>),
+    #[error("{err}\n{context}")]
+    WithContext {
+        context: String,
+        #[source]
+        err: Arc<ProviderError>,
+    },
     #[error("Not auth")]
     NotAuth,
     #[error("Unknown base")]

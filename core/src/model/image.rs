@@ -8,10 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub item_id: i64,
-    pub item_type: ItemType,
     pub image_type: ImageType,
-
-    pub library_id: i64, // foreign
 
     #[serde(default)]
     pub native_id: Option<String>,
@@ -24,16 +21,16 @@ pub struct Model {
     #[serde(default = "chrono::Utc::now")]
     pub timestamp: DateTimeUtc,
 }
-// unique: (item_id, item_type, image_type)
+// unique: (item_id, image_type)
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::library::Entity",
-        from = "Column::LibraryId",
-        to = "super::library::Column::LibraryId"
+        belongs_to = "super::item::Entity",
+        from = "Column::ItemId",
+        to = "super::item::Column::Id"
     )]
-    Library,
+    Item,
     #[sea_orm(
         belongs_to = "super::album::Entity",
         from = "Column::ItemId",
@@ -54,9 +51,15 @@ pub enum Relation {
     Artist,
 }
 
-impl Related<super::library::Entity> for Entity {
+impl Related<super::item::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Library.def()
+        Relation::Item.def()
+    }
+}
+
+impl Related<super::artist::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Artist.def()
     }
 }
 
@@ -65,14 +68,10 @@ impl Related<super::album::Entity> for Entity {
         Relation::Album.def()
     }
 }
+
 impl Related<super::song::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Song.def()
-    }
-}
-impl Related<super::artist::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Artist.def()
     }
 }
 

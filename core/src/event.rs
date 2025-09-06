@@ -26,7 +26,9 @@ pub enum SyncState {
     Syncing = 1,
     NotAuth = 2,
     NetworkError = 3,
-    UknownError = 4,
+    DBError = 4,
+    IOError = 5,
+    UknownError = 6,
 }
 
 pub enum SyncCommit {
@@ -47,13 +49,33 @@ pub enum Event {
     End,
 }
 
+fn sync_state_from_provider_error(e: &crate::error::ProviderError) -> SyncState {
+    use crate::error::ProviderError;
+    match e {
+        ProviderError::NotAuth => SyncState::NotAuth,
+        ProviderError::Request(_) => SyncState::NetworkError,
+        ProviderError::Db(_) => SyncState::DBError,
+        ProviderError::IO(_) => SyncState::IOError,
+        ProviderError::WithContext { err, .. } => sync_state_from_provider_error(err),
+        ProviderError::External(err) => {
+            if let Some(p_err) = err.downcast_ref::<ProviderError>() {
+                sync_state_from_provider_error(p_err)
+            } else if let Some(_) = err.downcast_ref::<sea_orm::DbErr>() {
+                SyncState::DBError
+            } else if let Some(_) = err.downcast_ref::<std::io::Error>() {
+                SyncState::IOError
+            } else if let Some(_) = err.downcast_ref::<reqwest::Error>() {
+                SyncState::NetworkError
+            } else {
+                SyncState::UknownError
+            }
+        }
+        _ => SyncState::UknownError,
+    }
+}
+
 impl From<crate::error::ProviderError> for SyncState {
     fn from(e: crate::error::ProviderError) -> Self {
-        use crate::error::ProviderError;
-        match e {
-            ProviderError::NotAuth => SyncState::NotAuth,
-            ProviderError::Request(_) => SyncState::NetworkError,
-            e => SyncState::UknownError,
-        }
+        sync_state_from_provider_error(&e)
     }
 }

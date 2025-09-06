@@ -9,11 +9,10 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub library_id: i64,
+
     pub name: String,
     #[serde(default)]
     pub sort_name: Option<String>,
-    pub native_id: String,
     #[sea_orm(nullable)]
     pub album_id: Option<i64>,
     pub track_number: i32,
@@ -30,54 +29,41 @@ pub struct Model {
     pub publish_time: Option<Timestamp>,
     #[serde(default)]
     pub added_at: Option<Timestamp>,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub create_at: Timestamp,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub update_at: Timestamp,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub last_sync_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::library::Entity",
-        from = "Column::LibraryId",
-        to = "super::library::Column::LibraryId"
+        belongs_to = "super::item::Entity",
+        from = "Column::Id",
+        to = "super::item::Column::Id"
     )]
-    Library,
+    Item,
+    #[sea_orm(has_one = "super::dynamic::Entity")]
+    Dynamic,
     #[sea_orm(
         belongs_to = "super::album::Entity",
         from = "Column::AlbumId",
         to = "super::album::Column::Id"
     )]
     Album,
-    #[sea_orm(
-        has_many = "super::image::Entity",
-        on_condition = r#"Expr::col(super::image::Column::ItemType).eq(ItemType::Song)"#
-    )]
+    #[sea_orm(has_many = "super::image::Entity")]
     Image,
-    #[sea_orm(
-        has_one = "super::dynamic::Entity",
-        on_condition = r#"Expr::col(super::dynamic::Column::ItemType).eq(ItemType::Song)"#
-    )]
-    Dynamic,
-
     #[sea_orm(has_many = "super::rel_mix_song::Entity")]
     RelMix,
     #[sea_orm(has_many = "super::rel_song_artist::Entity")]
     RelArtist,
 }
 
-impl Related<super::library::Entity> for Entity {
+impl Related<super::item::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Library.def()
+        Relation::Item.def()
+    }
+}
+
+impl Related<super::dynamic::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Dynamic.def()
     }
 }
 
@@ -91,11 +77,7 @@ impl Related<super::image::Entity> for Entity {
         Relation::Image.def()
     }
 }
-impl Related<super::dynamic::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Dynamic.def()
-    }
-}
+
 impl Related<super::rel_mix_song::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::RelMix.def()
