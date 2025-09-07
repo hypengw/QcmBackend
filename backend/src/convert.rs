@@ -365,21 +365,6 @@ impl QcmFrom<core::provider::ProviderMeta> for proto::ProviderMeta {
     }
 }
 
-impl QcmFrom<msg::model::AlbumSort> for sqlm::album::Column {
-    fn qcm_from(v: msg::model::AlbumSort) -> Self {
-        use msg::model::AlbumSort;
-        match v {
-            AlbumSort::Year => Self::PublishTime,
-            AlbumSort::PublishTime => Self::PublishTime,
-            AlbumSort::Title => Self::Name,
-            AlbumSort::SortTitle => Self::SortName,
-            AlbumSort::TrackCount => Self::TrackCount,
-            AlbumSort::AddedTime => Self::AddedAt,
-            AlbumSort::DiscCount => Self::DiscCount,
-        }
-    }
-}
-
 impl QcmFrom<msg::model::ArtistSort> for sqlm::artist::Column {
     fn qcm_from(v: msg::model::ArtistSort) -> Self {
         use msg::model::ArtistSort;

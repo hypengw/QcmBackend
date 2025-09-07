@@ -16,7 +16,7 @@ use sea_orm::{
 };
 
 use crate::api::{self, pagination::PageParams};
-use crate::convert::QcmInto;
+use crate::convert::{QcmInto, QcmTryInto};
 use crate::db::filter::SelectQcmMsgFilters;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
@@ -24,6 +24,22 @@ use crate::msg::{
     self, AuthProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
     GetSongsRsp, GetStorageInfoRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
+
+fn album_sort_col(sort: msg::model::AlbumSort) -> Expr {
+    use msg::model::AlbumSort;
+    match sort {
+        AlbumSort::LastPlayedAt => {
+            Expr::col((sqlm::dynamic::Entity, sqlm::dynamic::Column::LastPlayedAt))
+        }
+        AlbumSort::Year => Expr::col(sqlm::album::Column::PublishTime),
+        AlbumSort::PublishTime => Expr::col(sqlm::album::Column::PublishTime),
+        AlbumSort::Title => Expr::col(sqlm::album::Column::Name),
+        AlbumSort::SortTitle => Expr::col(sqlm::album::Column::SortName),
+        AlbumSort::TrackCount => Expr::col(sqlm::album::Column::TrackCount),
+        AlbumSort::AddedTime => Expr::col(sqlm::album::Column::AddedAt),
+        AlbumSort::DiscCount => Expr::col(sqlm::album::Column::DiscCount),
+    }
+}
 
 fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
     let mut artist_json: Vec<_> = Vec::new();
@@ -332,20 +348,18 @@ pub async fn process_qcm(
 
                 let sort: msg::model::AlbumSort =
                     req.sort.try_into().unwrap_or(msg::model::AlbumSort::Title);
-                let sort_col: sqlm::album::Column = sort.qcm_into();
+                let sort_asc = match req.sort_asc {
+                    true => sea_orm::Order::Asc,
+                    false => sea_orm::Order::Desc,
+                };
+
                 let query = sqlm::album::Entity::find()
                     .inner_join(sqlm::item::Entity)
                     .left_join(sqlm::dynamic::Entity)
                     .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .filter(sqlm::dynamic::Column::IsExternal.eq(false))
                     .qcm_filters(&req.filters)
-                    .order_by(
-                        sort_col,
-                        match req.sort_asc {
-                            true => sea_orm::Order::Asc,
-                            false => sea_orm::Order::Desc,
-                        },
-                    );
+                    .order_by(album_sort_col(sort), sort_asc);
 
                 let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -504,7 +518,7 @@ pub async fn process_qcm(
                     .sort
                     .try_into()
                     .unwrap_or(msg::model::AlbumSort::PublishTime);
-                let sort_col: sqlm::album::Column = sort.qcm_into();
+                let sort_col = album_sort_col(sort);
 
                 let artist = sqlm::artist::Entity::find_by_id(req.id)
                     .one(db)
@@ -772,14 +786,30 @@ pub async fn process_qcm(
             if let Some(Payload::PlaylogReq(req)) = payload {
                 use sea_orm::Set;
 
-                let m = sqlm::dynamic::ActiveModel {
+                let album_id: Option<i64> = sqlm::song::Entity::find_by_id(req.song_id)
+                    .select_only()
+                    .column(sqlm::song::Column::AlbumId)
+                    .into_tuple()
+                    .one(&ctx.provider_context.db)
+                    .await?;
+
+                let mut dys = Vec::new();
+                dys.push(sqlm::dynamic::ActiveModel {
                     id: Set(req.song_id),
                     last_played_at: Set(Some(Timestamp::from_millis(req.timestamp))),
                     play_count: Set(1),
                     ..Default::default()
-                };
+                });
+                if let Some(album_id) = album_id {
+                    dys.push(sqlm::dynamic::ActiveModel {
+                        id: Set(album_id),
+                        last_played_at: Set(Some(Timestamp::from_millis(req.timestamp))),
+                        play_count: Set(1),
+                        ..Default::default()
+                    });
+                }
 
-                sqlm::dynamic::Entity::insert(m)
+                sqlm::dynamic::Entity::insert_many(dys)
                     .on_conflict(
                         sea_query::OnConflict::columns([sqlm::dynamic::Column::Id])
                             .update_column(sqlm::dynamic::Column::LastPlayedAt)

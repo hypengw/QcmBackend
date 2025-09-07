@@ -130,6 +130,9 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                 Some(Payload::DiscCountFilter(disc_count)) => {
                     disc_count.get_expr_from_col(sqlm::album::Column::DiscCount)
                 }
+                Some(Payload::LastPlayedAtFilter(last_played_at)) => last_played_at.get_expr(
+                    Expr::col((sqlm::dynamic::Entity, sqlm::dynamic::Column::LastPlayedAt)),
+                ),
                 None => None,
             };
 
@@ -339,6 +342,7 @@ impl_string_filter!(msg::filter::AlbumTitleFilter);
 impl_id_filter!(msg::filter::ArtistIdFilter);
 impl_id_filter!(msg::filter::AlbumArtistIdFilter);
 impl_date_filter!(msg::filter::AddedDateFilter);
+impl_date_filter!(msg::filter::LastPlayedAtFilter);
 impl_type_filter!(msg::filter::TypeFilter);
 impl_int_filter!(msg::filter::DiscCountFilter);
 
@@ -424,9 +428,10 @@ pub fn date_condition_to_expr(
     val: Timestamp,
 ) -> Option<SimpleExpr> {
     match cond {
-        DateCondition::After => None,
-        DateCondition::Before => None,
-        DateCondition::Null => None,
+        DateCondition::After => Some(col.gte(val)),
+        DateCondition::Before => Some(col.lte(val)),
+        DateCondition::Null => Some(col.is_null()),
+        DateCondition::NotNull => Some(col.is_not_null()),
         DateCondition::Unspecified => None,
     }
 }
