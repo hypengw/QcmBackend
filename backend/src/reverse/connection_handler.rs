@@ -247,7 +247,7 @@ impl ConnectionHandler {
                                     return true;
                                 }
                             }
-                            ReadState::End => {
+                            ReadState::PieceEnd => {
                                 if self.start + self.file_info.content_length > self.cursor {
                                     if !self.request_read().await {
                                         return true;

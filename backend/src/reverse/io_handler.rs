@@ -19,23 +19,28 @@ pub fn process_io(
                     ctx.end_writer(&key);
                 }
                 IoEvent::RequestRead(key, id, cursor, has_cache) => {
-                    log::debug!(target: "reverse", "cnn {} RequestRead", id);
-                    let mut p = None;
+                    log::debug!(target: "reverse", "cnn {} RequestRead {}", id, cursor);
 
-                    if !ctx.can_read(id) {
-                        if has_cache {
-                            p = ctx.get_piece_from_file(&key, id, cursor);
-                        }
-                        if p.is_none() {
-                            p = ctx.get_piece_from_wirter(&key, id, cursor);
-                        }
-                        if p.is_none() {
-                            ctx.add_waiter(id, &key, cursor);
+                    match ctx.reader_state(id) {
+                        Some(ReadState::PieceEnd) | None => {
+                            let mut p = None;
+                            if has_cache {
+                                p = ctx.get_piece_from_file(&key, id, cursor);
+                            }
+                            if p.is_none() {
+                                p = ctx.get_piece_from_wirter(&key, id, cursor);
+                            }
+                            if p.is_none() {
+                                if !ctx.set_reader_state(id, ReadState::WaitPiece) {
+                                    ctx.add_waiter(id, &key, cursor);
+                                }
 
-                            log::debug!(target: "reverse", "cnn {} no cache", id);
-                            let _ = tx.blocking_send(EventBus::NoCache(id));
-                        } else {
-                            ctx.remove_waiter(id);
+                                log::debug!(target: "reverse", "cnn {} no cache on {}", id, cursor);
+                                let _ = tx.blocking_send(EventBus::NoCache(id));
+                            }
+                        }
+                        _ => {
+                            ctx.request_reader(id, cursor);
                         }
                     }
                 }
@@ -57,6 +62,7 @@ pub fn process_io(
                     let _ = res.send(ok);
                 }
                 IoEvent::DoWrite(key, offset, bytes) => {
+                    log::debug!(target: "reverse", "do write {} len {} on {}", offset, bytes.len(), *key);
                     if let Err(e) = ctx.do_write(
                         key.as_str(),
                         &bytes,
