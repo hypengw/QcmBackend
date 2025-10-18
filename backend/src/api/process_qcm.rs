@@ -1,10 +1,12 @@
 use migration::query;
 use prost::{self, Message};
 use qcm_core::db::values::Timestamp;
+use qcm_core::db::DbOper;
 use qcm_core::model::type_enum::CacheType;
 use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use sea_orm::ActiveValue::NotSet;
+use sea_orm::TransactionTrait;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -508,6 +510,68 @@ pub async fn process_qcm(
                     extra: None,
                 };
                 return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::CreateMixReq => {
+            if let Some(Payload::CreateMixReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                let new_mix = sqlm::mix::ActiveModel {
+                    name: sea_orm::Set(req.name.clone()),
+                    track_count: sea_orm::Set(0),
+                    ..Default::default()
+                };
+
+                let res = sqlm::mix::Entity::insert(new_mix).exec(db).await?;
+
+                let rsp = msg::CreateMixRsp {
+                    id: res.last_insert_id,
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::DeleteMixReq => {
+            if let Some(Payload::DeleteMixReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+                sqlm::mix::Entity::delete_by_id(req.id).exec(db).await?;
+                return Ok(Rsp::default().qcm_into());
+            }
+        }
+        MessageType::AddToMixReq => {
+            if let Some(Payload::AddToMixReq(req)) = payload {
+                let db = ctx.provider_context.db.begin().await?;
+                let models = req
+                    .song_ids
+                    .iter()
+                    .map(|song_id| sqlm::rel_mix_song::ActiveModel {
+                        mix_id: sea_orm::Set(req.id),
+                        song_id: sea_orm::Set(*song_id),
+                        ..Default::default()
+                    });
+
+                DbOper::insert(
+                    &db,
+                    models,
+                    &[
+                        sqlm::rel_mix_song::Column::SongId,
+                        sqlm::rel_mix_song::Column::MixId,
+                    ],
+                    &[],
+                )
+                .await?;
+                db.commit().await?;
+                return Ok(Rsp::default().qcm_into());
+            }
+        }
+        MessageType::RemoveFromMixReq => {
+            if let Some(Payload::RemoveFromMixReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+                sqlm::rel_mix_song::Entity::delete_many()
+                    .filter(sqlm::rel_mix_song::Column::SongId.is_in(req.song_ids.clone()))
+                    .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
+                    .exec(db)
+                    .await?;
+                return Ok(Rsp::default().qcm_into());
             }
         }
         MessageType::GetArtistAlbumReq => {
