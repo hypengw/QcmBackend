@@ -549,6 +549,8 @@ impl_from_for_qcm_msg!(GetMixRsp);
 impl_from_for_qcm_msg!(CreateMixReq);
 impl_from_for_qcm_msg!(CreateMixRsp);
 impl_from_for_qcm_msg!(DeleteMixReq);
+impl_from_for_qcm_msg!(GetMixSongsReq);
+impl_from_for_qcm_msg!(GetMixSongsRsp);
 
 
 

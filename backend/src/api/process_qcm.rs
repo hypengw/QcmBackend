@@ -27,6 +27,18 @@ use crate::msg::{
     GetSongsRsp, GetStorageInfoRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
 
+fn song_sort_col(sort: msg::model::SongSort) -> Expr {
+    use msg::model::SongSort;
+    match sort {
+        SongSort::PublishTime => Expr::col(sqlm::album::Column::PublishTime),
+        SongSort::Title => Expr::col(sqlm::album::Column::Name),
+        SongSort::SortTitle => Expr::col(sqlm::album::Column::SortName),
+        SongSort::TrackNumber => Expr::col(sqlm::song::Column::TrackNumber),
+        SongSort::Duration => Expr::col(sqlm::song::Column::Duration),
+        SongSort::Popularity => Expr::col(sqlm::song::Column::Popularity),
+    }
+}
+
 fn album_sort_col(sort: msg::model::AlbumSort) -> Expr {
     use msg::model::AlbumSort;
     match sort {
@@ -512,6 +524,39 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
+        MessageType::GetMixSongsReq => {
+            if let Some(Payload::GetMixSongsReq(req)) = payload {
+                let page_params = PageParams::new(req.page, req.page_size);
+
+                let sort: msg::model::SongSort =
+                    req.sort.try_into().unwrap_or(msg::model::SongSort::Title);
+                let sort_asc = match req.sort_asc {
+                    true => sea_orm::Order::Asc,
+                    false => sea_orm::Order::Desc,
+                };
+
+                let query = sqlm::song::Entity::find()
+                    .inner_join(sqlm::item::Entity)
+                    .inner_join(sqlm::rel_mix_song::Entity)
+                    .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
+                    .order_by(song_sort_col(sort), sort_asc);
+
+                let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
+
+                let total = paginator.num_items().await?;
+                let songs = paginator.fetch_page(page_params.page).await?;
+
+                let (items, extras) = to_rsp_songs(&ctx.provider_context.db, songs, None).await?;
+
+                let rsp = msg::GetMixSongsRsp {
+                    items,
+                    extras,
+                    total: total as i32,
+                    has_more: page_params.has_more(total),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
         MessageType::CreateMixReq => {
             if let Some(Payload::CreateMixReq(req)) = payload {
                 let db = &ctx.provider_context.db;
@@ -519,6 +564,7 @@ pub async fn process_qcm(
                 let new_mix = sqlm::mix::ActiveModel {
                     name: sea_orm::Set(req.name.clone()),
                     track_count: sea_orm::Set(0),
+                    description: sea_orm::Set(String::new()),
                     ..Default::default()
                 };
 
@@ -533,7 +579,10 @@ pub async fn process_qcm(
         MessageType::DeleteMixReq => {
             if let Some(Payload::DeleteMixReq(req)) = payload {
                 let db = &ctx.provider_context.db;
-                sqlm::mix::Entity::delete_by_id(req.id).exec(db).await?;
+                sqlm::mix::Entity::delete_many()
+                    .filter(sqlm::mix::Column::Id.is_in(req.ids.clone()))
+                    .exec(db)
+                    .await?;
                 return Ok(Rsp::default().qcm_into());
             }
         }
