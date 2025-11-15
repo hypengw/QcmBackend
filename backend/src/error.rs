@@ -1,11 +1,11 @@
 use prost;
 
+use super::http::error::HttpError;
 use hyper;
 use qcm_core::anyhow;
 use sea_orm::error as orm_error;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
-use super::http::error::HttpError;
 
 #[derive(Debug, Error, Default)]
 pub enum ProcessError {
@@ -78,6 +78,11 @@ impl From<qcm_core::error::ProviderError> for ProcessError {
             ProviderError::Infallible(e) => ProcessError::Infallible(e),
             ProviderError::NotFound => ProcessError::NotFound,
             ProviderError::ParseSubtitle(e) => ProcessError::ParseSubtitle(e),
+            ProviderError::WithContext { context, err } => {
+                // drop and log context
+                log::error!("{}\n{}", err, context);
+                ProcessError::Internal(err.into())
+            }
             e => ProcessError::Internal(e.into()),
         }
     }

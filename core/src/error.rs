@@ -13,7 +13,7 @@ pub enum ProviderError {
     Serde(#[from] serde_json::Error),
     #[error("parse error: {0}")]
     ParseSubtitle(String),
-    #[error("Lua error: {0}")]
+    #[error("[lua] {0}")]
     Lua(String),
     #[error(transparent)]
     External(Arc<DynStdError>),

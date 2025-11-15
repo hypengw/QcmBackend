@@ -1,5 +1,5 @@
 use crate::enums;
-use crate::error::FromLuaError;
+use crate::error::{create_lua_error_func, FromLuaError};
 use crate::util::to_lua;
 use mlua::prelude::*;
 use qcm_core::db::sync::sync_song_album_ids;
@@ -136,6 +136,7 @@ impl LuaProvider {
             qcm_table.set("crypto", create_crypto_module(&lua)?)?;
             qcm_table.set("json", create_json_module(&lua)?)?;
             qcm_table.set("enum", enums::create_module(&lua)?)?;
+            qcm_table.set("error", create_lua_error_func(&lua)?)?;
 
             let inner = inner.clone();
             qcm_table.set(

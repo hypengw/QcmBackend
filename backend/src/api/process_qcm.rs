@@ -586,40 +586,43 @@ pub async fn process_qcm(
                 return Ok(Rsp::default().qcm_into());
             }
         }
-        MessageType::AddToMixReq => {
-            if let Some(Payload::AddToMixReq(req)) = payload {
+        MessageType::MixManipulateReq => {
+            if let Some(Payload::MixManipulateReq(req)) = payload {
                 let db = ctx.provider_context.db.begin().await?;
-                let models = req
-                    .song_ids
-                    .iter()
-                    .map(|song_id| sqlm::rel_mix_song::ActiveModel {
-                        mix_id: sea_orm::Set(req.id),
-                        song_id: sea_orm::Set(*song_id),
-                        ..Default::default()
-                    });
 
-                DbOper::insert(
-                    &db,
-                    models,
-                    &[
-                        sqlm::rel_mix_song::Column::SongId,
-                        sqlm::rel_mix_song::Column::MixId,
-                    ],
-                    &[],
-                )
-                .await?;
-                db.commit().await?;
-                return Ok(Rsp::default().qcm_into());
-            }
-        }
-        MessageType::RemoveFromMixReq => {
-            if let Some(Payload::RemoveFromMixReq(req)) = payload {
-                let db = &ctx.provider_context.db;
-                sqlm::rel_mix_song::Entity::delete_many()
-                    .filter(sqlm::rel_mix_song::Column::SongId.is_in(req.song_ids.clone()))
-                    .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
-                    .exec(db)
-                    .await?;
+                match req.oper() {
+                    msg::model::MixManipulateOper::AddSongs => {
+                        let models =
+                            req.song_ids
+                                .iter()
+                                .map(|song_id| sqlm::rel_mix_song::ActiveModel {
+                                    mix_id: sea_orm::Set(req.id),
+                                    song_id: sea_orm::Set(*song_id),
+                                    ..Default::default()
+                                });
+
+                        DbOper::insert(
+                            &db,
+                            models,
+                            &[
+                                sqlm::rel_mix_song::Column::SongId,
+                                sqlm::rel_mix_song::Column::MixId,
+                            ],
+                            &[],
+                        )
+                        .await?;
+                        db.commit().await?;
+                    }
+                    msg::model::MixManipulateOper::RemoveSongs => {
+                        sqlm::rel_mix_song::Entity::delete_many()
+                            .filter(sqlm::rel_mix_song::Column::SongId.is_in(req.song_ids.clone()))
+                            .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
+                            .exec(&db)
+                            .await?;
+                        db.commit().await?;
+                    }
+                    _ => {}
+                }
                 return Ok(Rsp::default().qcm_into());
             }
         }
