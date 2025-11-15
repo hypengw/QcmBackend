@@ -55,6 +55,8 @@ pub enum ProcessError {
     ParseSubtitle(String),
     #[error("Not Found")]
     NotFound,
+    #[error("Not Implemented")]
+    NotImplemented,
     #[error("Infallible")]
     Infallible(#[from] std::convert::Infallible),
     #[default]

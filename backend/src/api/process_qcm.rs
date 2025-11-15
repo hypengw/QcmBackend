@@ -598,6 +598,7 @@ pub async fn process_qcm(
                                 .map(|song_id| sqlm::rel_mix_song::ActiveModel {
                                     mix_id: sea_orm::Set(req.id),
                                     song_id: sea_orm::Set(*song_id),
+                                    order_idx: sea_orm::Set(1),
                                     ..Default::default()
                                 });
 
@@ -621,9 +622,12 @@ pub async fn process_qcm(
                             .await?;
                         db.commit().await?;
                     }
-                    _ => {}
+                    _ => {
+                        return Err(ProcessError::NotImplemented);
+                    }
                 }
-                return Ok(Rsp::default().qcm_into());
+                let rsp = msg::MixManipulateRsp::default();
+                return Ok(rsp.qcm_into());
             }
         }
         MessageType::GetArtistAlbumReq => {

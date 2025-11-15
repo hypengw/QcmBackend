@@ -492,6 +492,7 @@ impl QcmFrom<ProcessError> for msg::Rsp {
                 ProcessError::UnsupportedItemType(_) => msg::ErrorCode::UnsupportedItemType.into(),
                 ProcessError::ParseSubtitle(_) => msg::ErrorCode::ParseSubtitle.into(),
                 ProcessError::NotFound => msg::ErrorCode::NotFound.into(),
+                ProcessError::NotImplemented => msg::ErrorCode::NotImplemented.into(),
                 ProcessError::HyperBody(_) => msg::ErrorCode::HyperBody.into(),
                 ProcessError::Infallible(_) => {
                     panic!("Got infallible error!")
@@ -551,8 +552,8 @@ impl_from_for_qcm_msg!(CreateMixRsp);
 impl_from_for_qcm_msg!(DeleteMixReq);
 impl_from_for_qcm_msg!(GetMixSongsReq);
 impl_from_for_qcm_msg!(GetMixSongsRsp);
-
-
+impl_from_for_qcm_msg!(MixManipulateReq);
+impl_from_for_qcm_msg!(MixManipulateRsp);
 
 impl_from_for_qcm_msg!(SearchRsp);
 impl_from_for_qcm_msg!(GetSubtitleRsp);
