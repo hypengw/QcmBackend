@@ -598,7 +598,7 @@ pub async fn process_qcm(
                                 .map(|song_id| sqlm::rel_mix_song::ActiveModel {
                                     mix_id: sea_orm::Set(req.id),
                                     song_id: sea_orm::Set(*song_id),
-                                    order_idx: sea_orm::Set(1),
+                                    order_idx: sea_orm::Set(0),
                                     ..Default::default()
                                 });
 
@@ -611,6 +611,28 @@ pub async fn process_qcm(
                             ],
                             &[],
                         )
+                        .await?;
+
+                        db.execute(Statement::from_string(
+                            db.get_database_backend(),
+                            format!("
+                                WITH 
+                                    max_order AS (
+                                        SELECT COALESCE(MAX(order_idx), -1) AS max_order_idx
+                                        FROM rel_mix_song
+                                        WHERE mix_id = {id}
+                                    ),
+                                    new_orders AS (
+                                        SELECT song_id, max_order.max_order_idx + ROW_NUMBER() OVER () AS new_order_idx
+                                        FROM rel_mix_song
+                                        JOIN max_order
+                                        WHERE mix_id = {id} AND order_idx = 0 
+                                    )
+                                UPDATE rel_mix_song
+                                SET order_idx = (SELECT new_order_idx FROM new_orders WHERE rel_mix_song.song_id = new_orders.song_id)
+                                WHERE mix_id = {id} AND order_idx = 0
+                            ", id = req.id),
+                        ))
                         .await?;
                         db.commit().await?;
                     }
