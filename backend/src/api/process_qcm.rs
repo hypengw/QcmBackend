@@ -539,8 +539,8 @@ pub async fn process_qcm(
                     .inner_join(sqlm::item::Entity)
                     .inner_join(sqlm::rel_mix_song::Entity)
                     .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
-                    .order_by(song_sort_col(sort), sort_asc)
-                    .order_by(sqlm::rel_mix_song::Column::OrderIdx, sea_orm::Order::Asc);
+                    .order_by(sqlm::rel_mix_song::Column::OrderIdx, sea_orm::Order::Desc);
+                    // .order_by(song_sort_col(sort), sort_asc)
 
                 let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -594,67 +594,9 @@ pub async fn process_qcm(
                 let mut rsp = msg::MixManipulateRsp::default();
                 match req.oper() {
                     msg::model::MixManipulateOper::AddSongs => {
-                        let models =
-                            req.song_ids
-                                .iter()
-                                .map(|song_id| sqlm::rel_mix_song::ActiveModel {
-                                    mix_id: sea_orm::Set(req.id),
-                                    song_id: sea_orm::Set(*song_id),
-                                    order_idx: sea_orm::Set(0),
-                                    ..Default::default()
-                                });
-
-                        DbOper::insert(
-                            &db,
-                            models,
-                            &[
-                                sqlm::rel_mix_song::Column::SongId,
-                                sqlm::rel_mix_song::Column::MixId,
-                            ],
-                            &[sqlm::rel_mix_song::Column::OrderIdx],
-                        )
-                        .await?;
-
-                        let count = sqlm::rel_mix_song::Entity::find()
-                            .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
-                            .filter(sqlm::rel_mix_song::Column::OrderIdx.eq(0))
-                            .count(&db)
-                            .await?;
-
-                        db.execute(Statement::from_string(
-                            db.get_database_backend(),
-                            format!("
-                                WITH 
-                                    max_order AS (
-                                        SELECT COALESCE(MAX(order_idx), -1) AS max_order_idx
-                                        FROM rel_mix_song
-                                        WHERE mix_id = {id}
-                                    ),
-                                    new_orders AS (
-                                        SELECT song_id, max_order.max_order_idx + ROW_NUMBER() OVER () AS new_order_idx
-                                        FROM rel_mix_song
-                                        JOIN max_order
-                                        WHERE mix_id = {id} AND order_idx = 0 
-                                    )
-                                UPDATE rel_mix_song
-                                SET order_idx = (SELECT new_order_idx FROM new_orders WHERE rel_mix_song.song_id = new_orders.song_id)
-                                WHERE mix_id = {id} AND order_idx = 0
-                            ", id = req.id),
-                        ))
-                        .await?;
-
-                        sqlm::mix::Entity::update_many()
-                            .col_expr(
-                                sqlm::mix::Column::TrackCount,
-                                Expr::val(count)
-                                    .add(Expr::col(sqlm::mix::Column::TrackCount))
-                                    .into(),
-                            )
-                            .exec(&db)
-                            .await?;
+                        let count = sqlm::mix::append_songs(&db, req.id, &req.song_ids).await?;
 
                         db.commit().await?;
-
                         rsp.count = count as i64;
                     }
                     msg::model::MixManipulateOper::RemoveSongs => {
@@ -672,6 +614,20 @@ pub async fn process_qcm(
                             )
                             .exec(&db)
                             .await?;
+
+                        db.commit().await?;
+                        rsp.count = count as i64;
+                    }
+                    msg::model::MixManipulateOper::AddAlbums => {
+                        let ids: Vec<i64> = sqlm::song::Entity::find()
+                            .select_only()
+                            .column(sqlm::song::Column::Id)
+                            .filter(sqlm::song::Column::AlbumId.is_in(req.album_ids.clone()))
+                            .into_tuple()
+                            .all(&db)
+                            .await?;
+
+                        let count = sqlm::mix::append_songs(&db, req.id, &ids).await?;
 
                         db.commit().await?;
                         rsp.count = count as i64;

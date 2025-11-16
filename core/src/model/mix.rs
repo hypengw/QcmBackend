@@ -1,5 +1,8 @@
 use crate::db::values::Timestamp;
-use sea_orm::entity::prelude::*;
+use crate::db::DbOper;
+use crate::model as sqlm;
+use sea_orm::DbErr;
+use sea_orm::{entity::prelude::*, ConnectionTrait, DatabaseTransaction};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, DeriveEntityModel)]
@@ -48,3 +51,73 @@ impl Related<super::song::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+pub async fn reorder_append(db: &DatabaseTransaction, mix_id: i64) -> Result<(), DbErr> {
+    use sea_orm::Statement;
+    db.execute(Statement::from_string(
+                            db.get_database_backend(),
+                            format!("
+                                WITH 
+                                    max_order AS (
+                                        SELECT COALESCE(MAX(order_idx), -1) AS max_order_idx
+                                        FROM rel_mix_song
+                                        WHERE mix_id = {id}
+                                    ),
+                                    new_orders AS (
+                                        SELECT song_id, max_order.max_order_idx + ROW_NUMBER() OVER (ORDER BY id) AS new_order_idx
+                                        FROM rel_mix_song
+                                        JOIN max_order
+                                        WHERE mix_id = {id} AND order_idx = 0 
+                                    )
+                                UPDATE rel_mix_song
+                                SET order_idx = (SELECT new_order_idx FROM new_orders WHERE rel_mix_song.song_id = new_orders.song_id)
+                                WHERE mix_id = {id} AND order_idx = 0
+                            ", id = mix_id),
+                        ))
+                        .await?;
+    Ok(())
+}
+
+pub async fn append_songs(
+    db: &DatabaseTransaction,
+    mix_id: i64,
+    song_ids: &Vec<i64>,
+) -> Result<u64, DbErr> {
+    let models = song_ids
+        .iter()
+        .map(|song_id| sqlm::rel_mix_song::ActiveModel {
+            mix_id: sea_orm::Set(mix_id),
+            song_id: sea_orm::Set(*song_id),
+            order_idx: sea_orm::Set(0),
+            ..Default::default()
+        });
+
+    DbOper::insert(
+        &db,
+        models,
+        &[
+            sqlm::rel_mix_song::Column::SongId,
+            sqlm::rel_mix_song::Column::MixId,
+        ],
+        &[sqlm::rel_mix_song::Column::OrderIdx],
+    )
+    .await?;
+
+    let count = sqlm::rel_mix_song::Entity::find()
+        .filter(sqlm::rel_mix_song::Column::MixId.eq(mix_id))
+        .filter(sqlm::rel_mix_song::Column::OrderIdx.eq(0))
+        .count(db)
+        .await?;
+
+    reorder_append(&db, mix_id).await?;
+
+    Entity::update_many()
+        .col_expr(
+            Column::TrackCount,
+            Expr::val(count).add(Expr::col(Column::TrackCount)).into(),
+        )
+        .exec(db)
+        .await?;
+
+    Ok(count)
+}

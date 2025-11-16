@@ -138,6 +138,6 @@ pub enum AlbumType {
 pub enum MixType {
     #[default]
     Normal = 0,
-    Remote = 1,
-    Generation = 2,
+    Link = 1,
+    Cache = 2,
 }
