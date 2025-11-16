@@ -539,7 +539,8 @@ pub async fn process_qcm(
                     .inner_join(sqlm::item::Entity)
                     .inner_join(sqlm::rel_mix_song::Entity)
                     .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
-                    .order_by(song_sort_col(sort), sort_asc);
+                    .order_by(song_sort_col(sort), sort_asc)
+                    .order_by(sqlm::rel_mix_song::Column::OrderIdx, sea_orm::Order::Asc);
 
                 let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -590,6 +591,7 @@ pub async fn process_qcm(
             if let Some(Payload::MixManipulateReq(req)) = payload {
                 let db = ctx.provider_context.db.begin().await?;
 
+                let mut rsp = msg::MixManipulateRsp::default();
                 match req.oper() {
                     msg::model::MixManipulateOper::AddSongs => {
                         let models =
@@ -609,9 +611,15 @@ pub async fn process_qcm(
                                 sqlm::rel_mix_song::Column::SongId,
                                 sqlm::rel_mix_song::Column::MixId,
                             ],
-                            &[],
+                            &[sqlm::rel_mix_song::Column::OrderIdx],
                         )
                         .await?;
+
+                        let count = sqlm::rel_mix_song::Entity::find()
+                            .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
+                            .filter(sqlm::rel_mix_song::Column::OrderIdx.eq(0))
+                            .count(&db)
+                            .await?;
 
                         db.execute(Statement::from_string(
                             db.get_database_backend(),
@@ -634,21 +642,44 @@ pub async fn process_qcm(
                             ", id = req.id),
                         ))
                         .await?;
+
+                        sqlm::mix::Entity::update_many()
+                            .col_expr(
+                                sqlm::mix::Column::TrackCount,
+                                Expr::val(count)
+                                    .add(Expr::col(sqlm::mix::Column::TrackCount))
+                                    .into(),
+                            )
+                            .exec(&db)
+                            .await?;
+
                         db.commit().await?;
+
+                        rsp.count = count as i64;
                     }
                     msg::model::MixManipulateOper::RemoveSongs => {
-                        sqlm::rel_mix_song::Entity::delete_many()
+                        let res = sqlm::rel_mix_song::Entity::delete_many()
                             .filter(sqlm::rel_mix_song::Column::SongId.is_in(req.song_ids.clone()))
                             .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
                             .exec(&db)
                             .await?;
+
+                        let count = res.rows_affected;
+                        sqlm::mix::Entity::update_many()
+                            .col_expr(
+                                sqlm::mix::Column::TrackCount,
+                                Expr::col(sqlm::mix::Column::TrackCount).sub(count).into(),
+                            )
+                            .exec(&db)
+                            .await?;
+
                         db.commit().await?;
+                        rsp.count = count as i64;
                     }
                     _ => {
                         return Err(ProcessError::NotImplemented);
                     }
                 }
-                let rsp = msg::MixManipulateRsp::default();
                 return Ok(rsp.qcm_into());
             }
         }
