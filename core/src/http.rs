@@ -85,7 +85,9 @@ impl BatchRequest {
 
         tokio::spawn({
             async move {
-                let mut futures = FuturesUnordered::new();
+                let mut futures: FuturesUnordered<
+                    tokio::task::JoinHandle<Result<Bytes, reqwest::Error>>,
+                > = FuturesUnordered::new();
 
                 let new_future = async move |msg: BatchResponseMsg| match msg {
                     BatchResponseMsg::Add(req, client) => {
@@ -99,9 +101,19 @@ impl BatchRequest {
                 loop {
                     match rx.recv().await {
                         Some(BatchResponseMsg::Wait(tx)) => {
-                            if let Err(_) = tx.send(futures.next().await) {
+                            let rsp = match futures.next().await {
+                                Some(join_result) => match join_result {
+                                    Ok(res) => Some(res),
+                                    Err(e) => {
+                                        log::error!("Batch task join error: {}", e);
+                                        None
+                                    }
+                                },
+                                None => None,
+                            };
+                            tx.send(rsp).unwrap_or_else(|_| {
                                 log::error!("Then recv droped");
-                            }
+                            });
                         }
                         Some(BatchResponseMsg::Count(tx)) => {
                             if let Err(_) = tx.send(futures.len()) {
@@ -109,7 +121,7 @@ impl BatchRequest {
                             }
                         }
                         Some(msg) => {
-                            futures.push(new_future(msg));
+                            futures.push(tokio::spawn(new_future(msg)));
                         }
                         None => {
                             return;
