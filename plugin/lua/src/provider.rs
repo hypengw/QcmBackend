@@ -524,6 +524,27 @@ impl LuaUserData for LuaContext {
             txn.commit().await.map_err(mlua::Error::external)?;
             Ok(out)
         });
+        methods.add_async_method(
+            "sync_remote_mix",
+            |lua, this, models: LuaValue| async move {
+                let models: Vec<sqlm::remote_mix::Model> = lua.from_value(models)?;
+
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+                let conflict = [sqlm::remote_mix::Column::Id];
+                let exclude = [sqlm::remote_mix::Column::Id];
+                let iter = models.into_iter().map(|i| {
+                    let a: sqlm::remote_mix::ActiveModel = i.into();
+                    a
+                });
+
+                let out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(out)
+            },
+        );
         methods.add_async_method("sync_images", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::image::Model> = lua.from_value(models)?;
 

@@ -209,7 +209,6 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-
         manager
             .create_table(
                 Table::create()
@@ -227,17 +226,11 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(remote_mix::Column::ProviderId)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(remote_mix::Column::NativeId)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(timestamp_col(remote_mix::Column::LastSyncAt))
+                    .col(ColumnDef::new(remote_mix::Column::Name).string().not_null())
+                    .col(ColumnDef::new(remote_mix::Column::Description).string())
+                    .col(ColumnDef::new(remote_mix::Column::MixType).string())
+                    .col(ColumnDef::new(remote_mix::Column::TrackCount).integer())
+                    .col(ColumnDef::new(remote_mix::Column::Linkable).boolean())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_remote_mix_mix")
@@ -247,21 +240,13 @@ impl MigrationTrait for Migration {
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk_remote_mix_provider")
-                            .from(remote_mix::Entity, remote_mix::Column::ProviderId)
-                            .to(provider::Entity, provider::Column::ProviderId)
+                            .name("fk_remote_mix_item")
+                            .from(remote_mix::Entity, remote_mix::Column::Id)
+                            .to(item::Entity, item::Column::Id)
                             .on_delete(sea_query::ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
-            .await?;
-
-        manager
-            .create_index(unique_index!(
-                remote_mix::Entity,
-                remote_mix::Column::NativeId,
-                remote_mix::Column::ProviderId
-            ))
             .await?;
 
         manager

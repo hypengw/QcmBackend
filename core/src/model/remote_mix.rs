@@ -7,23 +7,22 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub mix_id: i64,
-    pub provider_id: i64,
-    pub native_id: String,
-
-    #[serde(default = "Timestamp::now")]
-    #[sea_orm(default_expr = "Timestamp::now_expr()")]
-    pub last_sync_at: Timestamp,
+    pub mix_id: Option<i64>,
+    pub name: String,
+    pub description: Option<String>,
+    pub track_count: i32,
+    pub mix_type: String,
+    pub linkable: bool
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::provider::Entity",
-        from = "Column::ProviderId",
-        to = "super::provider::Column::ProviderId"
+        belongs_to = "super::item::Entity",
+        from = "Column::Id",
+        to = "super::item::Column::Id"
     )]
-    Provider,
+    Item,
     #[sea_orm(
         belongs_to = "super::mix::Entity",
         from = "Column::MixId",
@@ -31,13 +30,11 @@ pub enum Relation {
     )]
     Mix,
 }
-
-impl Related<super::provider::Entity> for Entity {
+impl Related<super::item::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Provider.def()
+        Relation::Item.def()
     }
 }
-
 impl Related<super::mix::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Mix.def()
