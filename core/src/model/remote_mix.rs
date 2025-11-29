@@ -7,12 +7,13 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
+    #[serde(default)]
     pub mix_id: Option<i64>,
     pub name: String,
+    #[serde(default)]
     pub description: Option<String>,
     pub track_count: i32,
     pub mix_type: String,
-    pub linkable: bool
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

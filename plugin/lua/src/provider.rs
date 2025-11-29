@@ -525,7 +525,7 @@ impl LuaUserData for LuaContext {
             Ok(out)
         });
         methods.add_async_method(
-            "sync_remote_mix",
+            "sync_remote_mixes",
             |lua, this, models: LuaValue| async move {
                 let models: Vec<sqlm::remote_mix::Model> = lua.from_value(models)?;
 

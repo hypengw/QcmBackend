@@ -221,16 +221,11 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(remote_mix::Column::MixId)
-                            .big_integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(remote_mix::Column::MixId).big_integer())
                     .col(ColumnDef::new(remote_mix::Column::Name).string().not_null())
                     .col(ColumnDef::new(remote_mix::Column::Description).string())
                     .col(ColumnDef::new(remote_mix::Column::MixType).string())
                     .col(ColumnDef::new(remote_mix::Column::TrackCount).integer())
-                    .col(ColumnDef::new(remote_mix::Column::Linkable).boolean())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_remote_mix_mix")
