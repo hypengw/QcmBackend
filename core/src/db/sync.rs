@@ -3,7 +3,7 @@ use super::DbChunkOper;
 use crate::db::values::Timestamp;
 use crate::model::{self as sqlm, artist};
 use chrono::format::InternalNumeric;
-use sea_orm::sea_query::{DeleteStatement, SqliteQueryBuilder};
+use sea_orm::sea_query::{DeleteStatement, Func, OnConflict, SimpleExpr, SqliteQueryBuilder};
 use sea_orm::{prelude::DateTimeUtc, DatabaseTransaction, EntityTrait};
 use sea_orm::{prelude::*, QuerySelect, Statement};
 use sea_orm::{sea_query, sea_query::Alias, Condition};
@@ -340,7 +340,11 @@ pub async fn sync_song_album_ids(
         .cte(
             CommonTableExpression::new()
                 .query(relations)
-                .columns([Alias::new("id"), Alias::new("album_id"), Alias::new("update_at")])
+                .columns([
+                    Alias::new("id"),
+                    Alias::new("album_id"),
+                    Alias::new("update_at"),
+                ])
                 .table_name(Alias::new("res"))
                 .to_owned(),
         )
@@ -369,20 +373,25 @@ pub async fn sync_song_album_ids(
     Ok(())
 }
 
-pub async fn allocate_items<I>(
-    txn: &DatabaseTransaction,
-    items: I,
-) -> Result<Vec<i64>, DbErr>
+pub async fn allocate_items<I>(txn: &DatabaseTransaction, items: I) -> Result<Vec<i64>, DbErr>
 where
     I: IntoIterator<Item = sqlm::item::ActiveModel>,
 {
-    let conflict = [
-        sqlm::item::Column::NativeId,
-        sqlm::item::Column::LibraryId,
-        sqlm::item::Column::ProviderId,
-        sqlm::item::Column::Type,
-    ];
-    let exclude = [sqlm::item::Column::Id];
-    let out = DbChunkOper::<50>::insert_return_key(txn, items, &conflict, &exclude).await?;
+    let conflict = OnConflict::new()
+        .exprs([
+            Expr::col(sqlm::item::Column::NativeId),
+            Expr::col(sqlm::item::Column::ProviderId),
+            Expr::col(sqlm::item::Column::Type),
+            // use raw as sea_orm will switch to '?' for Expr::val(-1) causing issue with matching index
+            Expr::expr(Expr::cust("COALESCE(library_id, -1)")),
+        ])
+        .update_columns([
+            sqlm::item::Column::CreateAt,
+            sqlm::item::Column::LastSyncAt,
+            sqlm::item::Column::UpdateAt,
+        ])
+        .to_owned();
+
+    let out = DbChunkOper::<50>::insert_on_return_key(txn, items, conflict).await?;
     Ok(out)
 }

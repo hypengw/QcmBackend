@@ -31,10 +31,10 @@ impl MigrationTrait for Migration {
             db.get_database_backend(),
             r#"
             CREATE UNIQUE INDEX item_native_type_provider_library_idx ON item (
-                native_id,
-                type,
-                provider_id,
-                IFNULL(library_id, -1)
+                "native_id",
+                "type",
+                "provider_id",
+                COALESCE("library_id", -1)
             );
             "#,
         );
