@@ -19,6 +19,9 @@ pub struct Model {
     #[serde(default)]
     pub added_at: Option<Timestamp>,
 
+    #[serde(default)]
+    pub remote_id: Option<i64>,
+
     #[serde(default = "Timestamp::now")]
     #[sea_orm(default_expr = "Timestamp::now_expr()")]
     pub create_at: Timestamp,
@@ -32,11 +35,23 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::rel_mix_song::Entity")]
     RelSong,
+    #[sea_orm(
+        belongs_to = "super::remote_mix::Entity",
+        from = "Column::RemoteId",
+        to = "super::remote_mix::Column::Id"
+    )]
+    Remote,
 }
 
 impl Related<super::rel_mix_song::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::RelSong.def()
+    }
+}
+
+impl Related<super::remote_mix::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Remote.def()
     }
 }
 

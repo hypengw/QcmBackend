@@ -187,62 +187,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .create_table(
-                Table::create()
-                    .table(mix::Entity)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(mix::Column::Id)
-                            .big_integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(mix::Column::Name).string().not_null())
-                    .col(ColumnDef::new(mix::Column::SortName).string())
-                    .col(ColumnDef::new(mix::Column::TrackCount).integer().not_null())
-                    .col(ColumnDef::new(mix::Column::Description).string().not_null())
-                    .col(ColumnDef::new(mix::Column::AddedAt).big_integer())
-                    .col(timestamp_col(mix::Column::CreateAt))
-                    .col(timestamp_col(mix::Column::UpdateAt))
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_table(
-                Table::create()
-                    .table(remote_mix::Entity)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(remote_mix::Column::Id)
-                            .big_integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(remote_mix::Column::MixId).big_integer())
-                    .col(ColumnDef::new(remote_mix::Column::Name).string().not_null())
-                    .col(ColumnDef::new(remote_mix::Column::Description).string())
-                    .col(ColumnDef::new(remote_mix::Column::MixType).string())
-                    .col(ColumnDef::new(remote_mix::Column::TrackCount).integer())
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_remote_mix_mix")
-                            .from(remote_mix::Entity, remote_mix::Column::MixId)
-                            .to(mix::Entity, mix::Column::Id)
-                            .on_delete(sea_query::ForeignKeyAction::Cascade),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_remote_mix_item")
-                            .from(remote_mix::Entity, remote_mix::Column::Id)
-                            .to(item::Entity, item::Column::Id)
-                            .on_delete(sea_query::ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
 
         manager
             .create_table(
@@ -395,60 +339,6 @@ impl MigrationTrait for Migration {
             ))
             .await?;
 
-        // Add rel_mix_song table creation
-        manager
-            .create_table(
-                Table::create()
-                    .table(rel_mix_song::Entity)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(rel_mix_song::Column::Id)
-                            .big_integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(rel_mix_song::Column::SongId)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(rel_mix_song::Column::MixId)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(rel_mix_song::Column::OrderIdx)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(timestamp_col(rel_mix_song::Column::UpdateAt))
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_rel_mix_song_song")
-                            .from(rel_mix_song::Entity, rel_mix_song::Column::SongId)
-                            .to(song::Entity, song::Column::Id)
-                            .on_delete(sea_query::ForeignKeyAction::Cascade),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_rel_mix_song_mix")
-                            .from(rel_mix_song::Entity, rel_mix_song::Column::MixId)
-                            .to(mix::Entity, mix::Column::Id)
-                            .on_delete(sea_query::ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(unique_index!(
-                rel_mix_song::Entity,
-                rel_mix_song::Column::MixId,
-                rel_mix_song::Column::SongId
-            ))
-            .await?;
 
         manager
             .create_table(

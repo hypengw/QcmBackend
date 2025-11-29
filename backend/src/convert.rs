@@ -334,6 +334,7 @@ impl QcmFrom<proto::Mix> for core::model::mix::Model {
             track_count: v.track_count,
             description: v.description,
             added_at: None,
+            remote_id: None,
             create_at: Timestamp::now(),
             update_at: Timestamp::now(),
         }

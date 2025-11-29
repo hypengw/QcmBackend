@@ -6,7 +6,7 @@ mod m20220101_000004_create_provider_table;
 mod m20220101_000005_create_library_table;
 mod m20250824_000001_create_table;
 mod m20250824_145233_create_fts_table;
-mod m20251124_145233_recreate_remote_mix;
+mod m20251129_145233_recreate_remote_mix;
 
 pub struct Migrator;
 pub use cache::CacheDBMigrator;
@@ -64,7 +64,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20220101_000005_create_library_table::Migration),
             Box::new(m20250824_000001_create_table::Migration),
             Box::new(m20250824_145233_create_fts_table::Migration),
-            Box::new(m20251124_145233_recreate_remote_mix::Migration),
+            Box::new(m20251129_145233_recreate_remote_mix::Migration),
         ]
     }
 

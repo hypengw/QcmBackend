@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    #[serde(default)]
-    pub mix_id: Option<i64>,
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -24,21 +22,10 @@ pub enum Relation {
         to = "super::item::Column::Id"
     )]
     Item,
-    #[sea_orm(
-        belongs_to = "super::mix::Entity",
-        from = "Column::MixId",
-        to = "super::mix::Column::Id"
-    )]
-    Mix,
 }
 impl Related<super::item::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Item.def()
-    }
-}
-impl Related<super::mix::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Mix.def()
     }
 }
 
