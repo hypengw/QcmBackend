@@ -1,6 +1,6 @@
 use crate::db::values::Timestamp;
 use crate::db::DbOper;
-use crate::model as sqlm;
+use crate::model::{self as sqlm, type_enum::MixType};
 use sea_orm::DbErr;
 use sea_orm::{entity::prelude::*, ConnectionTrait, DatabaseTransaction};
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ pub struct Model {
     pub id: i64,
     pub name: String,
     pub track_count: i32,
+    pub mix_type: MixType,
     #[serde(default)]
     pub sort_name: Option<String>,
     #[serde(default)]

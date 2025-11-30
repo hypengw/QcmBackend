@@ -113,9 +113,10 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(mix::Column::Name).string().not_null())
                     .col(ColumnDef::new(mix::Column::SortName).string())
+                    .col(ColumnDef::new(mix::Column::MixType).integer().not_null())
+                    .col(ColumnDef::new(mix::Column::RemoteId))
                     .col(ColumnDef::new(mix::Column::TrackCount).integer().not_null())
                     .col(ColumnDef::new(mix::Column::Description).string().not_null())
-                    .col(ColumnDef::new(mix::Column::RemoteId))
                     .col(ColumnDef::new(mix::Column::AddedAt).big_integer())
                     .col(timestamp_col(mix::Column::CreateAt))
                     .col(timestamp_col(mix::Column::UpdateAt))
@@ -133,6 +134,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
+                    .unique()
                     .name("idx_mix-remote_id")
                     .table(mix::Entity)
                     .col(mix::Column::RemoteId)

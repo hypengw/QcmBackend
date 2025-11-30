@@ -333,6 +333,10 @@ impl QcmFrom<proto::Mix> for core::model::mix::Model {
             sort_name: v.sort_name.qcm_into(),
             track_count: v.track_count,
             description: v.description,
+            mix_type: v
+                .mix_type
+                .try_into()
+                .unwrap_or(sqlm::type_enum::MixType::Normal),
             added_at: None,
             remote_id: None,
             create_at: Timestamp::now(),
@@ -347,6 +351,7 @@ impl QcmFrom<core::model::mix::Model> for proto::Mix {
             id: v.id,
             name: v.name,
             sort_name: v.sort_name.qcm_into(),
+            mix_type: v.mix_type as i32,
             track_count: v.track_count,
             description: v.description,
         }

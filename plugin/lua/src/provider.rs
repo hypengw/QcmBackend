@@ -3,6 +3,7 @@ use crate::error::{create_lua_error_func, FromLuaError};
 use crate::util::to_lua;
 use mlua::prelude::*;
 use qcm_core::db::sync::sync_song_album_ids;
+use qcm_core::db::values::Timestamp;
 use qcm_core::db::{self, DbChunkOper};
 use qcm_core::event::{SyncCommit, SyncState};
 use qcm_core::model as sqlm;
@@ -530,16 +531,54 @@ impl LuaUserData for LuaContext {
                 let models: Vec<sqlm::remote_mix::Model> = lua.from_value(models)?;
 
                 let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-                let conflict = [sqlm::remote_mix::Column::Id];
-                let exclude = [sqlm::remote_mix::Column::Id];
-                let iter = models.into_iter().map(|i| {
-                    let a: sqlm::remote_mix::ActiveModel = i.into();
-                    a
-                });
 
-                let out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
-                    .await
-                    .map_err(mlua::Error::external)?;
+                let mut out = Vec::new();
+                {
+                    let conflict = [sqlm::remote_mix::Column::Id];
+                    let exclude = [sqlm::remote_mix::Column::Id];
+                    let iter = models.clone().into_iter().map(|i| {
+                        let a: sqlm::remote_mix::ActiveModel = i.into();
+                        a
+                    });
+
+                    out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
+                        .await
+                        .map_err(mlua::Error::external)?;
+                }
+
+                {
+                    let now = Timestamp::from(chrono::Utc::now());
+                    let conflict = [sqlm::mix::Column::RemoteId];
+                    let exclude = [
+                        sqlm::mix::Column::Id,
+                        sqlm::mix::Column::SortName,
+                        sqlm::mix::Column::CreateAt,
+                        sqlm::mix::Column::AddedAt,
+                    ];
+                    let iter =
+                        out.clone()
+                            .into_iter()
+                            .zip(models.into_iter())
+                            .map(|(remote_id, m)| {
+                                let a = sqlm::mix::ActiveModel {
+                                    name: Set(m.name.clone()),
+                                    remote_id: Set(Some(remote_id)),
+                                    description: Set(m.description.unwrap_or_default().clone()),
+                                    track_count: Set(m.track_count),
+                                    create_at: Set(now),
+                                    update_at: Set(now),
+                                    mix_type: Set(sqlm::type_enum::MixType::Cache),
+                                    id: NotSet,
+                                    sort_name: NotSet,
+                                    added_at: NotSet,
+                                };
+                                a
+                            });
+
+                    DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                        .await
+                        .map_err(mlua::Error::external)?;
+                }
 
                 txn.commit().await.map_err(mlua::Error::external)?;
                 Ok(out)
