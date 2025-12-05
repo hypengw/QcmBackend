@@ -202,6 +202,72 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::artist::Entity> {
     }
 }
 
+impl SelectQcmMsgFilters for sea_orm::Select<sqlm::mix::Entity> {
+    type Filter = msg::filter::MixFilter;
+
+    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    where
+        I: IntoIterator<Item = &'a Self::Filter>,
+        Self::Filter: 'a,
+    {
+        use msg::filter::mix_filter::Payload;
+        let mut select = self;
+
+        for f in filters {
+            let expr = match &f.payload {
+                Some(Payload::NameFilter(name)) => name.get_expr_from_col(sqlm::mix::Column::Name),
+                Some(Payload::TrackFilter(track)) => {
+                    track.get_expr_from_col(sqlm::mix::Column::TrackCount)
+                }
+                Some(Payload::AddedDateFilter(added)) => {
+                    added.get_expr_from_col(sqlm::mix::Column::AddedAt)
+                }
+                Some(_) => None::<SimpleExpr>,
+                None => None,
+            };
+
+            if let Some(expr) = expr {
+                select = select.filter(expr);
+            }
+        }
+        select
+    }
+}
+
+impl SelectQcmMsgFilters for sea_orm::Select<sqlm::remote_mix::Entity> {
+    type Filter = msg::filter::RemoteMixFilter;
+
+    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    where
+        I: IntoIterator<Item = &'a Self::Filter>,
+        Self::Filter: 'a,
+    {
+        use msg::filter::remote_mix_filter::Payload;
+        let mut select = self;
+
+        for f in filters {
+            let expr = match &f.payload {
+                Some(Payload::NameFilter(name)) => {
+                    name.get_expr_from_col(sqlm::remote_mix::Column::Name)
+                }
+                Some(Payload::TypeFilter(mix_type)) => mix_type.get_expr(Expr::col((
+                    sqlm::remote_mix::Entity,
+                    sqlm::remote_mix::Column::MixType,
+                ))),
+                Some(Payload::TrackFilter(track)) => {
+                    track.get_expr_from_col(sqlm::remote_mix::Column::TrackCount)
+                }
+                None => None,
+            };
+
+            if let Some(expr) = expr {
+                select = select.filter(expr);
+            }
+        }
+        select
+    }
+}
+
 trait StringFilterTrait {
     fn get_condition(&self) -> StringCondition;
     fn get_value(&self) -> &str;
@@ -243,6 +309,21 @@ trait TypeFilterTrait {
     }
     fn get_expr(&self, col: Expr) -> Option<SimpleExpr> {
         return type_condition_to_expr(col, self.get_condition(), self.get_value());
+    }
+}
+
+trait TypeStringFilterTrait {
+    fn get_condition(&self) -> TypeCondition;
+    fn get_value(&self) -> &str;
+
+    fn get_expr_from_col<C>(&self, col: C) -> Option<SimpleExpr>
+    where
+        C: sea_orm::ColumnTrait,
+    {
+        self.get_expr(Expr::col(col))
+    }
+    fn get_expr(&self, col: Expr) -> Option<SimpleExpr> {
+        return type_string_condition_to_expr(col, self.get_condition(), self.get_value());
     }
 }
 
@@ -323,6 +404,18 @@ macro_rules! impl_string_filter {
         }
     };
 }
+macro_rules! impl_type_string_filter {
+    ($ty:ty) => {
+        impl TypeStringFilterTrait for $ty {
+            fn get_condition(&self) -> TypeCondition {
+                self.condition()
+            }
+            fn get_value(&self) -> &str {
+                &self.value
+            }
+        }
+    };
+}
 macro_rules! impl_id_filter {
     ($ty:ty) => {
         impl IdFilterTrait for $ty {
@@ -344,6 +437,7 @@ impl_id_filter!(msg::filter::AlbumArtistIdFilter);
 impl_date_filter!(msg::filter::AddedDateFilter);
 impl_date_filter!(msg::filter::LastPlayedAtFilter);
 impl_type_filter!(msg::filter::TypeFilter);
+impl_type_string_filter!(msg::filter::TypeStringFilter);
 impl_int_filter!(msg::filter::DiscCountFilter);
 
 impl IntFilterTrait for msg::filter::YearFilter {
@@ -437,6 +531,17 @@ pub fn date_condition_to_expr(
 }
 
 pub fn type_condition_to_expr(col: Expr, cond: TypeCondition, val: i64) -> Option<SimpleExpr> {
+    match cond {
+        TypeCondition::Is => Some(col.eq(val)),
+        TypeCondition::IsNot => Some(col.ne(val)),
+        TypeCondition::Unspecified => None,
+    }
+}
+pub fn type_string_condition_to_expr(
+    col: Expr,
+    cond: TypeCondition,
+    val: &str,
+) -> Option<SimpleExpr> {
     match cond {
         TypeCondition::Is => Some(col.eq(val)),
         TypeCondition::IsNot => Some(col.ne(val)),

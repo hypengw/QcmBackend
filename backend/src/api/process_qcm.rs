@@ -489,6 +489,7 @@ pub async fn process_qcm(
                 let page_params = PageParams::new(req.page, req.page_size);
 
                 let paginator = sqlm::mix::Entity::find()
+                    .qcm_filters(&req.filters)
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
@@ -500,6 +501,32 @@ pub async fn process_qcm(
                     .collect();
 
                 let rsp = msg::GetMixsRsp {
+                    items: mixes,
+                    extras: Vec::new(),
+                    total: total as i32,
+                    has_more: page_params.has_more(total),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetRemoteMixsReq => {
+            if let Some(Payload::GetRemoteMixsReq(req)) = payload {
+                let page_params = PageParams::new(req.page, req.page_size);
+
+                let paginator = sqlm::remote_mix::Entity::find()
+                    .qcm_filters(&req.filters)
+                    .find_also_related(sqlm::mix::Entity)
+                    .paginate(&ctx.provider_context.db, page_params.page_size);
+
+                let total = paginator.num_items().await?;
+                let mixes = paginator
+                    .fetch_page(page_params.page)
+                    .await?
+                    .into_iter()
+                    .filter_map(|(_, m)| m.qcm_into())
+                    .collect();
+
+                let rsp = msg::GetRemoteMixsRsp {
                     items: mixes,
                     extras: Vec::new(),
                     total: total as i32,
@@ -540,7 +567,7 @@ pub async fn process_qcm(
                     .inner_join(sqlm::rel_mix_song::Entity)
                     .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
                     .order_by(sqlm::rel_mix_song::Column::OrderIdx, sea_orm::Order::Desc);
-                    // .order_by(song_sort_col(sort), sort_asc)
+                // .order_by(song_sort_col(sort), sort_asc)
 
                 let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
 

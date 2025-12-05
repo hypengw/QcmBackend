@@ -22,10 +22,18 @@ pub enum Relation {
         to = "super::item::Column::Id"
     )]
     Item,
+    #[sea_orm(has_one = "super::mix::Entity")]
+    Mix,
 }
 impl Related<super::item::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Item.def()
+    }
+}
+
+impl Related<super::mix::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Mix.def()
     }
 }
 

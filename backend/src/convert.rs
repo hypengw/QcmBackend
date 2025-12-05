@@ -553,6 +553,7 @@ impl_from_for_qcm_msg!(GetArtistAlbumRsp);
 
 impl_from_for_qcm_msg!(GetMixsRsp);
 impl_from_for_qcm_msg!(GetMixRsp);
+impl_from_for_qcm_msg!(GetRemoteMixsRsp);
 impl_from_for_qcm_msg!(CreateMixReq);
 impl_from_for_qcm_msg!(CreateMixRsp);
 impl_from_for_qcm_msg!(DeleteMixReq);
