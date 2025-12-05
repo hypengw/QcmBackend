@@ -2,7 +2,7 @@ use migration::query;
 use prost::{self, Message};
 use qcm_core::db::values::Timestamp;
 use qcm_core::db::DbOper;
-use qcm_core::model::type_enum::CacheType;
+use qcm_core::model::type_enum::{CacheType, MixType};
 use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use sea_orm::ActiveValue::NotSet;
@@ -489,6 +489,7 @@ pub async fn process_qcm(
                 let page_params = PageParams::new(req.page, req.page_size);
 
                 let paginator = sqlm::mix::Entity::find()
+                    .filter(sqlm::mix::Column::MixType.ne(MixType::Cache))
                     .qcm_filters(&req.filters)
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -593,6 +594,7 @@ pub async fn process_qcm(
                     name: sea_orm::Set(req.name.clone()),
                     track_count: sea_orm::Set(0),
                     description: sea_orm::Set(String::new()),
+                    mix_type: sea_orm::Set(MixType::Normal),
                     ..Default::default()
                 };
 
