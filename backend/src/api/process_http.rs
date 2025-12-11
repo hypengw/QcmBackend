@@ -172,18 +172,32 @@ async fn process_http_get_image(
             )
             .await
         }
-        // ItemType::Mix => {
-        //     let (native_id, provider_id): (String, i64) = sqlm::mix::Entity::find_by_id(id)
-        //         .select_only()
-        //         .column(sqlm::mix::Column::NativeId)
-        //         .column(sqlm::mix::Column::ProviderId)
-        //         .into_tuple()
-        //         .one(db)
-        //         .await?
-        //         .ok_or(ProcessError::NoSuchMix(id.to_string()))?;
+        ItemType::Mix => {
+            let (native_id, provider_id, image_id): (String, i64, Option<String>) =
+                sqlm::remote_mix::Entity::find()
+                    .inner_join(sqlm::item::Entity)
+                    .inner_join(sqlm::mix::Entity)
+                    .select_only()
+                    .column(sqlm::item::Column::NativeId)
+                    .column(sqlm::item::Column::ProviderId)
+                    .column(sqlm::image::Column::NativeId)
+                    .left_join(sqlm::image::Entity)
+                    .filter(Expr::col((sqlm::mix::Entity, sqlm::mix::Column::Id)).eq(id))
+                    .filter(filter_image_type(image_type))
+                    .into_tuple()
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchMix(id.to_string()))?;
 
-        //     media_get_image(ctx, provider_id, &native_id, None, image_type).await
-        // }
+            media_get_image(
+                ctx,
+                provider_id,
+                &native_id,
+                image_id.as_deref(),
+                image_type,
+            )
+            .await
+        }
         _ => Err(ProcessError::UnsupportedItemType(item_type.to_string())),
     }
 }

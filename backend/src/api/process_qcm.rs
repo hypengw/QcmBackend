@@ -476,6 +476,8 @@ pub async fn process_qcm(
                 let total = paginator.num_items().await?;
                 let songs = paginator.fetch_page(page_params.page).await?;
 
+                log::error!("GetMixSongsReq songs count: {}, id: {}", songs.len(), req.id);
+
                 let (items, extras) = to_rsp_songs(db, songs, None).await?;
 
                 let mix = sqlm::mix::Entity::find_by_id(req.id)

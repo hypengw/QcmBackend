@@ -49,6 +49,12 @@ pub enum Relation {
         to = "super::artist::Column::Id"
     )]
     Artist,
+    #[sea_orm(
+        belongs_to = "super::remote_mix::Entity",
+        from = "Column::ItemId",
+        to = "super::remote_mix::Column::Id"
+    )]
+    RemoteMix,
 }
 
 impl Related<super::item::Entity> for Entity {
@@ -72,6 +78,12 @@ impl Related<super::album::Entity> for Entity {
 impl Related<super::song::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Song.def()
+    }
+}
+
+impl Related<super::remote_mix::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::RemoteMix.def()
     }
 }
 

@@ -161,7 +161,7 @@ pub async fn sync_drop_before(
 
     sqlm::item::Entity::delete_many()
         .filter(sqlm::item::Column::LastSyncAt.lt(now_ts))
-        .filter(sqlm::item::Column::LibraryId.is_in(ids.clone()))
+        .filter(sqlm::item::Column::ProviderId.eq(provider_id))
         .exec(txn)
         .await?;
 
