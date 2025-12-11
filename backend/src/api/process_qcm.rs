@@ -17,8 +17,12 @@ use sea_orm::{
     QuerySelect, Statement,
 };
 
-use crate::api::{self, pagination::PageParams};
-use crate::convert::{QcmInto, QcmTryInto};
+use crate::api::{
+    helper_extra::{extra_insert_artists, extra_insert_dynamic, to_rsp_albums, to_rsp_songs},
+    helper_sort::{album_sort_col, song_sort_col},
+    pagination::PageParams,
+};
+use crate::convert::QcmInto;
 use crate::db::filter::SelectQcmMsgFilters;
 use crate::error::ProcessError;
 use crate::event::{BackendContext, BackendEvent};
@@ -26,123 +30,6 @@ use crate::msg::{
     self, AuthProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
     GetSongsRsp, GetStorageInfoRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
-
-fn song_sort_col(sort: msg::model::SongSort) -> Expr {
-    use msg::model::SongSort;
-    match sort {
-        SongSort::PublishTime => Expr::col(sqlm::album::Column::PublishTime),
-        SongSort::Title => Expr::col(sqlm::album::Column::Name),
-        SongSort::SortTitle => Expr::col(sqlm::album::Column::SortName),
-        SongSort::TrackNumber => Expr::col(sqlm::song::Column::TrackNumber),
-        SongSort::Duration => Expr::col(sqlm::song::Column::Duration),
-        SongSort::Popularity => Expr::col(sqlm::song::Column::Popularity),
-    }
-}
-
-fn album_sort_col(sort: msg::model::AlbumSort) -> Expr {
-    use msg::model::AlbumSort;
-    match sort {
-        AlbumSort::LastPlayedAt => {
-            Expr::col((sqlm::dynamic::Entity, sqlm::dynamic::Column::LastPlayedAt))
-        }
-        AlbumSort::Year => Expr::col(sqlm::album::Column::PublishTime),
-        AlbumSort::PublishTime => Expr::col(sqlm::album::Column::PublishTime),
-        AlbumSort::Title => Expr::col(sqlm::album::Column::Name),
-        AlbumSort::SortTitle => Expr::col(sqlm::album::Column::SortName),
-        AlbumSort::TrackCount => Expr::col(sqlm::album::Column::TrackCount),
-        AlbumSort::AddedTime => Expr::col(sqlm::album::Column::AddedAt),
-        AlbumSort::DiscCount => Expr::col(sqlm::album::Column::DiscCount),
-    }
-}
-
-fn extra_insert_artists(extra: &mut prost_types::Struct, artists: &[sqlm::artist::Model]) {
-    let mut artist_json: Vec<_> = Vec::new();
-    for artist in artists {
-        artist_json.push(serde_json::json!({
-            "id": artist.id.to_string(),
-            "name": artist.name,
-        }));
-    }
-    extra.fields.insert(
-        "artists".to_string(),
-        serde_json::to_string(&artist_json).unwrap().into(),
-    );
-}
-
-fn extra_insert_album(extra: &mut prost_types::Struct, album: &sqlm::album::Model) {
-    let j = serde_json::json!({
-        "id": album.id.to_string(),
-        "name": album.name,
-    });
-    extra.fields.insert(
-        "album".to_string(),
-        serde_json::to_string(&j).unwrap().into(),
-    );
-}
-
-fn extra_insert_dynamic(extra: &mut prost_types::Struct, dy: &sqlm::dynamic::Model) {
-    let j = serde_json::json!({
-        "is_favorite": dy.favorite_at.is_some()
-    });
-    extra.fields.insert(
-        "dynamic".to_string(),
-        serde_json::to_string(&j).unwrap().into(),
-    );
-}
-
-async fn to_rsp_songs(
-    db: &DatabaseConnection,
-    songs: Vec<sqlm::song::Model>,
-    album: Option<&sqlm::album::Model>,
-) -> Result<(Vec<msg::model::Song>, Vec<prost_types::Struct>), ProcessError> {
-    let artists = songs
-        .load_many_to_many(sqlm::artist::Entity, sqlm::rel_song_artist::Entity, db)
-        .await?;
-
-    let dynamics = songs.load_one(sqlm::dynamic::Entity, db).await?;
-
-    let mut items = Vec::new();
-    let mut extras = Vec::new();
-
-    for ((song, artists), dy) in songs.into_iter().zip(artists.into_iter()).zip(dynamics) {
-        items.push(song.qcm_into());
-        let mut extra = prost_types::Struct::default();
-        extra_insert_artists(&mut extra, &artists);
-        if let Some(dy) = dy {
-            extra_insert_dynamic(&mut extra, &dy);
-        }
-        if let Some(album) = &album {
-            extra_insert_album(&mut extra, &album);
-        }
-        extras.push(extra);
-    }
-    Ok((items, extras))
-}
-
-async fn to_rsp_albums(
-    db: &DatabaseConnection,
-    albums: Vec<sqlm::album::Model>,
-) -> Result<(Vec<msg::model::Album>, Vec<prost_types::Struct>), ProcessError> {
-    let artists = albums
-        .load_many_to_many(sqlm::artist::Entity, sqlm::rel_album_artist::Entity, db)
-        .await?;
-
-    let dynamics = albums.load_one(sqlm::dynamic::Entity, db).await?;
-
-    let mut items = Vec::new();
-    let mut extras = Vec::new();
-
-    for ((album, artists), dy) in albums.into_iter().zip(artists.into_iter()).zip(dynamics) {
-        items.push(album.qcm_into());
-        let mut extra = prost_types::Struct::default();
-        extra_insert_artists(&mut extra, &artists);
-        if let Some(dy) = dy {
-            extra_insert_dynamic(&mut extra, &dy);
-        }
-        extras.push(extra);
-    }
-    Ok((items, extras))
-}
 
 pub async fn process_qcm(
     ctx: &Arc<BackendContext>,
@@ -554,6 +441,20 @@ pub async fn process_qcm(
         }
         MessageType::GetMixSongsReq => {
             if let Some(Payload::GetMixSongsReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                if let Some((_, Some(item))) = sqlm::remote_mix::Entity::find()
+                    .inner_join(sqlm::mix::Entity)
+                    .find_also_related(sqlm::item::Entity)
+                    .filter(Expr::col((sqlm::mix::Entity, sqlm::mix::Column::Id)).eq(req.id))
+                    .one(db)
+                    .await?
+                {
+                    let provider = global::provider(item.provider_id)
+                        .ok_or(ProcessError::NoSuchProvider(item.provider_id.to_string()))?;
+                    provider.sync_item(&ctx.provider_context, item).await?;
+                }
+
                 let page_params = PageParams::new(req.page, req.page_size);
 
                 let sort: msg::model::SongSort =
@@ -567,17 +468,23 @@ pub async fn process_qcm(
                     .inner_join(sqlm::item::Entity)
                     .inner_join(sqlm::rel_mix_song::Entity)
                     .filter(sqlm::rel_mix_song::Column::MixId.eq(req.id))
+                    .order_by(song_sort_col(sort), sort_asc)
                     .order_by(sqlm::rel_mix_song::Column::OrderIdx, sea_orm::Order::Desc);
-                // .order_by(song_sort_col(sort), sort_asc)
 
-                let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
+                let paginator = query.paginate(db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
                 let songs = paginator.fetch_page(page_params.page).await?;
 
-                let (items, extras) = to_rsp_songs(&ctx.provider_context.db, songs, None).await?;
+                let (items, extras) = to_rsp_songs(db, songs, None).await?;
+
+                let mix = sqlm::mix::Entity::find_by_id(req.id)
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NoSuchMix(req.id.to_string()))?;
 
                 let rsp = msg::GetMixSongsRsp {
+                    mix: Some(mix.qcm_into()),
                     items,
                     extras,
                     total: total as i32,

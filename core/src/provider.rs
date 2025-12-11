@@ -2,6 +2,7 @@ use crate::{
     error::ProviderError,
     event::Event,
     http,
+    model::item::Model as ItemModel,
     model::type_enum::{ImageType, ItemType},
     subtitle::Subtitle,
     Result,
@@ -117,6 +118,7 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
     async fn check(&self, ctx: &Context) -> Result<(), ProviderError>;
     async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError>;
     async fn sync(&self, ctx: &Context) -> Result<(), ProviderError>;
+    async fn sync_item(&self, ctx: &Context, item: ItemModel) -> Result<(), ProviderError>;
     async fn favorite(
         &self,
         ctx: &Context,

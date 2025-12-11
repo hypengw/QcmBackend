@@ -60,6 +60,7 @@ struct LuaImpl {
     check: LuaFunction,
     login: LuaFunction,
     sync: LuaFunction,
+    sync_item: LuaFunction,
     favorite: LuaFunction,
     qr: Option<LuaFunction>,
     image: LuaFunction,
@@ -183,6 +184,9 @@ impl LuaProvider {
                 sync: provider_table
                     .get::<LuaFunction>("sync")
                     .map_err(|_| anyhow!("sync func not found"))?,
+                sync_item: provider_table
+                    .get::<LuaFunction>("sync_item")
+                    .map_err(|_| anyhow!("sync_item func not found"))?,
                 favorite: provider_table
                     .get::<LuaFunction>("favorite")
                     .map_err(|_| anyhow!("favorite func not found"))?,
@@ -279,6 +283,14 @@ impl Provider for LuaProvider {
             db::sync::sync_drop_before(&txn, id, now).await?;
             txn.commit().await?;
         }
+        Ok(())
+    }
+    async fn sync_item(&self, ctx: &Context, item: sqlm::item::Model) -> Result<(), ProviderError> {
+        self.funcs
+            .sync_item
+            .call_async::<LuaValue>((LuaContext(ctx.clone(), self.id()), to_lua(&self.lua, &item)))
+            .await
+            .map_err(ProviderError::from_err)?;
         Ok(())
     }
     async fn favorite(
@@ -471,24 +483,31 @@ impl LuaUserData for LuaContext {
                 _ => Ok(Vec::new()),
             }
         });
-        methods.add_async_method("sync_albums", |lua, this, models: LuaValue| async move {
-            let models: Vec<sqlm::album::Model> = lua.from_value(models)?;
+        methods.add_async_method(
+            "sync_albums",
+            |lua, this, (models, lua_syncopt): (LuaValue, LuaValue)| async move {
+                let models: Vec<sqlm::album::Model> = lua.from_value(models)?;
+                let opts: Option<LuaSyncOption> = lua.from_value(lua_syncopt)?;
 
-            let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
-            let conflict = [sqlm::album::Column::Id];
-            let exclude = [sqlm::album::Column::Id];
-            let iter = models.into_iter().map(|i| {
-                let a: sqlm::album::ActiveModel = i.into();
-                a
-            });
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+                let conflict = [sqlm::album::Column::Id];
+                let mut exclude = vec![sqlm::album::Column::Id];
+                if let Some(opts) = opts {
+                    exclude.extend(opts.generate_exclude::<sqlm::album::Column>());
+                }
+                let iter = models.into_iter().map(|i| {
+                    let a: sqlm::album::ActiveModel = i.into();
+                    a
+                });
 
-            let out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
-                .await
-                .map_err(mlua::Error::external)?;
+                let out = DbChunkOper::<50>::insert_return_key(&txn, iter, &conflict, &exclude)
+                    .await
+                    .map_err(mlua::Error::external)?;
 
-            txn.commit().await.map_err(mlua::Error::external)?;
-            Ok(out)
-        });
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(out)
+            },
+        );
         methods.add_async_method("sync_artists", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::artist::Model> = lua.from_value(models)?;
 
@@ -527,15 +546,20 @@ impl LuaUserData for LuaContext {
         });
         methods.add_async_method(
             "sync_remote_mixes",
-            |lua, this, models: LuaValue| async move {
+            |lua, this, (models, lua_syncopt): (LuaValue, LuaValue)| async move {
                 let models: Vec<sqlm::remote_mix::Model> = lua.from_value(models)?;
+                let opts: Option<LuaSyncOption> = lua.from_value(lua_syncopt)?;
 
                 let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
 
                 let mut out = Vec::new();
                 {
                     let conflict = [sqlm::remote_mix::Column::Id];
-                    let exclude = [sqlm::remote_mix::Column::Id];
+                    let mut exclude = vec![sqlm::remote_mix::Column::Id];
+                    if let Some(opts) = opts {
+                        exclude.extend(opts.generate_exclude::<sqlm::remote_mix::Column>());
+                    }
+
                     let iter = models.clone().into_iter().map(|i| {
                         let a: sqlm::remote_mix::ActiveModel = i.into();
                         a
@@ -645,6 +669,48 @@ impl LuaUserData for LuaContext {
             },
         );
         methods.add_async_method(
+            "sync_remote_mix_song_ids",
+            |lua, this, (remote_mix_id, song_ids): (i64, Vec<i64>)| async move {
+                let mix_id: i64 = sqlm::mix::Entity::find()
+                    .select_only()
+                    .column(sqlm::mix::Column::Id)
+                    .filter(sqlm::mix::Column::RemoteId.eq(Some(remote_mix_id)))
+                    .into_tuple()
+                    .one(&this.0.db)
+                    .await
+                    .map_err(mlua::Error::external)?
+                    .ok_or(mlua::Error::runtime("no mix entry"))?;
+
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+
+                let conflict = [
+                    sqlm::rel_mix_song::Column::MixId,
+                    sqlm::rel_mix_song::Column::SongId,
+                ];
+                let exclude = [sqlm::rel_mix_song::Column::Id];
+
+                let now = Timestamp::from(chrono::Utc::now());
+
+                let iter = song_ids.into_iter().enumerate().map(|(i, song_id)| {
+                    let a: sqlm::rel_mix_song::ActiveModel = sqlm::rel_mix_song::ActiveModel {
+                        mix_id: Set(mix_id),
+                        song_id: Set(song_id),
+                        order_idx: Set(i as i64),
+                        update_at: Set(now),
+                        id: NotSet,
+                    };
+                    a
+                });
+
+                DbChunkOper::<50>::insert(&txn, iter, &conflict, &exclude)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(())
+            },
+        );
+        methods.add_async_method(
             "sync_album_artist_ids",
             |lua, this, (models,): (LuaValue,)| async move {
                 let models: Vec<sqlm::rel_album_artist::Model> = lua.from_value(models)?;
@@ -726,5 +792,15 @@ impl LuaUserData for LuaContext {
                 Ok(out)
             },
         );
+
+        methods.add_async_method("libraries", |lua, this, (): ()| async move {
+            let out = sqlm::library::Entity::find()
+                .filter(sqlm::library::Column::ProviderId.eq(this.1))
+                .all(&this.0.db)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            Ok(to_lua(&lua, &out))
+        });
     }
 }
