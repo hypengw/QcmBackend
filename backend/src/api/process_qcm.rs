@@ -476,7 +476,11 @@ pub async fn process_qcm(
                 let total = paginator.num_items().await?;
                 let songs = paginator.fetch_page(page_params.page).await?;
 
-                log::error!("GetMixSongsReq songs count: {}, id: {}", songs.len(), req.id);
+                log::error!(
+                    "GetMixSongsReq songs count: {}, id: {}",
+                    songs.len(),
+                    req.id
+                );
 
                 let (items, extras) = to_rsp_songs(db, songs, None).await?;
 
@@ -519,6 +523,17 @@ pub async fn process_qcm(
             if let Some(Payload::DeleteMixReq(req)) = payload {
                 let db = &ctx.provider_context.db;
                 sqlm::mix::Entity::delete_many()
+                    .filter(sqlm::mix::Column::Id.is_in(req.ids.clone()))
+                    .exec(db)
+                    .await?;
+                return Ok(Rsp::default().qcm_into());
+            }
+        }
+        MessageType::LinkMixReq => {
+            if let Some(Payload::LinkMixReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+                sqlm::mix::Entity::update_many()
+                    .col_expr(sqlm::mix::Column::MixType, Expr::val(MixType::Link).into())
                     .filter(sqlm::mix::Column::Id.is_in(req.ids.clone()))
                     .exec(db)
                     .await?;

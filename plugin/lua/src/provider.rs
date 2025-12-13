@@ -578,6 +578,7 @@ impl LuaUserData for LuaContext {
                         sqlm::mix::Column::SortName,
                         sqlm::mix::Column::CreateAt,
                         sqlm::mix::Column::AddedAt,
+                        sqlm::mix::Column::MixType,
                     ];
                     let iter =
                         out.clone()
@@ -670,7 +671,7 @@ impl LuaUserData for LuaContext {
         );
         methods.add_async_method(
             "sync_remote_mix_song_ids",
-            |lua, this, (remote_mix_id, song_ids): (i64, Vec<i64>)| async move {
+            |_lua, this, (remote_mix_id, song_ids): (i64, Vec<i64>)| async move {
                 let mix_id: i64 = sqlm::mix::Entity::find()
                     .select_only()
                     .column(sqlm::mix::Column::Id)

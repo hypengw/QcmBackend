@@ -222,6 +222,7 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::mix::Entity> {
                 Some(Payload::AddedDateFilter(added)) => {
                     added.get_expr_from_col(sqlm::mix::Column::AddedAt)
                 }
+                Some(Payload::TypeFilter(tf)) => tf.get_expr_from_col(sqlm::mix::Column::MixType),
                 Some(_) => None::<SimpleExpr>,
                 None => None,
             };
@@ -243,6 +244,7 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::remote_mix::Entity> {
         Self::Filter: 'a,
     {
         use msg::filter::remote_mix_filter::Payload;
+        use sea_orm::sea_query::{Expr, Query, SelectStatement};
         let mut select = self;
 
         for f in filters {
@@ -256,6 +258,25 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::remote_mix::Entity> {
                 ))),
                 Some(Payload::TrackFilter(track)) => {
                     track.get_expr_from_col(sqlm::remote_mix::Column::TrackCount)
+                }
+                Some(Payload::LocalTypeFilter(tf)) => {
+                    tf.get_expr(Expr::col((sqlm::mix::Entity, sqlm::mix::Column::MixType)).into())
+                        .map(|type_expr| {
+                            let subquery: SelectStatement = Query::select()
+                                .expr(Expr::val(1)) // SELECT 1
+                                .from(sqlm::mix::Entity)
+                                .and_where(
+                                    Expr::col((sqlm::mix::Entity, sqlm::mix::Column::RemoteId))
+                                        .equals((
+                                            sqlm::remote_mix::Entity,
+                                            sqlm::remote_mix::Column::Id,
+                                        )),
+                                )
+                                .and_where(type_expr)
+                                .limit(1)
+                                .to_owned();
+                            Expr::exists(subquery)
+                        })
                 }
                 None => None,
             };
