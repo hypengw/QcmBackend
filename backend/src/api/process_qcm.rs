@@ -518,6 +518,14 @@ pub async fn process_qcm(
                 let db = &ctx.provider_context.db;
                 sqlm::mix::Entity::delete_many()
                     .filter(sqlm::mix::Column::Id.is_in(req.ids.clone()))
+                    .filter(sqlm::mix::Column::MixType.eq(MixType::Normal))
+                    .exec(db)
+                    .await?;
+
+                sqlm::mix::Entity::update_many()
+                    .col_expr(sqlm::mix::Column::MixType, Expr::val(MixType::Cache).into())
+                    .filter(sqlm::mix::Column::Id.is_in(req.ids.clone()))
+                    .filter(sqlm::mix::Column::MixType.eq(MixType::Link))
                     .exec(db)
                     .await?;
                 return Ok(Rsp::default().qcm_into());
