@@ -586,6 +586,43 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
+        MessageType::GetSongIdsReq => {
+            if let Some(Payload::GetSongIdsReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                let query = sqlm::song::Entity::find()
+                    .inner_join(sqlm::item::Entity)
+                    .qcm_filters(&req.filters);
+                let ids: Vec<i64> = query
+                    .select_only()
+                    .column(sqlm::song::Column::Id)
+                    .into_tuple()
+                    .all(db)
+                    .await?;
+                let rsp = msg::GetSongIdsRsp { ids };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetSongsByIdReq => {
+            if let Some(Payload::GetSongsByIdReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+                let songs = sqlm::song::Entity::find()
+                    .filter(sqlm::song::Column::Id.is_in(req.ids.clone()))
+                    .all(db)
+                    .await?;
+
+                let (items, extras) = to_rsp_songs(db, songs, None).await?;
+
+                let len = items.len();
+
+                let rsp = msg::GetSongsByIdRsp {
+                    items,
+                    extras,
+                    total: len as i32,
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
         MessageType::GetArtistAlbumReq => {
             if let Some(Payload::GetArtistAlbumReq(req)) = payload {
                 let db = &ctx.provider_context.db;

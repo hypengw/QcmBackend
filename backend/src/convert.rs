@@ -567,3 +567,5 @@ impl_from_for_qcm_msg!(GetSubtitleRsp);
 
 impl_from_for_qcm_msg!(GetStorageInfoRsp);
 impl_from_for_qcm_msg!(SyncRsp);
+impl_from_for_qcm_msg!(GetSongsByIdRsp);
+impl_from_for_qcm_msg!(GetSongIdsRsp);

@@ -289,6 +289,59 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::remote_mix::Entity> {
     }
 }
 
+impl SelectQcmMsgFilters for sea_orm::Select<sqlm::song::Entity> {
+    type Filter = msg::filter::SongFilter;
+
+    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    where
+        I: IntoIterator<Item = &'a Self::Filter>,
+        Self::Filter: 'a,
+    {
+        use msg::filter::song_filter::Payload;
+        use sea_orm::sea_query::{Expr, Query, SelectStatement};
+        let mut select = self;
+
+        for f in filters {
+            let expr = match &f.payload {
+                Some(Payload::AlbumIdFilter(id)) => {
+                    id.get_expr_from_col(sqlm::song::Column::AlbumId)
+                }
+                Some(Payload::MixIdFilter(id)) => {
+                    id.get_expr(
+                        Expr::col((
+                            sqlm::rel_mix_song::Entity,
+                            sqlm::rel_mix_song::Column::MixId,
+                        ))
+                        .into(),
+                    )
+                    .map(|id_expr| {
+                        let subquery: SelectStatement = Query::select()
+                            .expr(Expr::val(1)) // SELECT 1
+                            .from(sqlm::rel_mix_song::Entity)
+                            .and_where(
+                                Expr::col((
+                                    sqlm::rel_mix_song::Entity,
+                                    sqlm::rel_mix_song::Column::SongId,
+                                ))
+                                .equals((sqlm::song::Entity, sqlm::song::Column::Id)),
+                            )
+                            .and_where(id_expr)
+                            .limit(1)
+                            .to_owned();
+                        Expr::exists(subquery)
+                    })
+                }
+                None => None,
+            };
+
+            if let Some(expr) = expr {
+                select = select.filter(expr);
+            }
+        }
+        select
+    }
+}
+
 trait StringFilterTrait {
     fn get_condition(&self) -> StringCondition;
     fn get_value(&self) -> &str;
@@ -455,6 +508,8 @@ impl_string_filter!(msg::filter::ArtistNameFilter);
 impl_string_filter!(msg::filter::AlbumTitleFilter);
 impl_id_filter!(msg::filter::ArtistIdFilter);
 impl_id_filter!(msg::filter::AlbumArtistIdFilter);
+impl_id_filter!(msg::filter::AlbumIdFilter);
+impl_id_filter!(msg::filter::MixIdFilter);
 impl_date_filter!(msg::filter::AddedDateFilter);
 impl_date_filter!(msg::filter::LastPlayedAtFilter);
 impl_type_filter!(msg::filter::TypeFilter);
