@@ -395,3 +395,28 @@ where
     let out = DbChunkOper::<50>::insert_on_return_key(txn, items, conflict).await?;
     Ok(out)
 }
+
+pub async fn check_cache_mix<DB>(
+    db: &DB,
+    id: i64,
+) -> Result<Option<(sqlm::remote_mix::Model, sqlm::item::Model)>, DbErr>
+where
+    DB: sea_orm::ConnectionTrait,
+{
+    let out = sqlm::remote_mix::Entity::find()
+        .inner_join(sqlm::mix::Entity)
+        .find_also_related(sqlm::item::Entity)
+        .filter(Expr::col((sqlm::mix::Entity, sqlm::mix::Column::Id)).eq(id))
+        .filter(
+            Expr::col((sqlm::mix::Entity, sqlm::mix::Column::ContentUpdateAt))
+                .lte(Timestamp::now().as_millis() - 30 * 60 * 1000),
+        )
+        .one(db)
+        .await?;
+
+    if let Some((mix, Some(item))) = out {
+        Ok(Some((mix, item)))
+    } else {
+        Ok(None)
+    }
+}

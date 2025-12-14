@@ -24,24 +24,11 @@ where
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let db = manager.get_connection();
-        manager
-            .drop_index(
-                Index::drop()
-                    .name(unique_index_name!(
-                        item::Entity,
-                        item::Column::NativeId,
-                        item::Column::Type,
-                        item::Column::ProviderId
-                    ))
-                    .table(item::Entity)
-                    .if_exists()
-                    .to_owned(),
-            )
-            .await?;
 
-        let stat = sea_orm::Statement::from_string(
-            db.get_database_backend(),
-            r#"
+        {
+            let stat = sea_orm::Statement::from_string(
+                db.get_database_backend(),
+                r#"
             CREATE UNIQUE INDEX item_native_type_provider_library_idx ON item (
                 "native_id",
                 "type",
@@ -49,28 +36,9 @@ impl MigrationTrait for Migration {
                 COALESCE("library_id", -1)
             );
             "#,
-        );
-        db.execute(stat).await?;
-
-        manager
-            .drop_table(
-                Table::drop()
-                    .table(remote_mix::Entity)
-                    .if_exists()
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_table(Table::drop().table(mix::Entity).if_exists().to_owned())
-            .await?;
-        manager
-            .drop_table(
-                Table::drop()
-                    .table(rel_mix_song::Entity)
-                    .if_exists()
-                    .to_owned(),
-            )
-            .await?;
+            );
+            db.execute(stat).await?;
+        }
 
         manager
             .create_table(
@@ -117,7 +85,12 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(mix::Column::RemoteId))
                     .col(ColumnDef::new(mix::Column::TrackCount).integer().not_null())
                     .col(ColumnDef::new(mix::Column::Description).string().not_null())
-                    .col(ColumnDef::new(mix::Column::AddedAt).big_integer())
+                    .col(
+                        ColumnDef::new(mix::Column::ContentUpdateAt)
+                            .big_integer()
+                            .default(0)
+                            .not_null(),
+                    )
                     .col(timestamp_col(mix::Column::CreateAt))
                     .col(timestamp_col(mix::Column::UpdateAt))
                     .foreign_key(

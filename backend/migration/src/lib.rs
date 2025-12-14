@@ -5,8 +5,8 @@ mod drop;
 mod m20220101_000004_create_provider_table;
 mod m20220101_000005_create_library_table;
 mod m20250824_000001_create_table;
-mod m20250824_145233_create_fts_table;
-mod m20251129_145233_recreate_remote_mix;
+mod m20251129_145233_create_remote_mix;
+mod m20251214_145233_create_fts_table;
 
 pub struct Migrator;
 pub use cache::CacheDBMigrator;
@@ -33,38 +33,17 @@ macro_rules! unique_index {
     };
 }
 
-const DROPED: &[&str] = &[
-    "m20220101_000003_create_table",
-    "m20220101_000006_create_table",
-    "m20250418_145233_create_table",
-    "m20250521_145233_create_fts_table",
-    "m20250522_145233_create_dynamic_table",
-    "m20250523_145233_create_dynamic_table",
-    "m20250718_000001_create_rel_index",
-    "m20250814_000001_album_add_col",
-    "m20250801_000001_create_table",
-    "m20250815_145233_create_fts_table",
-];
+const DROPED: &[&str] = &[];
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            Box::new(drop::m20220101_000003_create_table::Migration),
-            Box::new(drop::m20220101_000006_create_table::Migration),
-            Box::new(drop::m20250418_145233_create_table::Migration),
-            Box::new(drop::m20250521_145233_create_fts_table::Migration),
-            Box::new(drop::m20250522_145233_create_dynamic_table::Migration),
-            Box::new(drop::m20250523_145233_create_dynamic_table::Migration),
-            Box::new(drop::m20250718_000001_create_rel_index::Migration),
-            Box::new(drop::m20250814_000001_album_add_col::Migration),
-            Box::new(drop::m20250801_000001_create_table::Migration),
-            Box::new(drop::m20250815_145233_create_fts_table::Migration),
             Box::new(m20220101_000004_create_provider_table::Migration),
             Box::new(m20220101_000005_create_library_table::Migration),
             Box::new(m20250824_000001_create_table::Migration),
-            Box::new(m20250824_145233_create_fts_table::Migration),
-            Box::new(m20251129_145233_recreate_remote_mix::Migration),
+            Box::new(m20251129_145233_create_remote_mix::Migration),
+            Box::new(m20251214_145233_create_fts_table::Migration),
         ]
     }
 

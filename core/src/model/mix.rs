@@ -18,9 +18,6 @@ pub struct Model {
     #[serde(default)]
     pub description: String,
     #[serde(default)]
-    pub added_at: Option<Timestamp>,
-
-    #[serde(default)]
     pub remote_id: Option<i64>,
 
     #[serde(default = "Timestamp::now")]
@@ -30,6 +27,10 @@ pub struct Model {
     #[serde(default = "Timestamp::now")]
     #[sea_orm(default_expr = "Timestamp::now_expr()")]
     pub update_at: Timestamp,
+
+    #[serde(default)]
+    #[sea_orm(default_expr = "Timestamp::default_expr()")]
+    pub content_update_at: Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

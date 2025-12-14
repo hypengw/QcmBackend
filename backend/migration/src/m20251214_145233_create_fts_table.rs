@@ -16,6 +16,7 @@ impl MigrationTrait for Migration {
         drop_fts_triggers(db, "album").await?;
         drop_fts_triggers(db, "artist").await?;
         drop_fts_triggers(db, "song").await?;
+        drop_fts_triggers(db, "mix").await?;
 
         db.execute_unprepared("DROP TABLE IF EXISTS album_fts;")
             .await?;
@@ -23,9 +24,12 @@ impl MigrationTrait for Migration {
             .await?;
         db.execute_unprepared("DROP TABLE IF EXISTS song_fts;")
             .await?;
+        db.execute_unprepared("DROP TABLE IF EXISTS mix_fts;")
+            .await?;
 
         create_fts_table_and_triggers(db, "album", &["name", "description"]).await?;
         create_fts_table_and_triggers(db, "artist", &["name", "description"]).await?;
+        create_fts_table_and_triggers(db, "mix", &["name", "description"]).await?;
         create_fts_table_and_triggers(db, "song", &["name"]).await?;
         Ok(())
     }
@@ -38,6 +42,8 @@ impl MigrationTrait for Migration {
         db.execute_unprepared("DROP TABLE IF EXISTS artist_fts;")
             .await?;
         db.execute_unprepared("DROP TABLE IF EXISTS song_fts;")
+            .await?;
+        db.execute_unprepared("DROP TABLE IF EXISTS mix_fts;")
             .await?;
 
         Ok(())

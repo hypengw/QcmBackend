@@ -219,9 +219,6 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::mix::Entity> {
                 Some(Payload::TrackFilter(track)) => {
                     track.get_expr_from_col(sqlm::mix::Column::TrackCount)
                 }
-                Some(Payload::AddedDateFilter(added)) => {
-                    added.get_expr_from_col(sqlm::mix::Column::AddedAt)
-                }
                 Some(Payload::TypeFilter(tf)) => tf.get_expr_from_col(sqlm::mix::Column::MixType),
                 Some(_) => None::<SimpleExpr>,
                 None => None,

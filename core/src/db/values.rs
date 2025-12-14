@@ -28,6 +28,10 @@ impl Timestamp {
     pub fn now_expr() -> SimpleExpr {
         Expr::cust("(strftime('%s','now')*1000)")
     }
+
+    pub fn default_expr() -> SimpleExpr {
+        Expr::cust("(0)")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]

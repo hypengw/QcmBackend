@@ -337,10 +337,10 @@ impl QcmFrom<proto::Mix> for core::model::mix::Model {
                 .mix_type
                 .try_into()
                 .unwrap_or(sqlm::type_enum::MixType::Normal),
-            added_at: None,
             remote_id: None,
             create_at: Timestamp::now(),
             update_at: Timestamp::now(),
+            content_update_at: Timestamp::new(),
         }
     }
 }

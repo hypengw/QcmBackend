@@ -33,6 +33,7 @@ use std::{
 
 use crate::crypto::create_crypto_module;
 use crate::http::{LuaClient, LuaResponse};
+use crate::timestamp::create_time_module;
 use serde::{Deserialize, Serialize};
 
 struct LuaProviderInner {
@@ -137,6 +138,7 @@ impl LuaProvider {
             qcm_table.set("inner", LuaInner(inner.clone()))?;
             qcm_table.set("crypto", create_crypto_module(&lua)?)?;
             qcm_table.set("json", create_json_module(&lua)?)?;
+            qcm_table.set("time", create_time_module(&lua)?)?;
             qcm_table.set("enum", enums::create_module(&lua)?)?;
             qcm_table.set("error", create_lua_error_func(&lua)?)?;
 
@@ -571,14 +573,14 @@ impl LuaUserData for LuaContext {
                 }
 
                 {
-                    let now = Timestamp::from(chrono::Utc::now());
+                    let now = Timestamp::now();
                     let conflict = [sqlm::mix::Column::RemoteId];
                     let exclude = [
                         sqlm::mix::Column::Id,
                         sqlm::mix::Column::SortName,
-                        sqlm::mix::Column::CreateAt,
-                        sqlm::mix::Column::AddedAt,
                         sqlm::mix::Column::MixType,
+                        sqlm::mix::Column::CreateAt,
+                        sqlm::mix::Column::ContentUpdateAt,
                     ];
                     let iter =
                         out.clone()
@@ -595,7 +597,7 @@ impl LuaUserData for LuaContext {
                                     mix_type: Set(sqlm::type_enum::MixType::Cache),
                                     id: NotSet,
                                     sort_name: NotSet,
-                                    added_at: NotSet,
+                                    content_update_at: NotSet,
                                 };
                                 a
                             });
@@ -690,7 +692,16 @@ impl LuaUserData for LuaContext {
                 ];
                 let exclude = [sqlm::rel_mix_song::Column::Id];
 
-                let now = Timestamp::from(chrono::Utc::now());
+                let now = Timestamp::now();
+
+                sqlm::mix::Entity::update(sqlm::mix::ActiveModel {
+                    id: Set(mix_id),
+                    content_update_at: Set(now),
+                    ..Default::default()
+                })
+                .exec(&txn)
+                .await
+                .map_err(mlua::Error::external)?;
 
                 let iter = song_ids.into_iter().enumerate().map(|(i, song_id)| {
                     let a: sqlm::rel_mix_song::ActiveModel = sqlm::rel_mix_song::ActiveModel {

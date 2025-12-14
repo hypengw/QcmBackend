@@ -254,7 +254,7 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn prepare_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
-    let db_path = data.join("backend.1.db");
+    let db_path = data.join("backend.2.db");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
     let mut opt = sea_orm::ConnectOptions::new(db_url);

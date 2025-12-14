@@ -6,7 +6,7 @@ use qcm_core::model::type_enum::{CacheType, MixType};
 use qcm_core::provider::{AuthMethod, AuthResult};
 use qcm_core::{event::Event as CoreEvent, global, Result};
 use sea_orm::ActiveValue::NotSet;
-use sea_orm::TransactionTrait;
+use sea_orm::{Condition, TransactionTrait};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -443,13 +443,7 @@ pub async fn process_qcm(
             if let Some(Payload::GetMixSongsReq(req)) = payload {
                 let db = &ctx.provider_context.db;
 
-                if let Some((_, Some(item))) = sqlm::remote_mix::Entity::find()
-                    .inner_join(sqlm::mix::Entity)
-                    .find_also_related(sqlm::item::Entity)
-                    .filter(Expr::col((sqlm::mix::Entity, sqlm::mix::Column::Id)).eq(req.id))
-                    .one(db)
-                    .await?
-                {
+                if let Some((_, item)) = qcm_core::db::sync::check_cache_mix(db, req.id).await? {
                     let provider = global::provider(item.provider_id)
                         .ok_or(ProcessError::NoSuchProvider(item.provider_id.to_string()))?;
                     provider.sync_item(&ctx.provider_context, item).await?;
@@ -597,6 +591,22 @@ pub async fn process_qcm(
         MessageType::GetSongIdsReq => {
             if let Some(Payload::GetSongIdsReq(req)) = payload {
                 let db = &ctx.provider_context.db;
+
+                for f in &req.filters {
+                    match f.payload {
+                        Some(msg::filter::song_filter::Payload::MixIdFilter(id)) => {
+                            if let Some((_, item)) =
+                                qcm_core::db::sync::check_cache_mix(db, id.value).await?
+                            {
+                                let provider = global::provider(item.provider_id).ok_or(
+                                    ProcessError::NoSuchProvider(item.provider_id.to_string()),
+                                )?;
+                                provider.sync_item(&ctx.provider_context, item).await?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
 
                 let query = sqlm::song::Entity::find()
                     .inner_join(sqlm::item::Entity)
