@@ -15,7 +15,7 @@ extern "C" fn hello_rust(
     unsafe {
         api::sqlite3_result_text(
             ctx,
-            result.as_ptr() as *const i8,
+            result.as_ptr() as *const c_char,
             result.len() as c_int,
             api::SQLITE_TRANSIENT(),
         );
@@ -30,7 +30,7 @@ extern "C" fn qcm_query(
 ) {
     if argc < 1 {
         unsafe {
-            api::sqlite3_result_error(ctx, "Expected 1 argument\0".as_ptr() as *const i8, -1);
+            api::sqlite3_result_error(ctx, "Expected 1 argument\0".as_ptr() as *const c_char, -1);
         }
         return;
     }
@@ -38,11 +38,11 @@ extern "C" fn qcm_query(
     unsafe {
         let query_text = api::sqlite3_value_text(*argv.offset(0));
         if query_text.is_null() {
-            api::sqlite3_result_error(ctx, "Query text is null\0".as_ptr() as *const i8, -1);
+            api::sqlite3_result_error(ctx, "Query text is null\0".as_ptr() as *const c_char, -1);
             return;
         }
 
-        let query = std::ffi::CStr::from_ptr(query_text as *const i8)
+        let query = std::ffi::CStr::from_ptr(query_text as *const c_char)
             .to_string_lossy()
             .into_owned();
 
@@ -51,7 +51,7 @@ extern "C" fn qcm_query(
 
         api::sqlite3_result_text(
             ctx,
-            fts_query.as_ptr() as *const i8,
+            fts_query.as_ptr() as *const c_char,
             fts_query.len() as c_int,
             api::SQLITE_TRANSIENT(),
         );
@@ -65,7 +65,7 @@ unsafe fn fts5_api_from_db(db: *mut api::sqlite3, pp_api: *mut *mut api::fts5_ap
     *pp_api = std::ptr::null_mut();
     rc = api::sqlite3_prepare_v2(
         db,
-        "SELECT fts5(?1)\0".as_ptr() as *const i8,
+        "SELECT fts5(?1)\0".as_ptr() as *const c_char,
         -1,
         &mut p_stmt,
         std::ptr::null_mut(),
@@ -76,7 +76,7 @@ unsafe fn fts5_api_from_db(db: *mut api::sqlite3, pp_api: *mut *mut api::fts5_ap
             p_stmt,
             1,
             pp_api as *mut _,
-            "fts5_api_ptr\0".as_ptr() as *const i8,
+            "fts5_api_ptr\0".as_ptr() as *const c_char,
             None,
         );
         api::sqlite3_step(p_stmt);
@@ -143,7 +143,7 @@ unsafe extern "C" fn sqlite3_qcm_init(
 
     rc = fts_api.xCreateTokenizer.unwrap()(
         fts_api_p,
-        "qcm\0".as_ptr() as *const i8,
+        "qcm\0".as_ptr() as *const c_char,
         std::ptr::null_mut(),
         &mut tokenizer,
         None,

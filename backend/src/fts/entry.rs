@@ -1,6 +1,7 @@
 use super::tokenizer::{FtsTokenizer, Token};
 use libsqlite3_sys as api;
 use std::ffi::CStr;
+use std::os::raw::c_char;
 
 #[no_mangle]
 pub unsafe extern "C" fn create(
@@ -57,14 +58,16 @@ pub unsafe extern "C" fn tokenize(
     for token in tokens {
         if let Some(callback) = x_token {
             let (token_str, start_pos) = match token {
-                Token::Alphabetic(s, pos) | Token::Numeric(s, pos) | Token::NGram(s, pos) => (s, pos),
+                Token::Alphabetic(s, pos) | Token::Numeric(s, pos) | Token::NGram(s, pos) => {
+                    (s, pos)
+                }
             };
             let token_len = token_str.len() as i32;
             let start_pos_i32 = start_pos as i32;
             callback(
                 p_ctx,
                 flags,
-                token_str.as_ptr() as *const i8,
+                token_str.as_ptr() as *const c_char,
                 token_len,
                 start_pos_i32,
                 start_pos_i32 + token_len,
