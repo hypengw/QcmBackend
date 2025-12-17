@@ -125,7 +125,7 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
                     added.get_expr_from_col(sqlm::album::Column::AddedAt)
                 }
                 Some(Payload::TypeFilter(album_type)) => {
-                    album_type.get_expr_from_col(sqlm::album::Column::Type)
+                    album_type.get_expr(Expr::col((sqlm::album::Entity, sqlm::album::Column::Type)))
                 }
                 Some(Payload::DiscCountFilter(disc_count)) => {
                     disc_count.get_expr_from_col(sqlm::album::Column::DiscCount)
