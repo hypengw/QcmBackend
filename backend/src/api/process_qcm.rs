@@ -14,7 +14,7 @@ use qcm_core::model::{self as sqlm, dynamic, provider};
 use sea_orm::{
     prelude::Expr, sea_query, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityName,
     EntityTrait, FromQueryResult, LoaderTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, Statement,
+    QuerySelect, RelationTrait, Statement,
 };
 
 use crate::api::{
@@ -249,10 +249,7 @@ pub async fn process_qcm(
 
                 let sort: msg::model::AlbumSort =
                     req.sort.try_into().unwrap_or(msg::model::AlbumSort::Title);
-                let sort_asc = match req.sort_asc {
-                    true => sea_orm::Order::Asc,
-                    false => sea_orm::Order::Desc,
-                };
+                let sort_asc = req.sort_asc.qcm_into();
 
                 let query = sqlm::album::Entity::find()
                     .inner_join(sqlm::item::Entity)
@@ -290,13 +287,7 @@ pub async fn process_qcm(
                     .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_album_artist::Entity)
                     .qcm_filters(&req.filters)
-                    .order_by(
-                        sort_col,
-                        match req.sort_asc {
-                            true => sea_orm::Order::Asc,
-                            false => sea_orm::Order::Desc,
-                        },
-                    )
+                    .order_by(sort_col, req.sort_asc.qcm_into())
                     .distinct()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -328,13 +319,7 @@ pub async fn process_qcm(
                     .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_song_artist::Entity)
                     .qcm_filters(&req.filters)
-                    .order_by(
-                        sort_col,
-                        match req.sort_asc {
-                            true => sea_orm::Order::Asc,
-                            false => sea_orm::Order::Desc,
-                        },
-                    )
+                    .order_by(sort_col, req.sort_asc.qcm_into())
                     .distinct()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -453,10 +438,7 @@ pub async fn process_qcm(
 
                 let sort: msg::model::SongSort =
                     req.sort.try_into().unwrap_or(msg::model::SongSort::Title);
-                let sort_asc = match req.sort_asc {
-                    true => sea_orm::Order::Asc,
-                    false => sea_orm::Order::Desc,
-                };
+                let sort_asc = req.sort_asc.qcm_into();
 
                 let query = sqlm::song::Entity::find()
                     .inner_join(sqlm::item::Entity)
@@ -591,32 +573,100 @@ pub async fn process_qcm(
         MessageType::GetSongIdsReq => {
             if let Some(Payload::GetSongIdsReq(req)) = payload {
                 let db = &ctx.provider_context.db;
+                let mut ids = Vec::new();
 
-                for f in &req.filters {
-                    match f.payload {
-                        Some(msg::filter::song_filter::Payload::MixIdFilter(id)) => {
-                            if let Some((_, item)) =
-                                qcm_core::db::sync::check_cache_mix(db, id.value).await?
-                            {
-                                let provider = global::provider(item.provider_id).ok_or(
-                                    ProcessError::NoSuchProvider(item.provider_id.to_string()),
-                                )?;
-                                provider.sync_item(&ctx.provider_context, item).await?;
+                if !req.filters.is_empty() {
+                    for f in &req.filters {
+                        match f.payload {
+                            Some(msg::filter::song_filter::Payload::MixIdFilter(id)) => {
+                                if let Some((_, item)) =
+                                    qcm_core::db::sync::check_cache_mix(db, id.value).await?
+                                {
+                                    let provider = global::provider(item.provider_id).ok_or(
+                                        ProcessError::NoSuchProvider(item.provider_id.to_string()),
+                                    )?;
+                                    provider.sync_item(&ctx.provider_context, item).await?;
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
-                }
 
-                let query = sqlm::song::Entity::find()
-                    .inner_join(sqlm::item::Entity)
-                    .qcm_filters(&req.filters);
-                let ids: Vec<i64> = query
-                    .select_only()
-                    .column(sqlm::song::Column::Id)
-                    .into_tuple()
-                    .all(db)
-                    .await?;
+                    let query = sqlm::song::Entity::find()
+                        .inner_join(sqlm::item::Entity)
+                        .qcm_filters(&req.filters);
+                    ids = query
+                        .select_only()
+                        .column(sqlm::song::Column::Id)
+                        .into_tuple()
+                        .all(db)
+                        .await?;
+                } else {
+                    use sea_query::{Alias, CommonTableExpression, Condition, Query, WithClause};
+                    let song_sort: msg::model::SongSort = req
+                        .sort
+                        .try_into()
+                        .map_err(|_| ProcessError::NotImplemented)?;
+
+                    let album_sort: msg::model::AlbumSort = req
+                        .album_sort
+                        .try_into()
+                        .map_err(|_| ProcessError::NotImplemented)?;
+
+                    let cond: Condition = req.album_filters.clone().into_iter().qcm_into();
+                    let cte_query = Query::select()
+                        .column((sqlm::album::Entity, sqlm::album::Column::Id))
+                        .inner_join(sqlm::dynamic::Entity, sqlm::dynamic::Relation::Album.def())
+                        .inner_join(sqlm::item::Entity, sqlm::item::Relation::Album.def())
+                        .expr(Expr::cust_with_expr(
+                            "row_number() OVER (ORDER BY $1)",
+                            album_sort_col(album_sort),
+                        ))
+                        .from(sqlm::album::Entity)
+                        .cond_where(cond)
+                        .cond_where(
+                            Condition::all()
+                                .add(sqlm::dynamic::Column::IsExternal.eq(false))
+                                .add(sqlm::item::Column::LibraryId.is_in(req.library_ids.clone())),
+                        )
+                        .to_owned();
+
+                    let sorted_album_ids_alias = Alias::new("sorted_album_ids");
+                    let sorted_album_id_alias = Alias::new("sorted_album_id");
+                    let sorted_album_ord_alias = Alias::new("sorted_album_ord");
+                    let with_clause = WithClause::new()
+                        .cte(
+                            CommonTableExpression::new()
+                                .query(cte_query)
+                                .table_name(sorted_album_ids_alias.clone())
+                                .column(sorted_album_id_alias.clone())
+                                .column(sorted_album_ord_alias.clone())
+                                .to_owned(),
+                        )
+                        .to_owned();
+
+                    let stmt = Query::select()
+                        .column(sqlm::song::Column::Id)
+                        .from(sqlm::song::Entity)
+                        .inner_join(
+                            sorted_album_ids_alias.clone(),
+                            Expr::col((sqlm::song::Entity, sqlm::song::Column::AlbumId))
+                                .equals(sorted_album_id_alias.clone()),
+                        )
+                        .order_by(sorted_album_ord_alias, sea_query::Order::Asc)
+                        .order_by_expr(song_sort_col(song_sort).into(), sea_query::Order::Asc)
+                        .to_owned()
+                        .with(with_clause)
+                        .to_owned();
+
+                    let db_backend = ctx.provider_context.db.get_database_backend();
+                    ids = db
+                        .query_all(db_backend.build(&stmt))
+                        .await?
+                        .into_iter()
+                        .filter_map(|col| col.try_get::<i64>("", "id").ok())
+                        .collect();
+                }
                 let rsp = msg::GetSongIdsRsp { ids };
                 return Ok(rsp.qcm_into());
             }
@@ -656,13 +706,9 @@ pub async fn process_qcm(
                     .await?
                     .ok_or(ProcessError::NoSuchArtist(req.id.to_string()))?;
 
-                let albums_query = artist.find_related(sqlm::album::Entity).order_by(
-                    sort_col,
-                    match req.sort_asc {
-                        true => sea_orm::Order::Asc,
-                        false => sea_orm::Order::Desc,
-                    },
-                );
+                let albums_query = artist
+                    .find_related(sqlm::album::Entity)
+                    .order_by(sort_col, req.sort_asc.qcm_into());
                 let paginator = albums_query.paginate(db, page_params.page_size);
 
                 let total = paginator.num_items().await?;

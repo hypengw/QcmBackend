@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use crate::db::filter::album_filter_to_expr;
 use crate::error::ProcessError;
 use crate::msg::model as proto;
 use crate::msg::{self, QcmMessage};
@@ -202,6 +203,15 @@ impl QcmFrom<core::model::library::Model> for proto::Library {
     }
 }
 
+impl QcmFrom<bool> for sea_orm::Order {
+    fn qcm_from(v: bool) -> Self {
+        match v {
+            true => sea_orm::Order::Asc,
+            false => sea_orm::Order::Desc,
+        }
+    }
+}
+
 impl QcmFrom<proto::Album> for core::model::album::Model {
     fn qcm_from(v: proto::Album) -> Self {
         Self {
@@ -380,6 +390,29 @@ impl QcmFrom<msg::model::ArtistSort> for sqlm::artist::Column {
             ArtistSort::MusicCount => Self::MusicCount,
             ArtistSort::AlbumCount => Self::AlbumCount,
         }
+    }
+}
+
+impl QcmTryFrom<msg::filter::AlbumFilter> for sea_orm::sea_query::SimpleExpr {
+    type Error = ProcessError;
+    fn qcm_try_from(t: msg::filter::AlbumFilter) -> Result<Self, ProcessError> {
+        album_filter_to_expr(&t).ok_or(ProcessError::NotImplemented)
+    }
+}
+
+impl<F, I> QcmFrom<F> for sea_orm::sea_query::Condition
+where
+    I: QcmTryInto<sea_orm::sea_query::SimpleExpr>,
+    F: Iterator<Item = I>,
+{
+    fn qcm_from(iter: F) -> Self {
+        let mut expr = sea_orm::sea_query::Condition::all();
+        for item in iter {
+            if let Ok(e) = item.qcm_try_into() {
+                expr = expr.add(e);
+            }
+        }
+        expr
     }
 }
 

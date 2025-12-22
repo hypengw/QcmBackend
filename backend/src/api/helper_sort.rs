@@ -11,6 +11,7 @@ pub fn song_sort_col(sort: msg::model::SongSort) -> Expr {
         SongSort::TrackNumber => Expr::col(sqlm::song::Column::TrackNumber),
         SongSort::Duration => Expr::col(sqlm::song::Column::Duration),
         SongSort::Popularity => Expr::col(sqlm::song::Column::Popularity),
+        SongSort::Random => Expr::expr(Expr::cust("RANDOM()")),
     }
 }
 
@@ -27,5 +28,6 @@ pub fn album_sort_col(sort: msg::model::AlbumSort) -> Expr {
         AlbumSort::TrackCount => Expr::col(sqlm::album::Column::TrackCount),
         AlbumSort::AddedTime => Expr::col(sqlm::album::Column::AddedAt),
         AlbumSort::DiscCount => Expr::col(sqlm::album::Column::DiscCount),
+        AlbumSort::Random => Expr::expr(Expr::cust("RANDOM()")),
     }
 }

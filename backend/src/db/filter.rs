@@ -13,6 +13,105 @@ use sea_orm::{
 use sea_orm::{QueryFilter, RelationTrait};
 use uuid::fmt::Simple;
 
+pub fn album_filter_to_expr(f: &AlbumFilter) -> Option<SimpleExpr> {
+    use msg::filter::album_filter::Payload;
+    use sea_orm::sea_query::{Expr, Query, SelectStatement};
+    let expr = match &f.payload {
+        Some(Payload::ArtistNameFilter(artist)) => {
+            artist
+                .get_expr(Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Name)).into())
+                .map(|artist_name_expr| {
+                    let subquery: SelectStatement = Query::select()
+                        .expr(Expr::val(1)) // SELECT 1
+                        .from(sqlm::song::Entity)
+                        .inner_join(
+                            sqlm::rel_song_artist::Entity,
+                            sqlm::rel_song_artist::Relation::Song.def(),
+                        )
+                        .inner_join(sqlm::artist::Entity, sqlm::artist::Relation::RelSong.def())
+                        .and_where(
+                            Expr::col(sqlm::song::Column::AlbumId)
+                                .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
+                        )
+                        .and_where(artist_name_expr)
+                        .limit(1)
+                        .to_owned();
+                    Expr::exists(subquery)
+                })
+        }
+        Some(Payload::AlbumArtistIdFilter(id)) => id
+            .get_expr(Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id)).into())
+            .map(|expr| {
+                let subquery: SelectStatement = Query::select()
+                    .expr(Expr::val(1)) // SELECT 1
+                    .from(sqlm::artist::Entity)
+                    .inner_join(
+                        sqlm::rel_album_artist::Entity,
+                        sqlm::rel_album_artist::Relation::Artist.def(),
+                    )
+                    .and_where(
+                        Expr::col((
+                            sqlm::rel_album_artist::Entity,
+                            sqlm::rel_album_artist::Column::AlbumId,
+                        ))
+                        .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
+                    )
+                    .and_where(expr)
+                    .limit(1)
+                    .to_owned();
+                Expr::exists(subquery)
+            }),
+        Some(Payload::ArtistIdFilter(id)) => id
+            .get_expr(
+                Expr::col((
+                    sqlm::rel_song_artist::Entity,
+                    sqlm::rel_song_artist::Column::ArtistId,
+                ))
+                .into(),
+            )
+            .map(|expr| {
+                let subquery: SelectStatement = Query::select()
+                    .expr(Expr::val(1)) // SELECT 1
+                    .from(sqlm::song::Entity)
+                    .inner_join(
+                        sqlm::rel_song_artist::Entity,
+                        sqlm::rel_song_artist::Relation::Song.def(),
+                    )
+                    .and_where(
+                        Expr::col((sqlm::song::Entity, sqlm::song::Column::AlbumId))
+                            .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
+                    )
+                    .and_where(expr)
+                    .limit(1)
+                    .to_owned();
+                Expr::exists(subquery)
+            }),
+        Some(Payload::TitleFilter(title)) => title.get_expr_from_col(sqlm::album::Column::Name),
+        Some(Payload::TrackFilter(track)) => {
+            track.get_expr_from_col(sqlm::album::Column::TrackCount)
+        }
+        Some(Payload::DurationFilter(duration)) => {
+            duration.get_expr_from_col(sqlm::album::Column::Duration)
+        }
+        Some(Payload::YearFilter(year)) => year.get_expr_from_col(sqlm::album::Column::PublishTime),
+        Some(Payload::AddedDateFilter(added)) => {
+            added.get_expr_from_col(sqlm::album::Column::AddedAt)
+        }
+        Some(Payload::TypeFilter(album_type)) => {
+            album_type.get_expr(Expr::col((sqlm::album::Entity, sqlm::album::Column::Type)))
+        }
+        Some(Payload::DiscCountFilter(disc_count)) => {
+            disc_count.get_expr_from_col(sqlm::album::Column::DiscCount)
+        }
+        Some(Payload::LastPlayedAtFilter(last_played_at)) => last_played_at.get_expr(Expr::col((
+            sqlm::dynamic::Entity,
+            sqlm::dynamic::Column::LastPlayedAt,
+        ))),
+        None => None,
+    };
+    expr
+}
+
 pub trait SelectQcmMsgFilters: Sized {
     type Filter;
     fn qcm_filters<'a, I>(self, filters: I) -> Self
@@ -29,112 +128,10 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        use msg::filter::album_filter::Payload;
-        use sea_orm::sea_query::{Expr, Query, SelectStatement};
         let mut select = self;
 
         for f in filters {
-            let expr = match &f.payload {
-                Some(Payload::ArtistNameFilter(artist)) => {
-                    artist
-                        .get_expr(
-                            Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Name)).into(),
-                        )
-                        .map(|artist_name_expr| {
-                            let subquery: SelectStatement = Query::select()
-                                .expr(Expr::val(1)) // SELECT 1
-                                .from(sqlm::song::Entity)
-                                .inner_join(
-                                    sqlm::rel_song_artist::Entity,
-                                    sqlm::rel_song_artist::Relation::Song.def(),
-                                )
-                                .inner_join(
-                                    sqlm::artist::Entity,
-                                    sqlm::artist::Relation::RelSong.def(),
-                                )
-                                .and_where(
-                                    Expr::col(sqlm::song::Column::AlbumId)
-                                        .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
-                                )
-                                .and_where(artist_name_expr)
-                                .limit(1)
-                                .to_owned();
-                            Expr::exists(subquery)
-                        })
-                }
-                Some(Payload::AlbumArtistIdFilter(id)) => id
-                    .get_expr(Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id)).into())
-                    .map(|expr| {
-                        let subquery: SelectStatement = Query::select()
-                            .expr(Expr::val(1)) // SELECT 1
-                            .from(sqlm::artist::Entity)
-                            .inner_join(
-                                sqlm::rel_album_artist::Entity,
-                                sqlm::rel_album_artist::Relation::Artist.def(),
-                            )
-                            .and_where(
-                                Expr::col((
-                                    sqlm::rel_album_artist::Entity,
-                                    sqlm::rel_album_artist::Column::AlbumId,
-                                ))
-                                .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
-                            )
-                            .and_where(expr)
-                            .limit(1)
-                            .to_owned();
-                        Expr::exists(subquery)
-                    }),
-                Some(Payload::ArtistIdFilter(id)) => id
-                    .get_expr(
-                        Expr::col((
-                            sqlm::rel_song_artist::Entity,
-                            sqlm::rel_song_artist::Column::ArtistId,
-                        ))
-                        .into(),
-                    )
-                    .map(|expr| {
-                        let subquery: SelectStatement = Query::select()
-                            .expr(Expr::val(1)) // SELECT 1
-                            .from(sqlm::song::Entity)
-                            .inner_join(
-                                sqlm::rel_song_artist::Entity,
-                                sqlm::rel_song_artist::Relation::Song.def(),
-                            )
-                            .and_where(
-                                Expr::col((sqlm::song::Entity, sqlm::song::Column::AlbumId))
-                                    .equals((sqlm::album::Entity, sqlm::album::Column::Id)),
-                            )
-                            .and_where(expr)
-                            .limit(1)
-                            .to_owned();
-                        Expr::exists(subquery)
-                    }),
-                Some(Payload::TitleFilter(title)) => {
-                    title.get_expr_from_col(sqlm::album::Column::Name)
-                }
-                Some(Payload::TrackFilter(track)) => {
-                    track.get_expr_from_col(sqlm::album::Column::TrackCount)
-                }
-                Some(Payload::DurationFilter(duration)) => {
-                    duration.get_expr_from_col(sqlm::album::Column::Duration)
-                }
-                Some(Payload::YearFilter(year)) => {
-                    year.get_expr_from_col(sqlm::album::Column::PublishTime)
-                }
-                Some(Payload::AddedDateFilter(added)) => {
-                    added.get_expr_from_col(sqlm::album::Column::AddedAt)
-                }
-                Some(Payload::TypeFilter(album_type)) => {
-                    album_type.get_expr(Expr::col((sqlm::album::Entity, sqlm::album::Column::Type)))
-                }
-                Some(Payload::DiscCountFilter(disc_count)) => {
-                    disc_count.get_expr_from_col(sqlm::album::Column::DiscCount)
-                }
-                Some(Payload::LastPlayedAtFilter(last_played_at)) => last_played_at.get_expr(
-                    Expr::col((sqlm::dynamic::Entity, sqlm::dynamic::Column::LastPlayedAt)),
-                ),
-                None => None,
-            };
+            let expr = album_filter_to_expr(f);
 
             if let Some(expr) = expr {
                 select = select.filter(expr);
