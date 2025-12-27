@@ -619,7 +619,7 @@ pub async fn process_qcm(
                         .inner_join(sqlm::dynamic::Entity, sqlm::dynamic::Relation::Album.def())
                         .inner_join(sqlm::item::Entity, sqlm::item::Relation::Album.def())
                         .expr(Expr::cust_with_expr(
-                            "row_number() OVER (ORDER BY $1)",
+                            "row_number() OVER (ORDER BY ?)",
                             album_sort_col(album_sort),
                         ))
                         .from(sqlm::album::Entity)
@@ -653,8 +653,8 @@ pub async fn process_qcm(
                             Expr::col((sqlm::song::Entity, sqlm::song::Column::AlbumId))
                                 .equals(sorted_album_id_alias.clone()),
                         )
-                        .order_by(sorted_album_ord_alias, sea_query::Order::Asc)
-                        .order_by_expr(song_sort_col(song_sort).into(), sea_query::Order::Asc)
+                        .order_by(sorted_album_ord_alias, req.album_asc.qcm_into())
+                        .order_by_expr(song_sort_col(song_sort).into(), req.asc.qcm_into())
                         .to_owned()
                         .with(with_clause)
                         .to_owned();
