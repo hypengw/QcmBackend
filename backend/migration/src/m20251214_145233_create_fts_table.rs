@@ -13,11 +13,6 @@ impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let db = manager.get_connection();
 
-        drop_fts_triggers(db, "album").await?;
-        drop_fts_triggers(db, "artist").await?;
-        drop_fts_triggers(db, "song").await?;
-        drop_fts_triggers(db, "mix").await?;
-
         db.execute_unprepared("DROP TABLE IF EXISTS album_fts;")
             .await?;
         db.execute_unprepared("DROP TABLE IF EXISTS artist_fts;")
