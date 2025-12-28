@@ -1017,6 +1017,25 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
+        MessageType::SyncItemReq => {
+            if let Some(Payload::SyncItemReq(req)) = payload {
+                let db = &ctx.provider_context.db;
+
+                let item = sqlm::item::Entity::find_by_id(req.id)
+                    .one(db)
+                    .await?
+                    .ok_or(ProcessError::NotFound)?;
+
+                let provider_id = item.provider_id;
+
+                let provider = global::provider(provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(provider_id.to_string()))?;
+
+                provider.sync_item(&ctx.provider_context, item).await?;
+
+                return Ok(Rsp::default().qcm_into());
+            }
+        }
         MessageType::TestReq => {
             if let Some(Payload::TestReq(req)) = payload {
                 let rsp = TestRsp {
