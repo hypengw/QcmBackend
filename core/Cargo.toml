@@ -7,42 +7,36 @@ edition = "2021"
 [dependencies]
 qcm-core-macro = { path = "./macro" }
 # basic
-log = "0.4"
-tracing = "0.1"
-uuid = { version = "1.4", features = ["v4"] }
-once_cell = "1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0" }
-strum = "0.26"
-strum_macros = "0.26"
+log.workspace = true
+tracing.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+once_cell.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
 num_enum = "0"
-chrono = "0.4"
+chrono.workspace = true
 # crypto
 openssl = "0.10"
 hex = "0.4"
 base64 = "0.22"
 # error
-anyhow = "1.0"
-thiserror = "2.0"
+anyhow.workspace = true
+thiserror.workspace = true
 # concurrent
-crossbeam-channel = "0.5"
+crossbeam-channel.workspace = true
 # async
-async-trait = "0.1"
-tokio = { version = "1", features = [
-    "rt-multi-thread",
-    "macros",
-    "net",
-    "sync",
-    "time",
-] }
-bytes = "1"
-futures = "0.3"
+async-trait.workspace = true
+tokio.workspace = true
+bytes.workspace = true
+futures.workspace = true
 # client
-reqwest = { version = "0.12", features = ["json", "cookies", "stream"] }
+reqwest = { workspace = true, features = ["json", "cookies", "stream"] }
 cookie_store = "0.21"
 reqwest_cookie_store = "0.8"
 # orm
-sea-orm = { version = "1.1", features = [
+sea-orm = { workspace = true, features = [
     "sqlx-sqlite",
     "runtime-tokio",
     "with-uuid",

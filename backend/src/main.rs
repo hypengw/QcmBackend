@@ -258,7 +258,9 @@ async fn prepare_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
     let mut opt = sea_orm::ConnectOptions::new(db_url);
-    opt.sqlx_logging(true)
+
+    let enable_logging = std::env::var("QCM_SQL_LOGGING").is_ok();
+    opt.sqlx_logging(enable_logging)
         .sqlx_logging_level(log::LevelFilter::Debug)
         .sqlx_slow_statements_logging_settings(log::LevelFilter::Info, Duration::from_secs(1));
 
@@ -277,6 +279,8 @@ async fn prepare_db(data: &Path) -> Result<DatabaseConnection, anyhow::Error> {
             PRAGMA journal_size_limit = 67108864;
             PRAGMA cache_size = 2000;
             PRAGMA auto_vacuum = 2;
+            PRAGMA busy_timeout = 5000;
+            PRAGMA wal_autocheckpoint = 1000;
         "
         .to_owned(),
     ))
@@ -294,7 +298,9 @@ async fn prepare_cache_db(data: &Path) -> Result<DatabaseConnection, anyhow::Err
     let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
     let mut opt = sea_orm::ConnectOptions::new(db_url);
-    opt.sqlx_logging(true)
+
+    let enable_logging = std::env::var("QCM_SQL_LOGGING").is_ok();
+    opt.sqlx_logging(enable_logging)
         .sqlx_logging_level(log::LevelFilter::Debug)
         .sqlx_slow_statements_logging_settings(log::LevelFilter::Debug, Duration::from_secs(1));
 
@@ -313,6 +319,8 @@ async fn prepare_cache_db(data: &Path) -> Result<DatabaseConnection, anyhow::Err
             PRAGMA journal_size_limit = 67108864;
             PRAGMA cache_size = 2000;
             PRAGMA auto_vacuum = 2;
+            PRAGMA busy_timeout = 5000;
+            PRAGMA wal_autocheckpoint = 1000;
         "
         .to_owned(),
     ))
