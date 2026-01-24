@@ -1,4 +1,3 @@
-use super::type_enum::ItemType;
 use crate::db::values::Timestamp;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

@@ -1,5 +1,5 @@
 use super::type_enum::CacheType;
-use sea_orm::{entity::prelude::*, EntityOrSelect, FromQueryResult};
+use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
+use sea_orm::{ConnectionTrait, DbErr};
 
 pub fn create_fts_table_sql(table_name: &str, columns: &[&str]) -> String {
     let columns_str = columns.join(",");

@@ -1,7 +1,7 @@
 use sea_orm::ConnectionTrait;
 use sea_orm_migration::prelude::*;
 
-use qcm_core::db::fts::{create_fts_table_and_triggers, drop_fts_triggers};
+use qcm_core::db::fts::create_fts_table_and_triggers;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;

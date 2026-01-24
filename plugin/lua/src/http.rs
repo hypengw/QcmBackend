@@ -1,11 +1,10 @@
 use mlua::prelude::*;
-use mlua::{ExternalResult, Lua, UserData, UserDataMethods};
+use mlua::{Lua, UserData, UserDataMethods};
 use qcm_core::http::{BatchRequest, CookieStoreTrait, HttpClient};
 use reqwest::header::{self, HeaderName};
 use reqwest::{header::HeaderMap, Response};
-use serde_json::{StreamDeserializer, Value};
+use serde_json::Value;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 

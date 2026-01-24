@@ -4,16 +4,16 @@ use qcm_core::event::SyncCommit;
 use qcm_core::event::{Event as CoreEvent, SyncState};
 use qcm_core::model as sqlm;
 use qcm_core::provider::Provider;
-use qcm_core::{self, provider};
+use qcm_core::{self};
 use qcm_core::{global, Result};
-use sea_orm::{EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::EntityTrait;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
 use crate::convert::*;
 use crate::msg::{
-    self, model::ProviderMeta, model::ProviderStatus, ProviderMetaStatusMsg, ProviderStatusMsg,
+    self, model::ProviderStatus, ProviderMetaStatusMsg, ProviderStatusMsg,
     QcmMessage,
 };
 

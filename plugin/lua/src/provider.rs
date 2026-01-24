@@ -8,7 +8,7 @@ use qcm_core::db::{self, DbChunkOper};
 use qcm_core::event::{SyncCommit, SyncState};
 use qcm_core::model as sqlm;
 use qcm_core::provider::{
-    AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, ProviderSession, QrInfo,
+    AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, QrInfo,
 };
 use qcm_core::{
     anyhow,
@@ -23,12 +23,10 @@ use qcm_core::{
 };
 use reqwest::Response;
 use sea_orm::*;
-use std::collections::BTreeMap;
-use std::mem::Discriminant;
 use std::str::FromStr;
 use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    path::Path,
+    sync::Arc,
 };
 
 use crate::crypto::create_crypto_module;

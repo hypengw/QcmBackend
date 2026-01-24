@@ -1,9 +1,8 @@
 use super::basic::QueryBuilder;
 use super::DbChunkOper;
 use crate::db::values::Timestamp;
-use crate::model::{self as sqlm, artist};
-use chrono::format::InternalNumeric;
-use sea_orm::sea_query::{DeleteStatement, Func, OnConflict, SimpleExpr, SqliteQueryBuilder};
+use crate::model::{self as sqlm};
+use sea_orm::sea_query::OnConflict;
 use sea_orm::{prelude::DateTimeUtc, DatabaseTransaction, EntityTrait};
 use sea_orm::{prelude::*, QuerySelect, Statement};
 use sea_orm::{sea_query, sea_query::Alias, Condition};
@@ -13,7 +12,7 @@ pub async fn sync_drop_before(
     provider_id: i64,
     now: DateTimeUtc,
 ) -> Result<(), sea_orm::DbErr> {
-    use sea_query::{Alias, Asterisk, CommonTableExpression, Expr, Query, WithClause};
+    use sea_query::{CommonTableExpression, Expr, Query, WithClause};
 
     let now_ts: Timestamp = now.into();
     // clean library first

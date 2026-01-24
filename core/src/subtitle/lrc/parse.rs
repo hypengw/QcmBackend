@@ -1,12 +1,11 @@
 use super::error;
 use nom::{
     branch::alt,
-    bytes::complete::{is_a, is_not, tag, take_until, take_while},
+    bytes::complete::{is_a, is_not, tag},
     character::complete::{
-        alpha1, anychar, char, digit1, line_ending, multispace0, none_of, not_line_ending, space0,
+        alpha1, digit1, line_ending, not_line_ending, space0,
     },
     combinator::opt,
-    error::ParseError,
     multi::many1,
     sequence::{delimited, preceded, separated_pair},
     Parser,

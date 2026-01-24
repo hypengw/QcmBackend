@@ -12,16 +12,16 @@ use crate::{
     error::ProcessError,
     event::{self, BackendContext, BackendEvent},
 };
-use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
-use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
-use hyper::body::{Body, Bytes, Frame, Incoming};
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use http_body_util::BodyExt;
+use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
 use hyper_tungstenite::HyperWebsocket;
 use prost::{self, Message};
 use qcm_core::provider::Context;
 use qcm_core::Result;
 use scopeguard::guard;
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use tokio::sync::mpsc as async_mpsc;
 

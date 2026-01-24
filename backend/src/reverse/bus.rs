@@ -1,6 +1,5 @@
 use super::connection::{ConnectionEvent, RemoteFileInfo};
 use super::io::ReadState;
-use crate::http::piece;
 use bytes::Bytes;
 use qcm_core::model::type_enum::CacheType;
 use tokio::sync::mpsc::Sender;

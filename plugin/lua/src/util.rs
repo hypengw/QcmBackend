@@ -1,6 +1,5 @@
 use mlua::prelude::*;
 use serde::Serialize;
-use serde_json::Value;
 
 pub fn to_lua<T>(l: &Lua, t: &T) -> LuaResult<LuaValue>
 where

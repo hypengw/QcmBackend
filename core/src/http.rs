@@ -1,25 +1,19 @@
 pub use bytes::Bytes;
-use cookie_store::Cookie;
 use futures::StreamExt;
-use futures::{future::BoxFuture, prelude::Stream, stream::FuturesUnordered, FutureExt};
-use openssl::sha;
+use futures::{stream::FuturesUnordered, FutureExt};
 pub use reqwest::cookie::CookieStore as CookieStoreTrait;
 pub use reqwest::header::{HeaderMap, HeaderValue};
 pub use reqwest::Client as HttpClient;
 pub use reqwest::ClientBuilder as HttpClientBuilder;
 pub use reqwest_cookie_store::{CookieStore, CookieStoreRwLock};
-use serde::Deserialize;
 use tokio::sync::{
-    mpsc::{Receiver, Sender},
+    mpsc::Sender,
     oneshot,
 };
 
 use crate::provider::ProviderSession;
 use log;
-use std::future::Future;
 use std::io::Cursor;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicIsize, AtomicUsize};
 use std::sync::Arc;
 
 fn wrap_iter<'a, T, I>(iter: I) -> impl Iterator<Item = Result<T, i32>> + 'a

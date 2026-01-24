@@ -126,7 +126,7 @@ unsafe extern "C" fn sqlite3_qcm_init(
     }
 
     let mut fts_api_p = std::ptr::null_mut();
-    let mut fts_api = {
+    let fts_api = {
         rc = fts5_api_from_db(db, &mut fts_api_p);
         if rc != api::SQLITE_OK {
             log::error!("sqlite ec: {}", rc);

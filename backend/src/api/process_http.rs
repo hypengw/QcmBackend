@@ -9,7 +9,7 @@ use qcm_core::model::type_enum::ImageType;
 use qcm_core::{anyhow, model as sqlm, model::type_enum::ItemType, Result};
 use sea_orm::{
     sea_query::{Expr, Query},
-    EntityTrait, FromQueryResult, IntoSimpleExpr, JoinType, QuerySelect, QueryTrait, RelationTrait,
+    EntityTrait, QuerySelect, RelationTrait,
 };
 use sea_orm::{Condition, QueryFilter};
 use std::str::FromStr;

@@ -5,13 +5,12 @@ use crate::msg::{
     },
 };
 use chrono::TimeZone;
-use qcm_core::{db::values::Timestamp, model as sqlm, plugin::Plugin};
+use qcm_core::{db::values::Timestamp, model as sqlm};
 use sea_orm::{
     sea_query::{Expr, SimpleExpr},
     Condition,
 };
 use sea_orm::{QueryFilter, RelationTrait};
-use uuid::fmt::Simple;
 
 pub fn album_filter_to_expr(f: &AlbumFilter) -> Option<SimpleExpr> {
     use msg::filter::album_filter::Payload;

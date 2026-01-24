@@ -1,7 +1,6 @@
 use crate::db::values::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::type_enum::ItemType;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]

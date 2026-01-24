@@ -1,7 +1,7 @@
 use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::msg::{self};
-use qcm_core::model::{self as sqlm, album};
+use qcm_core::model::{self as sqlm};
 use sea_orm::DatabaseConnection;
 use sea_orm::LoaderTrait;
 

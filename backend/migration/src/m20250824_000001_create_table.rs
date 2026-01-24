@@ -1,5 +1,4 @@
-use qcm_core::{db::values::Timestamp, global::provider, model::*};
-use sea_orm::Schema;
+use qcm_core::{db::values::Timestamp, model::*};
 use sea_orm_migration::prelude::*;
 use sea_query;
 

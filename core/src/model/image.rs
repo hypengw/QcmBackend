@@ -1,4 +1,4 @@
-use super::type_enum::{ImageType, ItemType};
+use super::type_enum::ImageType;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 

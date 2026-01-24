@@ -4,10 +4,9 @@ use qcm_core::Result;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
-use crate::convert::QcmInto;
 use crate::error::ProcessError;
 use crate::event::BackendContext;
-use crate::msg::{self, QcmMessage};
+use crate::msg::QcmMessage;
 
 type TX = Sender<WsMessage>;
 

@@ -1,5 +1,4 @@
-use super::type_enum::ItemType;
-use super::util::{default_json_arr, default_true, epoch};
+use super::util::{default_json_arr, default_true};
 use crate::db::values::Timestamp;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

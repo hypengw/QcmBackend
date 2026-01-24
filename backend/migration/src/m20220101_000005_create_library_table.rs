@@ -1,5 +1,4 @@
-use qcm_core::{global::provider, model::*};
-use sea_orm::Schema;
+use qcm_core::model::*;
 use sea_orm_migration::prelude::*;
 use sea_query;
 
