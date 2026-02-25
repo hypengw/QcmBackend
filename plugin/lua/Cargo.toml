@@ -17,7 +17,6 @@ async-trait = "0.1"
 
 mlua = { version = "0.10", features = [
     "lua54",
-    "vendored",
     "async",
     "send",
     "error-send",
