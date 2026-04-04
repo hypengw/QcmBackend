@@ -253,4 +253,121 @@ mod tests {
             "中国* AND abc* AND 123"
         );
     }
+
+    // --- Edge case tests ---
+
+    #[test]
+    fn test_empty_input() {
+        let tokenizer = FtsTokenizer::new();
+        assert_eq!(tokenizer.tokenize(""), Vec::<Token>::new());
+        assert_eq!(tokenizer.tokenize_query(""), "");
+    }
+
+    #[test]
+    fn test_whitespace_only() {
+        let tokenizer = FtsTokenizer::new();
+        assert_eq!(tokenizer.tokenize("   "), Vec::<Token>::new());
+        assert_eq!(tokenizer.tokenize("  \t "), Vec::<Token>::new());
+    }
+
+    #[test]
+    fn test_pure_ascii_alphabetic() {
+        let tokenizer = FtsTokenizer::new();
+        assert_eq!(
+            tokenizer.tokenize("abcdef"),
+            vec![Token::Alphabetic("abcdef".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn test_pure_numeric() {
+        let tokenizer = FtsTokenizer::new();
+        assert_eq!(
+            tokenizer.tokenize("9876543210"),
+            vec![Token::Numeric("9876543210".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn test_pure_cjk() {
+        let tokenizer = FtsTokenizer::new();
+        let tokens = tokenizer.tokenize("你好世界测试");
+        // 6 chars -> 5 bigrams: 你好, 好世, 世界, 界测, 测试
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens[0], Token::NGram("你好".to_string(), 0));
+        assert_eq!(tokens[1], Token::NGram("好世".to_string(), 1));
+        assert_eq!(tokens[4], Token::NGram("测试".to_string(), 4));
+    }
+
+    #[test]
+    fn test_single_cjk_char() {
+        let tokenizer = FtsTokenizer::new();
+        assert_eq!(
+            tokenizer.tokenize("中"),
+            vec![Token::NGram("中".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn test_special_ascii_separators() {
+        let tokenizer = FtsTokenizer::new();
+        // Punctuation, brackets, etc. are separators
+        assert_eq!(
+            tokenizer.tokenize("a.b,c!d"),
+            vec![
+                Token::Alphabetic("a".to_string(), 0),
+                Token::Alphabetic("b".to_string(), 2),
+                Token::Alphabetic("c".to_string(), 4),
+                Token::Alphabetic("d".to_string(), 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_nfkc_fullwidth_to_halfwidth() {
+        let tokenizer = FtsTokenizer::new();
+        // Fullwidth 'Ａ' (U+FF21) normalizes to 'A' via NFKC
+        let tokens = tokenizer.tokenize("\u{FF21}\u{FF22}\u{FF23}");
+        assert_eq!(
+            tokens,
+            vec![Token::Alphabetic("abc".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn test_nfkc_fullwidth_digits() {
+        let tokenizer = FtsTokenizer::new();
+        // Fullwidth '１２３' normalizes to '123'
+        let tokens = tokenizer.tokenize("\u{FF11}\u{FF12}\u{FF13}");
+        assert_eq!(
+            tokens,
+            vec![Token::Numeric("123".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn test_japanese_hiragana() {
+        let tokenizer = FtsTokenizer::new();
+        let tokens = tokenizer.tokenize("あいう");
+        assert_eq!(tokens.len(), 2); // 3 chars -> 2 bigrams
+        assert_eq!(tokens[0], Token::NGram("あい".to_string(), 0));
+        assert_eq!(tokens[1], Token::NGram("いう".to_string(), 1));
+    }
+
+    #[test]
+    fn test_query_single_char() {
+        let tokenizer = FtsTokenizer::new();
+        assert_eq!(tokenizer.tokenize_query("a"), "a*");
+        assert_eq!(tokenizer.tokenize_query("1"), "1");
+        assert_eq!(tokenizer.tokenize_query("中"), "中*");
+    }
+
+    #[test]
+    fn test_long_input() {
+        let tokenizer = FtsTokenizer::new();
+        let long_str = "a".repeat(10000);
+        let tokens = tokenizer.tokenize(&long_str);
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0], Token::Alphabetic(long_str, 0));
+    }
 }

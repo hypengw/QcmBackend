@@ -100,3 +100,90 @@ impl From<HttpError> for ProcessError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qcm_core::error::ProviderError;
+
+    #[test]
+    fn test_provider_error_not_found_to_process_error() {
+        let pe = ProviderError::NotFound;
+        let converted: ProcessError = pe.into();
+        assert!(matches!(converted, ProcessError::NotFound));
+    }
+
+    #[test]
+    fn test_provider_error_parse_subtitle_to_process_error() {
+        let pe = ProviderError::ParseSubtitle("bad lrc".into());
+        let converted: ProcessError = pe.into();
+        match converted {
+            ProcessError::ParseSubtitle(msg) => assert_eq!(msg, "bad lrc"),
+            _ => panic!("Expected ParseSubtitle"),
+        }
+    }
+
+    #[test]
+    fn test_provider_error_infallible_to_process_error() {
+        // Can't construct Infallible directly, but test the variant exists
+        // This tests the other path: generic errors become Internal
+        let pe = ProviderError::NotAuth;
+        let converted: ProcessError = pe.into();
+        assert!(matches!(converted, ProcessError::Internal(_)));
+    }
+
+    #[test]
+    fn test_provider_error_io_to_process_error() {
+        let pe = ProviderError::IO(std::io::Error::new(std::io::ErrorKind::NotFound, "file"));
+        let converted: ProcessError = pe.into();
+        assert!(matches!(converted, ProcessError::Internal(_)));
+    }
+
+    #[test]
+    fn test_provider_error_not_implemented_maps_to_internal() {
+        // NotImplemented from ProviderError doesn't have a specific mapping
+        // so it goes to Internal
+        let pe = ProviderError::NotImplemented;
+        let converted: ProcessError = pe.into();
+        assert!(matches!(converted, ProcessError::Internal(_)));
+    }
+
+    #[test]
+    fn test_provider_error_with_context_to_internal() {
+        use std::sync::Arc;
+        let inner = ProviderError::NotAuth;
+        let pe = ProviderError::WithContext {
+            context: "during sync".into(),
+            err: Arc::new(inner),
+        };
+        let converted: ProcessError = pe.into();
+        assert!(matches!(converted, ProcessError::Internal(_)));
+    }
+
+    #[test]
+    fn test_process_error_display() {
+        assert_eq!(ProcessError::NotFound.to_string(), "Not Found");
+        assert_eq!(ProcessError::NotImplemented.to_string(), "Not Implemented");
+        assert_eq!(
+            ProcessError::NoSuchAlbum("42".into()).to_string(),
+            "No such album: 42"
+        );
+        assert_eq!(
+            ProcessError::MissingFields("name".into()).to_string(),
+            "Missing fields: name"
+        );
+    }
+
+    #[test]
+    fn test_process_error_default() {
+        let e: ProcessError = Default::default();
+        assert!(matches!(e, ProcessError::None));
+    }
+
+    #[test]
+    fn test_process_error_from_db_err() {
+        let db_err = sea_orm::error::DbErr::Custom("test".into());
+        let converted: ProcessError = db_err.into();
+        assert!(matches!(converted, ProcessError::Db(_)));
+    }
+}

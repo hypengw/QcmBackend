@@ -253,4 +253,92 @@ mod tests {
             _ => panic!("Expected Lyric"),
         }
     }
+
+    // --- Edge case tests ---
+
+    #[test]
+    fn test_parse_empty_input() {
+        let items = parse("").unwrap();
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn test_parse_whitespace_only() {
+        let items = parse("   \n  \n").unwrap();
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn test_parse_no_timestamp_lines() {
+        let items = parse("just some text\nanother line\n").unwrap();
+        assert!(items.is_empty()); // plain text without tags is ignored
+    }
+
+    #[test]
+    fn test_parse_all_metadata_types() {
+        // Note: [#:Comment] uses non-alpha id so it won't parse as id tag
+        let input = "[ar:Artist Name]\n[al:Album Name]\n[ti:Title]\n[au:Lyricist]\n[by:Author]\n[length:3:30]\n[offset:500]\n[re:App]\n[ve:1.0]\n";
+        let items = parse(input).unwrap();
+        assert_eq!(items.len(), 9);
+        match &items[6] {
+            LrcTag::Id(LrcMetadata::Offset(v)) => assert_eq!(*v, 500),
+            _ => panic!("Expected Offset"),
+        }
+    }
+
+    #[test]
+    fn test_parse_timestamp_with_colon_separator() {
+        // MM:SS:CC format (colon instead of dot)
+        let (_, ts) = parse_timestamp("01:30:50").unwrap();
+        assert_eq!(ts, 90500); // 1*60*1000 + 30*1000 + 500
+    }
+
+    #[test]
+    fn test_parse_timestamp_with_spaces() {
+        let (_, ts) = parse_timestamp(" 01 : 23 . 45 ").unwrap();
+        assert_eq!(ts, 83450);
+    }
+
+    #[test]
+    fn test_parse_zero_timestamp() {
+        let (_, ts) = parse_timestamp("00:00.00").unwrap();
+        assert_eq!(ts, 0);
+    }
+
+    #[test]
+    fn test_parse_large_minutes() {
+        let (_, ts) = parse_timestamp("99:59.99").unwrap();
+        // 99*60*1000 + 59*1000 + 990 = 5999990
+        assert_eq!(ts, 5999990);
+    }
+
+    #[test]
+    fn test_parse_empty_text_lyric() {
+        let input = "[00:01.00]";
+        let (_, item) = parse_time_tag(input).unwrap();
+        match item {
+            LrcTag::Time(text, timestamps) => {
+                assert_eq!(text, "");
+                assert_eq!(timestamps, vec![1000]);
+            }
+            _ => panic!("Expected Lyric"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unknown_id_tag() {
+        let input = "[xx:some value]";
+        let (_, item) = parse_tag(input).unwrap();
+        match item {
+            LrcTag::Id(LrcMetadata::Unkown(v)) => assert_eq!(v, "some value"),
+            _ => panic!("Expected Unknown metadata"),
+        }
+    }
+
+    #[test]
+    fn test_parse_mixed_content_and_blank_lines() {
+        let input = "\n\n[00:01.00]Line 1\n\n[00:02.00]Line 2\n\n";
+        let items = parse(input).unwrap();
+        assert_eq!(items.len(), 2);
+    }
 }
