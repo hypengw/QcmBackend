@@ -4,3 +4,5 @@
 /old
 /plugin/jellyfin
 /.cargo/config.toml
+*.md
+!README.md

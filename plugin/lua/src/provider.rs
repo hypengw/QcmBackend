@@ -60,6 +60,7 @@ struct LuaImpl {
     login: LuaFunction,
     sync: LuaFunction,
     sync_item: LuaFunction,
+    get_queue_next: LuaFunction,
     favorite: LuaFunction,
     qr: Option<LuaFunction>,
     image: LuaFunction,
@@ -187,6 +188,9 @@ impl LuaProvider {
                 sync_item: provider_table
                     .get::<LuaFunction>("sync_item")
                     .map_err(|_| anyhow!("sync_item func not found"))?,
+                get_queue_next: provider_table
+                    .get::<LuaFunction>("get_queue_next")
+                    .map_err(|_| anyhow!("get_queue_next func not found"))?,
                 favorite: provider_table
                     .get::<LuaFunction>("favorite")
                     .map_err(|_| anyhow!("favorite func not found"))?,
@@ -293,6 +297,27 @@ impl Provider for LuaProvider {
             .map_err(ProviderError::from_err)?;
         Ok(())
     }
+
+    async fn get_queue_next(
+        &self,
+        ctx: &Context,
+        native_id: &str,
+        current_native_ids: &[String],
+    ) -> Result<Vec<sqlm::song::Model>, ProviderError> {
+        let res: LuaValue = self
+            .funcs
+            .get_queue_next
+            .call_async((
+                LuaContext(ctx.clone(), self.id()),
+                native_id.to_string(),
+                current_native_ids.to_vec(),
+            ))
+            .await
+            .map_err(ProviderError::from_err)?;
+
+        self.lua.from_value(res).map_err(ProviderError::from_err)
+    }
+
     async fn favorite(
         &self,
         ctx: &Context,
@@ -419,6 +444,13 @@ fn create_json_module(lua: &Lua) -> LuaResult<LuaTable> {
         })?,
     )?;
     Ok(t)
+}
+
+#[derive(Clone, Deserialize)]
+struct RadioQueueInput {
+    native_id: String,
+    name: String,
+    description: Option<String>,
 }
 
 struct LuaContext(Context, /* provider_id */ Option<i64>);
@@ -607,6 +639,46 @@ impl LuaUserData for LuaContext {
 
                 txn.commit().await.map_err(mlua::Error::external)?;
                 Ok(out)
+            },
+        );
+        methods.add_async_method(
+            "sync_radio_queues",
+            |lua, this, models: LuaValue| async move {
+                let models: Vec<RadioQueueInput> = lua.from_value(models)?;
+                let provider_id = this.1.ok_or_else(|| mlua::Error::runtime("no provider id"))?;
+
+                let txn = this.0.db.begin().await.map_err(mlua::Error::external)?;
+
+                let item_models = models.clone().into_iter().map(|m| sqlm::item::ActiveModel {
+                    native_id: Set(m.native_id),
+                    provider_id: Set(provider_id),
+                    r#type: Set(sqlm::type_enum::ItemType::Radio),
+                    ..Default::default()
+                });
+                let ids = qcm_core::db::sync::allocate_items(&txn, item_models)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                let remote_mix_models: Vec<_> = ids
+                    .iter()
+                    .copied()
+                    .zip(models.into_iter())
+                    .map(|(id, m)| sqlm::remote_mix::ActiveModel {
+                        id: Set(id),
+                        name: Set(m.name),
+                        description: Set(m.description),
+                        track_count: Set(0),
+                        mix_type: Set("queue".to_string()),
+                    })
+                    .collect();
+                let conflict = [sqlm::remote_mix::Column::Id];
+                let exclude = [sqlm::remote_mix::Column::Id];
+                DbChunkOper::<50>::insert(&txn, remote_mix_models, &conflict, &exclude)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                txn.commit().await.map_err(mlua::Error::external)?;
+                Ok(ids)
             },
         );
         methods.add_async_method("sync_images", |lua, this, models: LuaValue| async move {

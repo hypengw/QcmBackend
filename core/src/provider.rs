@@ -3,6 +3,7 @@ use crate::{
     event::Event,
     http,
     model::item::Model as ItemModel,
+    model::song::Model as SongModel,
     model::type_enum::{ImageType, ItemType},
     subtitle::Subtitle,
     Result,
@@ -119,6 +120,15 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
     async fn auth(&self, ctx: &Context, info: &AuthInfo) -> Result<AuthResult, ProviderError>;
     async fn sync(&self, ctx: &Context) -> Result<(), ProviderError>;
     async fn sync_item(&self, ctx: &Context, item: ItemModel) -> Result<(), ProviderError>;
+    async fn get_queue_next(
+        &self,
+        ctx: &Context,
+        native_id: &str,
+        current_native_ids: &[String],
+    ) -> Result<Vec<SongModel>, ProviderError> {
+        let _ = (ctx, native_id, current_native_ids);
+        Err(ProviderError::NotImplemented)
+    }
     async fn favorite(
         &self,
         ctx: &Context,

@@ -9,9 +9,8 @@ use tokio::sync::oneshot;
 
 use qcm_core::model::{self as sqlm};
 use sea_orm::{
-    prelude::Expr, sea_query, ColumnTrait, ConnectionTrait, EntityName,
-    EntityTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, RelationTrait, Statement,
+    prelude::Expr, sea_query, ColumnTrait, ConnectionTrait, EntityName, EntityTrait, ModelTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Statement,
 };
 
 use crate::api::{
@@ -27,6 +26,7 @@ use crate::msg::{
     self, AuthProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
     GetSongsRsp, GetStorageInfoRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
 };
+use sea_orm::DatabaseConnection;
 
 pub async fn process_qcm(
     ctx: &Arc<BackendContext>,
@@ -1041,9 +1041,132 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
+        MessageType::GetQueueNextReq => {
+            if let Some(Payload::GetQueueNextReq(req)) = payload {
+                let (queue_native_id, queue_provider_id): (String, i64) =
+                    sqlm::item::Entity::find_by_id(req.queue_id)
+                        .select_only()
+                        .column(sqlm::item::Column::NativeId)
+                        .column(sqlm::item::Column::ProviderId)
+                        .into_tuple()
+                        .one(&ctx.provider_context.db)
+                        .await?
+                        .ok_or(ProcessError::NoSuchProvider(req.queue_id.to_string()))?;
+
+                let current_native_ids: Vec<String> = sqlm::item::Entity::find()
+                    .select_only()
+                    .column(sqlm::item::Column::NativeId)
+                    .filter(sqlm::item::Column::Id.is_in(req.current_song_ids.clone()))
+                    .into_tuple()
+                    .all(&ctx.provider_context.db)
+                    .await?;
+
+                let provider = global::provider(queue_provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(queue_provider_id.to_string()))?;
+                let new_songs = provider
+                    .get_queue_next(
+                        &ctx.provider_context,
+                        &queue_native_id,
+                        &current_native_ids,
+                    )
+                    .await?;
+                drop(provider);
+
+                let ids =
+                    sync_songs(&ctx.provider_context.db, new_songs, queue_provider_id).await?;
+
+                let db_songs = sqlm::song::Entity::find()
+                    .filter(sqlm::song::Column::Id.is_in(ids))
+                    .all(&ctx.provider_context.db)
+                    .await?;
+
+                let (songs, extras) =
+                    to_rsp_songs(&ctx.provider_context.db, db_songs, None).await?;
+                let rsp = msg::GetQueueNextRsp { songs, extras };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetRadioQueuesReq => {
+            if let Some(Payload::GetRadioQueuesReq(req)) = payload {
+                let queues = sqlm::remote_mix::Entity::find()
+                    .inner_join(sqlm::item::Entity)
+                    .filter(
+                        Expr::col((sqlm::item::Entity, sqlm::item::Column::ProviderId))
+                            .eq(req.provider_id),
+                    )
+                    .filter(
+                        Expr::col((sqlm::item::Entity, sqlm::item::Column::Type))
+                            .eq(sqlm::type_enum::ItemType::Radio as i32),
+                    )
+                    .filter(sqlm::remote_mix::Column::MixType.eq("queue"))
+                    .all(&ctx.provider_context.db)
+                    .await?;
+
+                let queues = queues
+                    .into_iter()
+                    .map(|q| msg::model::RadioQueue {
+                        id: q.id,
+                        name: q.name,
+                        description: q.description.unwrap_or_default(),
+                    })
+                    .collect();
+
+                let rsp = msg::GetRadioQueuesRsp { queues };
+                return Ok(rsp.qcm_into());
+            }
+        }
         _ => {
             return Err(ProcessError::UnsupportedMessageType(mtype.into()));
         }
     }
     return Err(ProcessError::UnexpectedPayload(mtype.into()));
+}
+
+pub async fn sync_songs(
+    db: &DatabaseConnection,
+    songs: Vec<qcm_core::model::song::Model>,
+    provider_id: i64,
+) -> Result<Vec<i64>, ProcessError> {
+    use sea_orm::Set;
+    let txn = db.begin().await?;
+
+    let item_models: Vec<_> = songs
+        .iter()
+        .map(|song| sqlm::item::ActiveModel {
+            native_id: Set(song.id.to_string()),
+            provider_id: Set(provider_id),
+            r#type: Set(sqlm::type_enum::ItemType::Song),
+            ..Default::default()
+        })
+        .collect();
+
+    let ids = qcm_core::db::sync::allocate_items(&txn, item_models.into_iter()).await?;
+
+    let song_models: Vec<_> = songs
+        .into_iter()
+        .zip(ids.iter().copied())
+        .map(|(mut song, id)| {
+            song.id = id;
+            let mut a: sqlm::song::ActiveModel = song.into();
+            a.id = Set(id);
+            a
+        })
+        .collect();
+
+    qcm_core::db::DbChunkOper::<50>::insert(
+        &txn,
+        song_models.into_iter(),
+        &[sqlm::song::Column::Id],
+        &[
+            sqlm::song::Column::Name,
+            sqlm::song::Column::AlbumId,
+            sqlm::song::Column::Duration,
+            sqlm::song::Column::TrackNumber,
+            sqlm::song::Column::DiscNumber,
+        ],
+    )
+    .await?;
+
+    txn.commit().await?;
+    Ok(ids)
 }
