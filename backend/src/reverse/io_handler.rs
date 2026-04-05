@@ -168,3 +168,130 @@ fn write_block_sync(
     file.write_all(data)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// 创建临时目录用于测试
+    fn temp_cache_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("qcm_test_{}", name));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // --- 基本读写 ---
+
+    #[test]
+    fn test_create_write_read_same_block() {
+        // 模拟 CreateFile → Write → Read 的顺序，验证 rw 句柄复用无 EBADF
+        let dir = temp_cache_dir("create_write_read");
+        let mut fc = FileCache::new(128);
+        let key = "aabb_0";
+
+        // 模拟 CreateFile
+        let path = block_path_downloading(&dir, key);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let file = std::fs::OpenOptions::new()
+            .read(true).write(true).create(true).truncate(true)
+            .open(&path).unwrap();
+        fc.handles.insert(format!("{}.dl", key), file);
+
+        // Write
+        write_block_sync(&mut fc, &dir, key, 0, b"hello world").unwrap();
+        // Read — 复用同一句柄，不应 EBADF
+        let data = read_block_sync(&mut fc, &dir, key, 0, 11).unwrap();
+        assert_eq!(&data[..], b"hello world");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_write_then_read_via_file_cache() {
+        // 直接测试 write_block_sync + read_block_sync，绕过线程
+        let dir = temp_cache_dir("write_read_fc");
+        let mut fc = FileCache::new(128);
+
+        // 写入 downloading 文件
+        write_block_sync(&mut fc, &dir, "cc00_0", 0, b"abcdefgh").unwrap();
+        write_block_sync(&mut fc, &dir, "cc00_0", 8, b"ijklmnop").unwrap();
+
+        // 从同一 downloading 文件读取（rw 句柄复用）
+        let data = read_block_sync(&mut fc, &dir, "cc00_0", 0, 16).unwrap();
+        assert_eq!(&data[..], b"abcdefghijklmnop");
+
+        // 从 offset 中间读取
+        let data = read_block_sync(&mut fc, &dir, "cc00_0", 4, 8).unwrap();
+        assert_eq!(&data[..], b"efghijkl");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_rename_then_read_final_path() {
+        // 写入 .downloading → rename → 从 final path 读取
+        let dir = temp_cache_dir("rename_read");
+        let mut fc = FileCache::new(128);
+
+        write_block_sync(&mut fc, &dir, "dd00_0", 0, b"test data").unwrap();
+
+        // rename: 关闭旧句柄，重命名文件
+        let from = block_path_downloading(&dir, "dd00_0");
+        let to = block_path(&dir, "dd00_0");
+        fc.remove("dd00_0.dl");
+        fs::rename(&from, &to).unwrap();
+
+        // 从 final path 读取（会打开新的只读句柄）
+        let data = read_block_sync(&mut fc, &dir, "dd00_0", 0, 9).unwrap();
+        assert_eq!(&data[..], b"test data");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_lru_eviction_no_truncate() {
+        // LRU 驱逐后重新打开不应 truncate 已有数据
+        let dir = temp_cache_dir("lru_evict");
+        let mut fc = FileCache::new(2); // 极小容量，强制驱逐
+
+        // 写入 key A
+        write_block_sync(&mut fc, &dir, "aa00_0", 0, b"data_a").unwrap();
+        // 写入 key B 和 C，驱逐 A 的句柄
+        write_block_sync(&mut fc, &dir, "bb00_0", 0, b"data_b").unwrap();
+        write_block_sync(&mut fc, &dir, "cc00_0", 0, b"data_c").unwrap();
+
+        // A 被驱逐，重新打开不应 truncate
+        let data = read_block_sync(&mut fc, &dir, "aa00_0", 0, 6).unwrap();
+        assert_eq!(&data[..], b"data_a");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_nonexistent_block() {
+        let dir = temp_cache_dir("read_noexist");
+        let mut fc = FileCache::new(128);
+
+        let result = read_block_sync(&mut fc, &dir, "zz00_0", 0, 10);
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_write_at_offset() {
+        // 在非零 offset 写入，验证 seek 正确
+        let dir = temp_cache_dir("write_offset");
+        let mut fc = FileCache::new(128);
+
+        // 先写 offset 0
+        write_block_sync(&mut fc, &dir, "ee00_0", 0, b"\x00\x00\x00\x00").unwrap();
+        // 再写 offset 4
+        write_block_sync(&mut fc, &dir, "ee00_0", 4, b"\xff\xff").unwrap();
+
+        let data = read_block_sync(&mut fc, &dir, "ee00_0", 0, 6).unwrap();
+        assert_eq!(&data[..], b"\x00\x00\x00\x00\xff\xff");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

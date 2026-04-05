@@ -362,3 +362,188 @@ impl BlockStore {
             .contains_key(source_key)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- 纯函数：block 边界计算 ---
+
+    #[test]
+    fn test_block_index_boundaries() {
+        assert_eq!(block_index(0), 0);
+        assert_eq!(block_index(BLOCK_SIZE - 1), 0); // 8MB-1 仍在 block 0
+        assert_eq!(block_index(BLOCK_SIZE), 1);      // 8MB 进入 block 1
+        assert_eq!(block_index(BLOCK_SIZE * 3 + 100), 3);
+    }
+
+    #[test]
+    fn test_block_offset() {
+        assert_eq!(block_offset(0), 0);
+        assert_eq!(block_offset(1), BLOCK_SIZE);
+        assert_eq!(block_offset(5), 5 * BLOCK_SIZE);
+    }
+
+    #[test]
+    fn test_block_count() {
+        assert_eq!(block_count(0), 0);
+        assert_eq!(block_count(1), 1);              // 1 byte → 1 block
+        assert_eq!(block_count(BLOCK_SIZE), 1);     // 恰好 8MB → 1 block
+        assert_eq!(block_count(BLOCK_SIZE + 1), 2); // 8MB+1 → 2 blocks
+    }
+
+    #[test]
+    fn test_block_key_deterministic() {
+        // 相同输入必须产生相同 key（缓存可复现性）
+        assert_eq!(block_key("abc123", 0), "abc123_0");
+        assert_eq!(block_key("abc123", 42), "abc123_42");
+    }
+
+    #[test]
+    fn test_block_path_structure() {
+        let dir = PathBuf::from("/cache");
+        // 取 key 前 2 字符做子目录
+        assert_eq!(block_path(&dir, "ab1234_0"), PathBuf::from("/cache/ab/ab1234_0"));
+        assert_eq!(
+            block_path_downloading(&dir, "ab1234_0"),
+            PathBuf::from("/cache/ab/ab1234_0.downloading")
+        );
+    }
+
+    // --- 状态机：Missing → Fetching → Cached ---
+
+    /// 构造一个不连接真实 IO 线程的 BlockStore（测试用）
+    fn test_store() -> Arc<BlockStore> {
+        let (io_tx, _io_rx) = std::sync::mpsc::channel();
+        Arc::new(BlockStore::new(io_tx, PathBuf::from("/tmp/test_cache")))
+    }
+
+    #[test]
+    fn test_begin_fetch_creates_fetching_state() {
+        let store = test_store();
+        let notify = store.begin_fetch("key_0");
+        // 状态应为 Fetching，written=0
+        assert_eq!(store.readable_bytes("key_0"), 0);
+        drop(notify);
+    }
+
+    #[test]
+    fn test_begin_fetch_idempotent() {
+        // 对同一 key 多次 begin_fetch 应返回同一个 Notify
+        let store = test_store();
+        let n1 = store.begin_fetch("key_0");
+        let n2 = store.begin_fetch("key_0");
+        // 两次返回的 Notify 是同一个 Arc
+        assert!(Arc::ptr_eq(&n1, &n2));
+    }
+
+    #[test]
+    fn test_write_block_data_updates_written() {
+        let store = test_store();
+        store.begin_fetch("key_0");
+
+        let data = Bytes::from(vec![0u8; 1024]);
+        store.write_block_data("key_0", 0, &data);
+        assert_eq!(store.readable_bytes("key_0"), 1024);
+
+        // 追加写入
+        store.write_block_data("key_0", 1024, &data);
+        assert_eq!(store.readable_bytes("key_0"), 2048);
+    }
+
+    #[test]
+    fn test_readable_bytes_missing_block() {
+        let store = test_store();
+        assert_eq!(store.readable_bytes("nonexistent"), 0);
+    }
+
+    #[tokio::test]
+    async fn test_wait_readable_returns_immediately_when_data_available() {
+        let store = test_store();
+        store.begin_fetch("key_0");
+        store.write_block_data("key_0", 0, &Bytes::from(vec![0u8; 4096]));
+
+        // offset 0 有 4096 字节可读，应立即返回
+        let result = store.wait_readable("key_0", 0).await;
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_wait_readable_returns_false_for_missing() {
+        let store = test_store();
+        // 未 begin_fetch 的 block → 返回 false
+        let result = store.wait_readable("nonexistent", 0).await;
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_wait_readable_woken_by_write() {
+        // 验证写入唤醒等待中的读取者
+        let store = test_store();
+        store.begin_fetch("key_0");
+
+        let store2 = store.clone();
+        let writer = tokio::spawn(async move {
+            // 延迟写入，让 reader 先进入等待
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            store2.write_block_data("key_0", 0, &Bytes::from(vec![1u8; 100]));
+        });
+
+        // reader 等待 offset 0 的数据
+        let readable = store.wait_readable("key_0", 0).await;
+        assert!(readable);
+        writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_wait_readable_cached_returns_immediately() {
+        let store = test_store();
+        // 直接设置为 Cached
+        store
+            .blocks
+            .write()
+            .unwrap()
+            .insert("key_0".to_string(), BlockState::Cached);
+
+        let result = store.wait_readable("key_0", BLOCK_SIZE - 1).await;
+        assert!(result); // Cached 状态不管 offset 都返回 true
+    }
+
+    // --- Source actor 管理 ---
+
+    #[test]
+    fn test_source_actor_lifecycle() {
+        let store = test_store();
+        assert!(store.needs_source_actor("src1"));
+
+        // 注册后不再需要
+        let handle = tokio::runtime::Runtime::new().unwrap().spawn(async {});
+        store.set_source_actor("src1", handle);
+        assert!(!store.needs_source_actor("src1"));
+        assert!(store.has_source_actor("src1"));
+
+        // 移除后恢复
+        store.remove_source_actor("src1");
+        assert!(store.needs_source_actor("src1"));
+    }
+
+    // --- Source metadata ---
+
+    #[test]
+    fn test_source_meta_roundtrip() {
+        let store = test_store();
+        assert!(store.get_source_meta("src1").is_none());
+
+        let meta = SourceMeta {
+            content_type: "audio/flac".into(),
+            content_length: 20_000_000,
+            accept_ranges: true,
+            block_count: 3,
+        };
+        store.set_source_meta("src1", meta.clone());
+
+        let got = store.get_source_meta("src1").unwrap();
+        assert_eq!(got.content_length, 20_000_000);
+        assert_eq!(got.block_count, 3);
+    }
+}
