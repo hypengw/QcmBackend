@@ -1,308 +1,309 @@
-use super::connection::{ConnectionEvent, RemoteFileInfo};
-use crate::error::ProcessError;
-use crate::http::{body_type::StreamItem, range::HttpRange};
+use std::sync::Arc;
+
 use bytes::Bytes;
-use qcm_core::model as sqlm;
-use qcm_core::model::type_enum::CacheType;
+use futures::channel::mpsc::Sender as BoundedSender;
+use futures_util::SinkExt;
+use hyper::body::Frame;
 use sea_orm::DatabaseConnection;
 
-use super::bus::EventBus;
+use super::block_store::{self, BlockState, BlockStore, SourceMeta, BLOCK_SIZE, READ_CHUNK_SIZE};
 use super::connection::{
-    cache_to_remote_info, create_rsp, real_request, Connection, Creator, ResponceOneshot,
+    create_rsp, real_request, Connection, Creator, RemoteFileInfo, ResponceOneshot,
 };
-use super::io::ReadState;
-use strum_macros::Display;
+use super::source_actor;
+use crate::error::ProcessError;
+use crate::http::body_type::StreamItem;
+use qcm_core::model::type_enum::CacheType;
 
-use futures::channel::mpsc::Sender as BoundedSender;
-
-#[derive(Debug, Default, Display)]
-enum ConnectionState {
-    #[default]
-    Init,
-    QueryingFileInfo,
-    SendResponse,
-    WaitingForPiece,
-    QueryRemoteFile,
-    Serving(Bytes, bool /*last */),
-    ServingFromDB(Bytes),
-    BusClosed,
-    Finished,
-    Error(ProcessError),
-}
-
-// impl std::fmt::Display for ConnectionState {
-// }
-
-pub struct ConnectionHandler {
-    state: ConnectionState,
-    id: i64,
-    key: String,
-    range: Option<HttpRange>,
-    cache_type: CacheType,
-
-    bus_tx: tokio::sync::mpsc::Sender<EventBus>,
-    rx: tokio::sync::mpsc::Receiver<ConnectionEvent>,
-    rsp_tx: Option<ResponceOneshot>,
-    stream_tx: Option<BoundedSender<StreamItem>>,
-
-    db: DatabaseConnection,
-
-    ct: Creator,
-
-    //
-    cache_info: Option<sqlm::cache::Model>,
-    file_info: RemoteFileInfo,
-    cursor: u64,
-    start: u64,
-}
+/// Simplified connection handler using block-based cache.
+/// Maps the client request to a sequence of blocks and streams them.
+pub struct ConnectionHandler;
 
 impl ConnectionHandler {
     pub async fn process(
         cnn: Connection,
-        id: i64,
-        ct: Creator,
+        store: Arc<BlockStore>,
         db: DatabaseConnection,
-        bus_tx: tokio::sync::mpsc::Sender<EventBus>,
+        ct: Creator,
         rsp_tx: ResponceOneshot,
     ) {
-        let (cnn_tx, cnn_rx) = tokio::sync::mpsc::channel(10);
-
-        let mut handler = ConnectionHandler {
-            state: ConnectionState::Init,
-            id: id,
-            key: cnn.key,
-            range: cnn.range,
-            cache_type: cnn.cache_type,
-            bus_tx: bus_tx.clone(),
-            rx: cnn_rx,
-            rsp_tx: Some(rsp_tx),
-            stream_tx: None,
-            db: db,
-            ct: ct,
-            cache_info: None,
-            file_info: RemoteFileInfo::default(),
-            cursor: 0,
-            start: 0,
-        };
-
-        if handler.bus_send(EventBus::NewConnection(id, cnn_tx)).await {
-            while handler.poll_once().await {}
+        if let Err(e) = Self::process_inner(cnn, store, db, ct, rsp_tx).await {
+            log::error!(target: "connection", "error: {:?}", e);
         }
-
-        handler.bus_send(EventBus::EndConnection(id)).await;
     }
 
-    async fn servring_bytes(&mut self, bytes: Bytes) -> bool {
-        use futures_util::SinkExt;
-        match &mut self.stream_tx {
-            Some(stream_tx) => {
-                if let Err(_) = stream_tx.send(Ok(hyper::body::Frame::data(bytes))).await {
-                    log::warn!(target: "reverse", "connection already closed");
-                    return false;
-                }
+    async fn process_inner(
+        cnn: Connection,
+        store: Arc<BlockStore>,
+        db: DatabaseConnection,
+        ct: Creator,
+        rsp_tx: ResponceOneshot,
+    ) -> Result<(), ProcessError> {
+        let source_key = &cnn.key;
+
+        // 1. Get source metadata (from memory, DB, or upstream)
+        let (source_meta, maybe_response) =
+            get_source_meta(source_key, &store, &db, &ct, &cnn).await?;
+
+        // 2. Compute byte range
+        let content_length = source_meta.content_length;
+        let (start, serve_length) = match &cnn.range {
+            Some(r) => {
+                let s = r.start(content_length);
+                (s, content_length - s)
+            }
+            None => (0, content_length),
+        };
+
+        // 3. Build RemoteFileInfo for response headers
+        let file_info = RemoteFileInfo {
+            content_type: source_meta.content_type.clone(),
+            content_length: serve_length,
+            accept_ranges: source_meta.accept_ranges,
+            content_range: cnn.range.as_ref().and_then(|r| {
+                crate::http::range::HttpContentRange::from_range(r.clone(), content_length)
+            }),
+        };
+
+        // 4. Send HTTP response headers
+        let (rsp, stream_tx) = create_rsp(0, &cnn.range, &file_info);
+        if rsp_tx.send(Ok(rsp)).is_err() {
+            return Ok(()); // Client disconnected
+        }
+
+        // 5. Ensure SourceActor if we got a response body (cache miss)
+        if let Some(response) = maybe_response {
+            let start_block = block_store::block_index(start);
+            if store.needs_source_actor(source_key) {
+                let store2 = store.clone();
+                let db2 = db.clone();
+                let sk = source_key.to_string();
+                let meta2 = source_meta.clone();
+                let ct = cnn.cache_type;
+                let handle = tokio::spawn(async move {
+                    source_actor::source_actor(
+                        store2, db2, sk, ct, meta2, response, start_block,
+                    )
+                    .await;
+                });
+                store.set_source_actor(source_key, handle);
+            }
+        }
+
+        // 6. Stream blocks to client
+        serve_blocks(&store, &db, source_key, &source_meta, &cnn, start, serve_length, stream_tx)
+            .await?;
+
+        Ok(())
+    }
+}
+
+/// Get source metadata, fetching from upstream if necessary.
+/// Returns the metadata and optionally the response body (for cache miss).
+async fn get_source_meta(
+    source_key: &str,
+    store: &BlockStore,
+    db: &DatabaseConnection,
+    ct: &Creator,
+    cnn: &Connection,
+) -> Result<(SourceMeta, Option<reqwest::Response>), ProcessError> {
+    // Try memory cache
+    if let Some(meta) = store.get_source_meta(source_key) {
+        return Ok((meta, None));
+    }
+
+    // Try DB
+    if let Some(db_source) = qcm_core::model::cache_source::query_by_key(db, source_key).await {
+        let meta = SourceMeta {
+            content_type: db_source.content_type,
+            content_length: db_source.content_length as u64,
+            accept_ranges: true,
+            block_count: db_source.block_count as u32,
+        };
+        store.set_source_meta(source_key, meta.clone());
+        return Ok((meta, None));
+    }
+
+    // Fetch from upstream (single GET, extract metadata from headers)
+    let (info, response) = real_request(ct, cnn.range.clone()).await?;
+    let meta = SourceMeta::from_remote_info(&info);
+    store.set_source_meta(source_key, meta.clone());
+    Ok((meta, Some(response)))
+}
+
+/// Stream block data to the client
+async fn serve_blocks(
+    store: &BlockStore,
+    db: &DatabaseConnection,
+    source_key: &str,
+    source_meta: &SourceMeta,
+    cnn: &Connection,
+    start: u64,
+    serve_length: u64,
+    mut stream_tx: BoundedSender<StreamItem>,
+) -> Result<(), ProcessError> {
+    let end = start + serve_length;
+    let mut cursor = start;
+
+    while cursor < end {
+        let block_idx = block_store::block_index(cursor);
+        let bkey = block_store::block_key(source_key, block_idx);
+        let block_start = block_store::block_offset(block_idx);
+        let block_end = (block_start + BLOCK_SIZE).min(source_meta.content_length);
+        let offset_in_block = cursor - block_start;
+
+        // Determine block state
+        let state = store.block_state(&bkey, db).await;
+
+        match state {
+            Some(BlockState::Cached) => {
+                // Read from fully cached block
+                cursor = serve_cached_block(
+                    store,
+                    &bkey,
+                    offset_in_block,
+                    block_end,
+                    cursor,
+                    end,
+                    &mut stream_tx,
+                )
+                .await?;
+            }
+            Some(BlockState::Fetching { .. }) => {
+                // Read from block being downloaded
+                cursor = serve_fetching_block(
+                    store,
+                    &bkey,
+                    offset_in_block,
+                    block_end,
+                    cursor,
+                    end,
+                    &mut stream_tx,
+                )
+                .await?;
             }
             None => {
-                log::warn!(target: "reverse", "connection not opened");
-                return false;
+                // Block missing — ensure SourceActor is running
+                if !store.has_source_actor(source_key) {
+                    // No active download — we need to trigger one
+                    // This shouldn't normally happen if SourceActor was started above,
+                    // but handle it for robustness (e.g., seek to uncached block)
+                    log::warn!(target: "connection", "block {} missing and no source actor", bkey);
+                    return Err(ProcessError::NotFound);
+                }
+
+                // Begin fetch tracking and wait
+                store.begin_fetch(&bkey);
+                cursor = serve_fetching_block(
+                    store,
+                    &bkey,
+                    offset_in_block,
+                    block_end,
+                    cursor,
+                    end,
+                    &mut stream_tx,
+                )
+                .await?;
             }
         }
-        return true;
     }
 
-    async fn bus_send(&mut self, ev: EventBus) -> bool {
-        if let Err(_) = self.bus_tx.send(ev).await {
-            self.state = ConnectionState::BusClosed;
-            return false;
+    Ok(())
+}
+
+/// Serve data from a fully cached block, reading in chunks
+async fn serve_cached_block(
+    store: &BlockStore,
+    bkey: &str,
+    mut offset_in_block: u64,
+    block_end: u64,
+    mut cursor: u64,
+    end: u64,
+    stream_tx: &mut BoundedSender<StreamItem>,
+) -> Result<u64, ProcessError> {
+    while cursor < end && cursor < block_end {
+        let remaining_in_block = block_end - cursor;
+        let remaining_in_request = end - cursor;
+        let read_len = remaining_in_block
+            .min(remaining_in_request)
+            .min(READ_CHUNK_SIZE);
+
+        let data = store
+            .read_block(bkey, offset_in_block, read_len)
+            .await
+            .map_err(|e| ProcessError::Internal(e.into()))?;
+
+        if data.is_empty() {
+            break;
         }
-        return true;
+
+        let n = data.len() as u64;
+        if stream_tx.send(Ok(Frame::data(data))).await.is_err() {
+            return Err(ProcessError::NotFound); // Client disconnected
+        }
+
+        cursor += n;
+        offset_in_block += n;
     }
+    Ok(cursor)
+}
 
-    async fn request_read(&mut self) -> bool {
-        log::debug!(
-            target: "reverse",
-            "cnn {} request read: {}/{}, start: {}",
-            self.id,
-            self.cursor,
-            self.file_info.content_length,
-            self.start,
-        );
-        let ev = EventBus::RequestRead(
-            self.key.clone(),
-            self.id,
-            self.cursor,
-            self.cache_info.is_some(),
-        );
-        return self.bus_send(ev).await;
-    }
+/// Serve data from a block that is still being downloaded
+async fn serve_fetching_block(
+    store: &BlockStore,
+    bkey: &str,
+    mut offset_in_block: u64,
+    block_end: u64,
+    mut cursor: u64,
+    end: u64,
+    stream_tx: &mut BoundedSender<StreamItem>,
+) -> Result<u64, ProcessError> {
+    while cursor < end && cursor < block_end {
+        // Wait until data is available at our offset
+        if !store.wait_readable(bkey, offset_in_block).await {
+            return Err(ProcessError::Internal(anyhow::anyhow!(
+                "block {} became unavailable",
+                bkey
+            )));
+        }
 
-    async fn poll_once(&mut self) -> bool {
-        log::debug!(target: "reverse", "cnn {} state: {}", self.id, self.state);
-        match &self.state {
-            ConnectionState::Init => {
-                self.cursor = 0;
-                self.start = 0;
-                self.state = ConnectionState::QueryingFileInfo;
-            }
-            ConnectionState::QueryingFileInfo => {
-                self.cache_info = sqlm::cache::query_by_key(&self.db, &self.key).await;
-                match &self.cache_info {
-                    Some(cache_info) => {
-                        self.file_info = cache_to_remote_info(cache_info, &self.range);
-                    }
-                    None => match real_request(&self.ct, true, self.range.clone()).await {
-                        Ok((info, _)) => {
-                            self.file_info = info;
-                        }
-                        Err(e) => {
-                            log::error!("get remote file info failed: {:?}", e);
-                            self.state = ConnectionState::Error(e);
-                            return true;
-                        }
-                    },
-                };
-
-                // update start from range
-                self.start = match &self.range {
-                    Some(r) => r.start(self.file_info.full()),
-                    None => 0,
-                };
-                self.cursor = self.start;
-                self.state = ConnectionState::SendResponse;
-            }
-            ConnectionState::SendResponse => {
-                let (rsp, stream_tx) = create_rsp(self.id, &self.range, &self.file_info);
-                log::debug!(target: "reverse", "{:?}", rsp.headers());
-                match self.rsp_tx.take() {
-                    Some(rsp_tx) => match rsp_tx.send(Ok(rsp)) {
-                        Ok(_) => match self.cache_info.as_ref().and_then(|c| c.blob.clone()) {
-                            Some(b) => {
-                                self.stream_tx = Some(stream_tx);
-                                self.state =
-                                    ConnectionState::ServingFromDB(Bytes::copy_from_slice(&b));
-                            }
-                            None => {
-                                self.stream_tx = Some(stream_tx);
-                                if self.request_read().await {
-                                    self.state = ConnectionState::WaitingForPiece;
-                                }
-                            }
-                        },
-                        Err(_) => {
-                            self.state = ConnectionState::Finished;
-                        }
-                    },
-                    None => {
-                        self.state = ConnectionState::Finished;
-                    }
-                }
-            }
-            ConnectionState::ServingFromDB(bytes) => {
-                log::debug!(target: "reverse", "cnn {} stream from db", self.id);
-                let cursor = self.start as usize;
-                let len = bytes.len();
-
-                if cursor < len {
-                    let bytes = bytes.slice(cursor..len);
-                    self.servring_bytes(bytes).await;
-                } else {
-                    log::error!("out of range");
-                }
-                self.state = ConnectionState::Finished;
-            }
-            ConnectionState::Serving(bytes, last) => {
-                let last = *last;
-
-                if !self.servring_bytes(bytes.clone()).await {
-                    self.state = ConnectionState::Finished;
-                } else if last {
-                    self.state = ConnectionState::Finished;
-                } else {
-                    self.state = ConnectionState::WaitingForPiece;
-                }
-            }
-            ConnectionState::WaitingForPiece => match self.rx.recv().await {
-                Some(ev) => match ev {
-                    ConnectionEvent::ReadedBuf(bs, state) => {
-                        {
-                            let old = self.cursor;
-                            self.cursor += bs.len() as u64;
-                            let cursor = self.cursor;
-                            let full = self.file_info.full();
-                            log::debug!(
-                                target: "reverse",
-                                "cnn {} streaming: ({} -> {}) / {}",
-                                self.id,
-                                old,
-                                self.cursor,
-                                self.file_info.full()
-                            );
-                            if cursor > full {
-                                log::error!(target: "reverse", "cnn {} overflow {} on full {}", self.id, cursor, full);
-                            }
-                        }
-
-                        match state {
-                            ReadState::Paused => {
-                                if !self.bus_send(EventBus::ReadContinue(self.id)).await {
-                                    return true;
-                                }
-                            }
-                            ReadState::PieceEnd => {
-                                if self.start + self.file_info.content_length > self.cursor {
-                                    if !self.request_read().await {
-                                        return true;
-                                    }
-                                } else {
-                                    // last serving
-                                    self.state = ConnectionState::Serving(bs, true);
-                                    return true;
-                                }
-                            }
-                            _ => {}
-                        }
-
-                        self.state = ConnectionState::Serving(bs, false);
-                    }
-                    ConnectionEvent::NoCache => {
-                        self.state = ConnectionState::QueryRemoteFile;
-                    }
-                },
-                None => {
-                    self.state = ConnectionState::Finished;
-                }
-            },
-            ConnectionState::QueryRemoteFile => {
-                match real_request(&self.ct, false, self.range.clone()).await {
-                    Ok((info, rsp)) => {
-                        let ev = EventBus::NewRemoteFile(
-                            self.key.clone(),
-                            self.id,
-                            self.cache_type,
-                            info,
-                            rsp,
-                        );
-                        if !self.bus_send(ev).await {
-                            self.state = ConnectionState::Finished;
-                        } else {
-                            self.state = ConnectionState::WaitingForPiece;
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("{:?}", e);
-                        self.state = ConnectionState::Error(e);
-                    }
-                }
-            }
-            ConnectionState::BusClosed => {
-                return false;
-            }
-            ConnectionState::Error(_) => {
-                return false;
-            }
-            ConnectionState::Finished => {
-                return false;
-            }
+        // Determine how much we can read
+        let readable = store.readable_bytes(bkey);
+        let available = if readable > offset_in_block {
+            readable - offset_in_block
+        } else {
+            // Block transitioned to Cached — read what we need
+            block_end - cursor
         };
-        return true;
+
+        let remaining_in_request = end - cursor;
+        let read_len = available
+            .min(remaining_in_request)
+            .min(READ_CHUNK_SIZE);
+
+        if read_len == 0 {
+            // Need to wait more
+            continue;
+        }
+
+        let data = store
+            .read_block(bkey, offset_in_block, read_len)
+            .await
+            .map_err(|e| ProcessError::Internal(e.into()))?;
+
+        if data.is_empty() {
+            // IO returned empty — data not yet flushed, retry
+            tokio::task::yield_now().await;
+            continue;
+        }
+
+        let n = data.len() as u64;
+        if stream_tx.send(Ok(Frame::data(data))).await.is_err() {
+            return Err(ProcessError::NotFound);
+        }
+
+        cursor += n;
+        offset_in_block += n;
     }
+    Ok(cursor)
 }

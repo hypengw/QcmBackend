@@ -1,6 +1,7 @@
 pub use sea_orm_migration::{prelude::*, Migration, MigrationStatus};
 
 mod m20220101_000001_create_table;
+mod m20260404_000001_create_block_cache;
 pub struct CacheDBMigrator;
 
 const DROPED: &[&str] = &[];
@@ -8,7 +9,10 @@ const DROPED: &[&str] = &[];
 #[async_trait::async_trait]
 impl MigratorTrait for CacheDBMigrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(m20220101_000001_create_table::Migration)]
+        vec![
+            Box::new(m20220101_000001_create_table::Migration),
+            Box::new(m20260404_000001_create_block_cache::Migration),
+        ]
     }
 
     async fn get_pending_migrations<C>(db: &C) -> Result<Vec<Migration>, DbErr>

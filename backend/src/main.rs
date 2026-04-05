@@ -137,25 +137,15 @@ async fn main() -> Result<(), anyhow::Error> {
     let reverse_ev = {
         let cache_db = cache_db.clone();
         let cache_dir = args.cache.clone();
-        let oper = oper.clone();
         let (tx, rx) = tokio::sync::mpsc::channel(512);
         tokio::spawn({
-            let tx = tx.clone();
             async move {
-                match reverse::ReverseHandler::process(
-                    tx,
+                reverse::Dispatcher::process(
                     rx,
                     cache_db,
-                    oper,
                     cache_dir.join("QcmBackend"),
                 )
-                .await
-                {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::error!("Error processing reverse event: {}", e);
-                    }
-                }
+                .await;
             }
         });
 

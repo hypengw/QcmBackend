@@ -17,7 +17,9 @@ pub mod remote_mix;
 pub mod song;
 
 pub mod cache;
+pub mod cache_block;
 pub mod cache_part;
+pub mod cache_source;
 pub mod image;
 
 pub mod rel_album_artist;

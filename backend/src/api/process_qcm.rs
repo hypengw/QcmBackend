@@ -1092,7 +1092,7 @@ pub async fn process_qcm(
                     .inner_join(sqlm::item::Entity)
                     .filter(
                         Expr::col((sqlm::item::Entity, sqlm::item::Column::ProviderId))
-                            .eq(req.provider_id),
+                            .is_in(req.provider_ids.clone()),
                     )
                     .filter(
                         Expr::col((sqlm::item::Entity, sqlm::item::Column::Type))
@@ -1101,6 +1101,8 @@ pub async fn process_qcm(
                     .filter(sqlm::remote_mix::Column::MixType.eq("queue"))
                     .all(&ctx.provider_context.db)
                     .await?;
+
+                log::info!("provider id: {:?}, queus count: {}", req.provider_ids, queues.len());
 
                 let queues = queues
                     .into_iter()
