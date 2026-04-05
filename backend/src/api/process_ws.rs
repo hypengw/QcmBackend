@@ -5,13 +5,13 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 use crate::error::ProcessError;
-use crate::event::BackendContext;
+use crate::event::ServiceContext;
 use crate::msg::QcmMessage;
 
 type TX = Sender<WsMessage>;
 
 pub async fn process_ws(
-    ctx: &Arc<BackendContext>,
+    ctx: &Arc<ServiceContext>,
     tx: &TX,
     msg: &WsMessage,
     in_id: &mut Option<i32>,

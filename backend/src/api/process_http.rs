@@ -16,7 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::error::ProcessError;
-use crate::event::BackendContext;
+use crate::event::ServiceContext;
 use crate::http::body_type::ResponseBody;
 use crate::reverse::handler::{media_get_audio, media_get_image};
 
@@ -24,7 +24,7 @@ const SECURE_MAX_SIZE: usize = 64 * 1024;
 const HEADER_ICY: HeaderName = HeaderName::from_static("icy-metadata");
 
 pub async fn process_http_post(
-    ctx: &Arc<BackendContext>,
+    ctx: &Arc<ServiceContext>,
     req: Request<Incoming>,
 ) -> Result<Response<ResponseBody>, ProcessError> {
     let mut in_id: Option<i32> = None;
@@ -57,7 +57,7 @@ fn filter_image_type(image_type: ImageType) -> Condition {
 }
 
 async fn process_http_get_image(
-    ctx: &Arc<BackendContext>,
+    ctx: &Arc<ServiceContext>,
     item_type: ItemType,
     image_type: ImageType,
     id: i64,
@@ -203,7 +203,7 @@ async fn process_http_get_image(
 }
 
 pub async fn process_http_get(
-    ctx: &Arc<BackendContext>,
+    ctx: &Arc<ServiceContext>,
     req: Request<Incoming>,
 ) -> Result<Response<ResponseBody>, ProcessError> {
     let path_segments: Vec<&str> = req.uri().path().split('/').skip(1).collect();

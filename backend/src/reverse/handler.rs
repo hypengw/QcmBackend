@@ -9,14 +9,14 @@ use std::sync::Arc;
 use super::connection::Connection;
 use super::reverse::{wrap_creator, ReverseEvent};
 use crate::error::ProcessError;
-use crate::event::BackendContext;
+use crate::event::ServiceContext;
 use crate::http::{
     body_type::ResponseBody,
     range::{parse_range, HttpRange},
 };
 
 pub async fn media_get_image(
-    ctx: &Arc<BackendContext>,
+    ctx: &Arc<ServiceContext>,
     provider_id: i64,
     item_id: &str,
     image_id: Option<&str>,
@@ -74,7 +74,7 @@ pub async fn media_get_image(
 }
 
 pub async fn media_get_audio(
-    ctx: &Arc<BackendContext>,
+    ctx: &Arc<ServiceContext>,
     provider_id: i64,
     native_id: &str,
     headers: http::HeaderMap,

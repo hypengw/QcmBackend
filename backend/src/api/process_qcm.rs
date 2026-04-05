@@ -21,7 +21,7 @@ use crate::api::{
 use crate::convert::QcmInto;
 use crate::db::filter::SelectQcmMsgFilters;
 use crate::error::ProcessError;
-use crate::event::{BackendContext, BackendEvent};
+use crate::event::{ServiceContext, BackendEvent};
 use crate::msg::{
     self, AuthProviderRsp, GetAlbumArtistsRsp, GetAlbumsRsp, GetArtistsRsp, GetProviderMetasRsp,
     GetSongsRsp, GetStorageInfoRsp, MessageType, QcmMessage, QrAuthUrlRsp, Rsp, SyncRsp, TestRsp,
@@ -29,7 +29,7 @@ use crate::msg::{
 use sea_orm::DatabaseConnection;
 
 pub async fn process_qcm(
-    ctx: &Arc<BackendContext>,
+    ctx: &Arc<ServiceContext>,
     data: &[u8],
     in_id: &mut Option<i32>,
 ) -> Result<QcmMessage, ProcessError> {

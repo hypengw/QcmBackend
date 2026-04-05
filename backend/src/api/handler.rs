@@ -10,9 +10,9 @@ use crate::reverse::ReverseEvent;
 use crate::task::TaskManagerOper;
 use crate::{
     error::ProcessError,
-    event::{self, BackendContext, BackendEvent},
+    event::{self, EventSink, ServiceContext, BackendEvent},
 };
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
@@ -26,6 +26,26 @@ use std::sync::Arc;
 use tokio::sync::mpsc as async_mpsc;
 
 use super::process_event::{process_backend_event, process_event, ProcessContext};
+
+/// WebSocket 传输层的 EventSink 实现
+struct WsEventSink {
+    tx: async_mpsc::Sender<WsMessage>,
+}
+
+impl EventSink for WsEventSink {
+    fn send_message(
+        &self,
+        msg: QcmMessage,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = qcm_core::Result<()>> + Send + '_>>
+    {
+        Box::pin(async move {
+            let mut buf = Vec::new();
+            msg.encode(&mut buf)?;
+            self.tx.send(WsMessage::Binary(buf.into())).await?;
+            Ok(())
+        })
+    }
+}
 
 pub async fn handle_request(
     mut request: Request<Incoming>,
@@ -99,14 +119,15 @@ async fn handle_ws(
     let (ev_sender, mut ev_receiver) = async_mpsc::channel::<event::Event>(1024);
     let (bk_ev_sender, mut bk_ev_receiver) = async_mpsc::channel::<event::BackendEvent>(1024);
 
-    let ctx = Arc::new(BackendContext {
+    let sink: Arc<dyn EventSink> = Arc::new(WsEventSink { tx: ws_sender.clone() });
+
+    let ctx = Arc::new(ServiceContext {
         provider_context: Arc::new(Context {
             db,
             cache_db,
             ev_sender: ev_sender,
         }),
         backend_ev: bk_ev_sender,
-        ws_sender,
         oper,
         reverse_ev,
     });
@@ -147,10 +168,11 @@ async fn handle_ws(
     // backend event queue
     tokio::spawn({
         let ctx = ctx.clone();
+        let sink = sink.clone();
         async move {
             let mut process_ctx = ProcessContext::new();
             while let Some(ev) = bk_ev_receiver.recv().await {
-                match process_backend_event(ev, ctx.clone(), &mut process_ctx).await {
+                match process_backend_event(ev, ctx.clone(), sink.clone(), &mut process_ctx).await {
                     Ok(true) => break,
                     Err(err) => log::error!("{}", err),
                     _ => (),
@@ -163,13 +185,13 @@ async fn handle_ws(
     let _ = ctx.backend_ev.try_send(BackendEvent::Frist);
 
     // receive from ws
-    // let mut read = ws_reader.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()));
     let mut reader = ws_reader;
     while let Ok(Some(message)) = reader.next().await.transpose() {
         tokio::spawn({
             let ctx = ctx.clone();
+            let ws_sender = ws_sender.clone();
             async move {
-                if let Err(e) = handle_ws_message(message, ctx).await {
+                if let Err(e) = handle_ws_message(message, ctx, ws_sender).await {
                     log::warn!("Error processing message: {}", e);
                 }
             }
@@ -191,16 +213,20 @@ async fn handle_ws(
     return Ok(());
 }
 
-pub async fn handle_ws_message(msg: WsMessage, ctx: Arc<BackendContext>) -> Result<()> {
+pub async fn handle_ws_message(
+    msg: WsMessage,
+    ctx: Arc<ServiceContext>,
+    ws_sender: async_mpsc::Sender<WsMessage>,
+) -> Result<()> {
     use msg::qcm_message::Payload;
     let mut id: Option<i32> = None;
 
-    match process_ws(&ctx, &ctx.ws_sender, &msg, &mut id).await {
+    match process_ws(&ctx, &ws_sender, &msg, &mut id).await {
         Ok(msg_rsp) => {
             log::warn!("send {}", msg_rsp.r#type);
             let mut buf = Vec::new();
             msg_rsp.encode(&mut buf)?;
-            ctx.ws_sender.send(WsMessage::Binary(buf.into())).await?;
+            ws_sender.send(WsMessage::Binary(buf.into())).await?;
         }
         Err(ProcessError::None) => {}
         Err(err) => {
@@ -214,7 +240,7 @@ pub async fn handle_ws_message(msg: WsMessage, ctx: Arc<BackendContext>) -> Resu
                 log::warn!("send {}", msg.r#type);
                 let mut buf = Vec::new();
                 msg.encode(&mut buf)?;
-                ctx.ws_sender.send(WsMessage::Binary(buf.into())).await?;
+                ws_sender.send(WsMessage::Binary(buf.into())).await?;
             } else {
                 log::error!("{}", err);
             }

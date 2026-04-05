@@ -1,4 +1,4 @@
-use crate::event::{BackendContext, BackendEvent, Event};
+use crate::event::{EventSink, ServiceContext, BackendEvent, Event};
 use crate::msg::model::AuthInfo;
 use qcm_core::event::SyncCommit;
 use qcm_core::event::{Event as CoreEvent, SyncState};
@@ -29,7 +29,7 @@ impl ProcessContext {
     }
 }
 
-pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> {
+pub async fn process_event(ev: Event, ctx: Arc<ServiceContext>) -> Result<bool> {
     match ev {
         Event::ProviderSync { id, oneshot } => {
             if let Some(p) = global::provider(id) {
@@ -90,14 +90,15 @@ pub async fn process_event(ev: Event, ctx: Arc<BackendContext>) -> Result<bool> 
 
 pub async fn process_backend_event(
     ev: BackendEvent,
-    ctx: Arc<BackendContext>,
+    ctx: Arc<ServiceContext>,
+    sink: Arc<dyn EventSink>,
     pctx: &mut ProcessContext,
 ) -> Result<bool> {
     let ev_sender = &ctx.provider_context.ev_sender;
     match ev {
         BackendEvent::Frist => {
-            send_provider_meta_status(ctx.as_ref()).await?;
-            let _ = send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+            send_provider_meta_status(ctx.as_ref(), sink.as_ref()).await?;
+            let _ = send_provider_status(ctx.as_ref(), sink.as_ref(), &pctx.sync_status).await?;
             // for p in providers {
             //     if let Some(id) = p.id() {
             //         ev_sender.send(Event::ProviderSync { id: id }).await?;
@@ -105,7 +106,7 @@ pub async fn process_backend_event(
             // }
         }
         BackendEvent::NewProvider { id } => {
-            send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+            send_provider_status(ctx.as_ref(), sink.as_ref(), &pctx.sync_status).await?;
             let (tx, rx) = oneshot::channel::<i64>();
             ev_sender
                 .send(Event::ProviderSync {
@@ -114,24 +115,25 @@ pub async fn process_backend_event(
                 })
                 .await?;
             let sync_status = pctx.sync_status.clone();
+            let sink = sink.clone();
             tokio::spawn(async move {
                 if let Ok(id) = rx.await {
                     ctx.oper.wait(id).await;
-                    let _ = send_provider_status(ctx.as_ref(), &sync_status).await;
+                    let _ = send_provider_status(ctx.as_ref(), sink.as_ref(), &sync_status).await;
                 }
             });
         }
         BackendEvent::UpdateProvider { id } => {
             let _ = id;
-            send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+            send_provider_status(ctx.as_ref(), sink.as_ref(), &pctx.sync_status).await?;
         }
         BackendEvent::DeleteProvider { id } => {
             let _ = id;
-            send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+            send_provider_status(ctx.as_ref(), sink.as_ref(), &pctx.sync_status).await?;
         }
         BackendEvent::ReplaceProvider { id } => {
             let _ = id;
-            send_provider_status(ctx.as_ref(), &pctx.sync_status).await?;
+            send_provider_status(ctx.as_ref(), sink.as_ref(), &pctx.sync_status).await?;
         }
         BackendEvent::SyncCommit { id, commit } => {
             let status = {
@@ -154,7 +156,7 @@ pub async fn process_backend_event(
                 statuses: Vec::new(),
             }
             .qcm_into();
-            ctx.ws_sender.send(msg.qcm_try_into()?).await?;
+            sink.send_message(msg).await?;
         }
         BackendEvent::End => return Ok(true),
     }
@@ -181,7 +183,7 @@ fn merge_sync_status(v: &mut msg::model::ProviderSyncStatus, m: SyncCommit) {
     }
 }
 
-async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {
+async fn send_provider_meta_status(ctx: &ServiceContext, sink: &dyn EventSink) -> Result<()> {
     let msg: Option<QcmMessage> = {
         let mut msg = ProviderMetaStatusMsg::default();
         global::with_provider_metas(|metas| {
@@ -198,13 +200,14 @@ async fn send_provider_meta_status(ctx: &BackendContext) -> Result<()> {
         }
     };
     if let Some(msg) = msg {
-        ctx.ws_sender.send(msg.qcm_try_into()?).await?;
+        sink.send_message(msg).await?;
     }
     Ok(())
 }
 
 async fn send_provider_status(
-    ctx: &BackendContext,
+    ctx: &ServiceContext,
+    sink: &dyn EventSink,
     sync_status: &BTreeMap<i64, msg::model::ProviderSyncStatus>,
 ) -> Result<Vec<Arc<dyn Provider>>> {
     let db = &ctx.provider_context.db;
@@ -241,6 +244,6 @@ async fn send_provider_status(
         msg.full = true;
         msg.qcm_into()
     };
-    ctx.ws_sender.send(msg.qcm_try_into()?).await?;
+    sink.send_message(msg).await?;
     Ok(providers)
 }

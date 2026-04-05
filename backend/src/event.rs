@@ -5,7 +5,17 @@ pub use qcm_core::event::SyncCommit;
 use qcm_core::{self, provider};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
-pub use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+use crate::msg::QcmMessage;
+
+/// 传输层推送通道抽象
+/// 不同 IPC（WebSocket、Unix socket 等）各自实现
+pub trait EventSink: Send + Sync {
+    fn send_message(
+        &self,
+        msg: QcmMessage,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = qcm_core::Result<()>> + Send + '_>>;
+}
 
 pub enum BackendEvent {
     Frist,
@@ -17,10 +27,10 @@ pub enum BackendEvent {
     End,
 }
 
-pub struct BackendContext {
+/// 传输无关的服务上下文，可被任意 IPC 层复用
+pub struct ServiceContext {
     pub provider_context: Arc<provider::Context>,
     pub backend_ev: Sender<BackendEvent>,
-    pub ws_sender: Sender<WsMessage>,
     pub oper: TaskManagerOper,
     pub reverse_ev: Sender<ReverseEvent>,
 }
