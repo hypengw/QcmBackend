@@ -1072,9 +1072,9 @@ pub async fn process_qcm(
                     .await?;
                 drop(provider);
 
-                let ids =
-                    sync_songs(&ctx.provider_context.db, new_songs, queue_provider_id).await?;
-
+                // provider.get_queue_next 内部已 sync songs 并返回带 DB id 的 models，
+                // 直接按 id 读回即可，不要再 sync_songs（会把 DB id 当 native_id 写坏数据）
+                let ids: Vec<i64> = new_songs.iter().map(|s| s.id).collect();
                 let db_songs = sqlm::song::Entity::find()
                     .filter(sqlm::song::Column::Id.is_in(ids))
                     .all(&ctx.provider_context.db)
@@ -1122,53 +1122,4 @@ pub async fn process_qcm(
         }
     }
     return Err(ProcessError::UnexpectedPayload(mtype.into()));
-}
-
-pub async fn sync_songs(
-    db: &DatabaseConnection,
-    songs: Vec<qcm_core::model::song::Model>,
-    provider_id: i64,
-) -> Result<Vec<i64>, ProcessError> {
-    use sea_orm::Set;
-    let txn = db.begin().await?;
-
-    let item_models: Vec<_> = songs
-        .iter()
-        .map(|song| sqlm::item::ActiveModel {
-            native_id: Set(song.id.to_string()),
-            provider_id: Set(provider_id),
-            r#type: Set(sqlm::type_enum::ItemType::Song),
-            ..Default::default()
-        })
-        .collect();
-
-    let ids = qcm_core::db::sync::allocate_items(&txn, item_models.into_iter()).await?;
-
-    let song_models: Vec<_> = songs
-        .into_iter()
-        .zip(ids.iter().copied())
-        .map(|(mut song, id)| {
-            song.id = id;
-            let mut a: sqlm::song::ActiveModel = song.into();
-            a.id = Set(id);
-            a
-        })
-        .collect();
-
-    qcm_core::db::DbChunkOper::<50>::insert(
-        &txn,
-        song_models.into_iter(),
-        &[sqlm::song::Column::Id],
-        &[
-            sqlm::song::Column::Name,
-            sqlm::song::Column::AlbumId,
-            sqlm::song::Column::Duration,
-            sqlm::song::Column::TrackNumber,
-            sqlm::song::Column::DiscNumber,
-        ],
-    )
-    .await?;
-
-    txn.commit().await?;
-    Ok(ids)
 }
