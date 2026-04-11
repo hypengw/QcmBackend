@@ -1117,6 +1117,39 @@ pub async fn process_qcm(
                 return Ok(rsp.qcm_into());
             }
         }
+        MessageType::GetHomeBlocksReq => {
+            if let Some(Payload::GetHomeBlocksReq(req)) = payload {
+                let provider = global::provider(req.provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(req.provider_id.to_string()))?;
+                let blocks = provider.home_blocks(&ctx.provider_context).await?;
+                let rsp = msg::GetHomeBlocksRsp {
+                    blocks: blocks.into_iter().map(|b| b.qcm_into()).collect(),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
+        MessageType::GetHomeBlockItemsReq => {
+            if let Some(Payload::GetHomeBlockItemsReq(req)) = payload {
+                let provider = global::provider(req.provider_id)
+                    .ok_or(ProcessError::NoSuchProvider(req.provider_id.to_string()))?;
+                let page_params = PageParams::new(req.page, req.page_size);
+                let (items, total) = provider
+                    .home_block_items(
+                        &ctx.provider_context,
+                        &req.block_id,
+                        page_params.page as i32,
+                        page_params.page_size as i32,
+                    )
+                    .await?;
+                let total_u = total as u64;
+                let rsp = msg::GetHomeBlockItemsRsp {
+                    items: items.into_iter().map(|i| i.qcm_into()).collect(),
+                    total,
+                    has_more: page_params.has_more(total_u),
+                };
+                return Ok(rsp.qcm_into());
+            }
+        }
         _ => {
             return Err(ProcessError::UnsupportedMessageType(mtype.into()));
         }

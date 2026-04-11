@@ -8,7 +8,8 @@ use qcm_core::db::{self, DbChunkOper};
 use qcm_core::event::{SyncCommit, SyncState};
 use qcm_core::model as sqlm;
 use qcm_core::provider::{
-    AuthResult, HasCommonData, ProviderCommon, ProviderCommonData, QrInfo,
+    AuthResult, HasCommonData, HomeBlock, HomeBlockItem, ProviderCommon, ProviderCommonData,
+    QrInfo,
 };
 use qcm_core::{
     anyhow,
@@ -66,6 +67,8 @@ struct LuaImpl {
     image: LuaFunction,
     audio: LuaFunction,
     subtitle: LuaFunction,
+    home_blocks: Option<LuaFunction>,
+    home_block_items: Option<LuaFunction>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -204,6 +207,8 @@ impl LuaProvider {
                 subtitle: provider_table
                     .get::<LuaFunction>("subtitle")
                     .map_err(|_| anyhow!("subtitle func not found"))?,
+                home_blocks: provider_table.get::<LuaFunction>("home_blocks").ok(),
+                home_block_items: provider_table.get::<LuaFunction>("home_block_items").ok(),
             },
             lua,
         };
@@ -425,6 +430,52 @@ impl Provider for LuaProvider {
             Err(ProviderError::NotFound)
         }
     }
+
+    async fn home_blocks(&self, ctx: &Context) -> Result<Vec<HomeBlock>, ProviderError> {
+        let func = self
+            .funcs
+            .home_blocks
+            .as_ref()
+            .ok_or(ProviderError::NotImplemented)?;
+        let val = func
+            .call_async::<LuaValue>(LuaContext(ctx.clone(), self.id()))
+            .await
+            .map_err(ProviderError::from_err)?;
+        self.lua.from_value(val).map_err(ProviderError::from_err)
+    }
+
+    async fn home_block_items(
+        &self,
+        ctx: &Context,
+        block_id: &str,
+        page: i32,
+        page_size: i32,
+    ) -> Result<(Vec<HomeBlockItem>, i32), ProviderError> {
+        let func = self
+            .funcs
+            .home_block_items
+            .as_ref()
+            .ok_or(ProviderError::NotImplemented)?;
+        let val = func
+            .call_async::<LuaValue>((
+                LuaContext(ctx.clone(), self.id()),
+                block_id.to_string(),
+                page,
+                page_size,
+            ))
+            .await
+            .map_err(ProviderError::from_err)?;
+        let out: LuaHomeBlockItemsRsp =
+            self.lua.from_value(val).map_err(ProviderError::from_err)?;
+        Ok((out.items, out.total))
+    }
+}
+
+#[derive(Deserialize)]
+struct LuaHomeBlockItemsRsp {
+    items: Vec<HomeBlockItem>,
+    #[serde(default)]
+    total: i32,
 }
 
 fn create_json_module(lua: &Lua) -> LuaResult<LuaTable> {

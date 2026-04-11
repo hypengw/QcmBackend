@@ -2,7 +2,10 @@ use crate::{
     error::ProviderError,
     event::Event,
     http,
+    model::album::Model as AlbumModel,
+    model::artist::Model as ArtistModel,
     model::item::Model as ItemModel,
+    model::mix::Model as MixModel,
     model::song::Model as SongModel,
     model::type_enum::{ImageType, ItemType},
     subtitle::Subtitle,
@@ -60,6 +63,33 @@ pub struct AuthInfo {
 pub struct QrInfo {
     pub key: String,
     pub url: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+pub enum HomeBlockStyle {
+    #[default]
+    Unspecified,
+    Grid,
+    Carousel,
+    List,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct HomeBlock {
+    pub native_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub description: Option<String>,
+    pub style: HomeBlockStyle,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum HomeBlockItem {
+    Album(AlbumModel),
+    Mix(MixModel),
+    Artist(ArtistModel),
+    Song(SongModel),
 }
 
 /// Creator for provider
@@ -157,6 +187,22 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
     ) -> Result<Response, ProviderError>;
 
     async fn subtitle(&self, item_id: &str) -> Result<Subtitle, ProviderError>;
+
+    async fn home_blocks(&self, ctx: &Context) -> Result<Vec<HomeBlock>, ProviderError> {
+        let _ = ctx;
+        Err(ProviderError::NotImplemented)
+    }
+
+    async fn home_block_items(
+        &self,
+        ctx: &Context,
+        block_id: &str,
+        page: i32,
+        page_size: i32,
+    ) -> Result<(Vec<HomeBlockItem>, i32), ProviderError> {
+        let _ = (ctx, block_id, page, page_size);
+        Err(ProviderError::NotImplemented)
+    }
 }
 
 struct ProviderCommonDataInner {

@@ -605,3 +605,44 @@ impl_from_for_qcm_msg!(GetStorageInfoRsp);
 impl_from_for_qcm_msg!(SyncRsp);
 impl_from_for_qcm_msg!(GetSongsByIdRsp);
 impl_from_for_qcm_msg!(GetSongIdsRsp);
+
+impl_from_for_qcm_msg!(GetHomeBlocksRsp);
+impl_from_for_qcm_msg!(GetHomeBlockItemsRsp);
+
+impl QcmFrom<qcm_core::provider::HomeBlockStyle> for proto::HomeBlockStyle {
+    fn qcm_from(v: qcm_core::provider::HomeBlockStyle) -> Self {
+        use qcm_core::provider::HomeBlockStyle as S;
+        match v {
+            S::Unspecified => proto::HomeBlockStyle::Unspecified,
+            S::Grid => proto::HomeBlockStyle::Grid,
+            S::Carousel => proto::HomeBlockStyle::Carousel,
+            S::List => proto::HomeBlockStyle::List,
+        }
+    }
+}
+
+impl QcmFrom<qcm_core::provider::HomeBlock> for proto::HomeBlock {
+    fn qcm_from(v: qcm_core::provider::HomeBlock) -> Self {
+        let style: proto::HomeBlockStyle = v.style.qcm_into();
+        Self {
+            native_id: v.native_id,
+            title: v.title,
+            subtitle: v.subtitle.unwrap_or_default(),
+            description: v.description.unwrap_or_default(),
+            style: style.into(),
+        }
+    }
+}
+
+impl QcmFrom<qcm_core::provider::HomeBlockItem> for proto::HomeBlockItem {
+    fn qcm_from(v: qcm_core::provider::HomeBlockItem) -> Self {
+        use qcm_core::provider::HomeBlockItem as I;
+        let item = match v {
+            I::Album(m) => proto::home_block_item::Item::Album(m.qcm_into()),
+            I::Mix(m) => proto::home_block_item::Item::Mix(m.qcm_into()),
+            I::Artist(m) => proto::home_block_item::Item::Artist(m.qcm_into()),
+            I::Song(m) => proto::home_block_item::Item::Song(m.qcm_into()),
+        };
+        Self { item: Some(item) }
+    }
+}
