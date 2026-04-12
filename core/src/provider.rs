@@ -81,15 +81,15 @@ pub struct HomeBlock {
     pub subtitle: Option<String>,
     pub description: Option<String>,
     pub style: HomeBlockStyle,
+    pub item_type: ItemType,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
-pub enum HomeBlockItem {
-    Album(AlbumModel),
-    Mix(MixModel),
-    Artist(ArtistModel),
-    Song(SongModel),
+pub enum HomeBlockContent {
+    Albums(Vec<AlbumModel>),
+    Mixes(Vec<MixModel>),
+    Artists(Vec<ArtistModel>),
+    Songs(Vec<SongModel>),
 }
 
 /// Creator for provider
@@ -199,7 +199,7 @@ pub trait Provider: ProviderCommon + ProviderSession + Send + Sync {
         block_id: &str,
         page: i32,
         page_size: i32,
-    ) -> Result<(Vec<HomeBlockItem>, i32), ProviderError> {
+    ) -> Result<(HomeBlockContent, i32), ProviderError> {
         let _ = (ctx, block_id, page, page_size);
         Err(ProviderError::NotImplemented)
     }

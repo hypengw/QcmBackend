@@ -8,7 +8,7 @@ use qcm_core::db::{self, DbChunkOper};
 use qcm_core::event::{SyncCommit, SyncState};
 use qcm_core::model as sqlm;
 use qcm_core::provider::{
-    AuthResult, HasCommonData, HomeBlock, HomeBlockItem, ProviderCommon, ProviderCommonData,
+    AuthResult, HasCommonData, HomeBlock, HomeBlockContent, ProviderCommon, ProviderCommonData,
     QrInfo,
 };
 use qcm_core::{
@@ -450,7 +450,7 @@ impl Provider for LuaProvider {
         block_id: &str,
         page: i32,
         page_size: i32,
-    ) -> Result<(Vec<HomeBlockItem>, i32), ProviderError> {
+    ) -> Result<(HomeBlockContent, i32), ProviderError> {
         let func = self
             .funcs
             .home_block_items
@@ -467,13 +467,13 @@ impl Provider for LuaProvider {
             .map_err(ProviderError::from_err)?;
         let out: LuaHomeBlockItemsRsp =
             self.lua.from_value(val).map_err(ProviderError::from_err)?;
-        Ok((out.items, out.total))
+        Ok((out.content, out.total))
     }
 }
 
 #[derive(Deserialize)]
 struct LuaHomeBlockItemsRsp {
-    items: Vec<HomeBlockItem>,
+    content: HomeBlockContent,
     #[serde(default)]
     total: i32,
 }

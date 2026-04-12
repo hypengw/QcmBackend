@@ -1133,7 +1133,7 @@ pub async fn process_qcm(
                 let provider = global::provider(req.provider_id)
                     .ok_or(ProcessError::NoSuchProvider(req.provider_id.to_string()))?;
                 let page_params = PageParams::new(req.page, req.page_size);
-                let (items, total) = provider
+                let (content, total) = provider
                     .home_block_items(
                         &ctx.provider_context,
                         &req.block_id,
@@ -1142,10 +1142,37 @@ pub async fn process_qcm(
                     )
                     .await?;
                 let total_u = total as u64;
+                let has_more = page_params.has_more(total_u);
+                use qcm_core::provider::HomeBlockContent as C;
+                use msg::get_home_block_items_rsp::Content;
+                let content = match content {
+                    C::Albums(items) => Content::Albums(msg::GetAlbumsRsp {
+                        items: items.into_iter().map(|i| i.qcm_into()).collect(),
+                        extras: vec![],
+                        total,
+                        has_more,
+                    }),
+                    C::Mixes(items) => Content::Mixes(msg::GetMixsRsp {
+                        items: items.into_iter().map(|i| i.qcm_into()).collect(),
+                        extras: vec![],
+                        total,
+                        has_more,
+                    }),
+                    C::Artists(items) => Content::Artists(msg::GetArtistsRsp {
+                        items: items.into_iter().map(|i| i.qcm_into()).collect(),
+                        extras: vec![],
+                        total,
+                        has_more,
+                    }),
+                    C::Songs(items) => Content::Songs(msg::GetSongsRsp {
+                        items: items.into_iter().map(|i| i.qcm_into()).collect(),
+                        extras: vec![],
+                        total,
+                        has_more,
+                    }),
+                };
                 let rsp = msg::GetHomeBlockItemsRsp {
-                    items: items.into_iter().map(|i| i.qcm_into()).collect(),
-                    total,
-                    has_more: page_params.has_more(total_u),
+                    content: Some(content),
                 };
                 return Ok(rsp.qcm_into());
             }
