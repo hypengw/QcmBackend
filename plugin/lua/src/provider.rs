@@ -536,6 +536,18 @@ impl LuaUserData for LuaContext {
             Ok(())
         });
 
+        methods.add_method("get_playing", |lua, this, ()| {
+            match this.1.and_then(qcm_core::global::get_playing) {
+                Some(info) => {
+                    let t = lua.create_table()?;
+                    t.set("song_id", info.song_id)?;
+                    t.set("native_id", info.native_id)?;
+                    Ok(LuaValue::Table(t))
+                }
+                None => Ok(LuaValue::Nil),
+            }
+        });
+
         methods.add_async_method("sync_libraries", |lua, this, models: LuaValue| async move {
             let models: Vec<sqlm::library::Model> = lua.from_value(models)?;
 

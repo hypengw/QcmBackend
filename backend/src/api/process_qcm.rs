@@ -960,6 +960,36 @@ pub async fn process_qcm(
             if let Some(Payload::PlaylogReq(req)) = payload {
                 use sea_orm::Set;
 
+                let action = msg::model::PlaylogAction::try_from(req.action)
+                    .unwrap_or(msg::model::PlaylogAction::Unspecified);
+
+                let item_info: Option<(i64, String)> =
+                    sqlm::item::Entity::find_by_id(req.song_id)
+                        .select_only()
+                        .column(sqlm::item::Column::ProviderId)
+                        .column(sqlm::item::Column::NativeId)
+                        .into_tuple()
+                        .one(&ctx.provider_context.db)
+                        .await?;
+
+                if let Some((provider_id, native_id)) = &item_info {
+                    match action {
+                        msg::model::PlaylogAction::Play => {
+                            global::set_playing(
+                                *provider_id,
+                                global::PlayingInfo {
+                                    song_id: req.song_id,
+                                    native_id: native_id.clone(),
+                                },
+                            );
+                        }
+                        msg::model::PlaylogAction::Stop => {
+                            global::clear_playing(*provider_id);
+                        }
+                        _ => {}
+                    }
+                }
+
                 let album_id: Option<i64> = sqlm::song::Entity::find_by_id(req.song_id)
                     .select_only()
                     .column(sqlm::song::Column::AlbumId)

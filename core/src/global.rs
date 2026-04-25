@@ -11,6 +11,12 @@ use uuid::Uuid;
 use crate::plugin::Plugin;
 use crate::provider::{AuthMethod, Provider, ProviderMeta};
 
+#[derive(Clone, Debug)]
+pub struct PlayingInfo {
+    pub song_id: i64,
+    pub native_id: String,
+}
+
 pub const APP_NAME: &str = "QcmBackend";
 pub const APP_VERSION: &str = "0.1.0";
 
@@ -47,6 +53,7 @@ pub struct Global {
     pub provider_metas: BTreeMap<String, ProviderMeta>,
     pub providers: BTreeMap<i64, Arc<dyn Provider>>,
     pub tmp_providers: BTreeMap<String, TmpProvider>,
+    playing: BTreeMap<i64, PlayingInfo>,
     setting: Setting,
 }
 
@@ -57,6 +64,7 @@ impl Global {
             provider_metas: BTreeMap::new(),
             providers: BTreeMap::new(),
             tmp_providers: BTreeMap::new(),
+            playing: BTreeMap::new(),
             setting: Setting::new(),
         }
     }
@@ -218,4 +226,19 @@ pub fn tmp_provider_heartbeat(key: &str) {
         }
         None => (),
     };
+}
+
+pub fn set_playing(provider_id: i64, info: PlayingInfo) {
+    let mut g = GLOBAL.lock().unwrap();
+    g.playing.insert(provider_id, info);
+}
+
+pub fn get_playing(provider_id: i64) -> Option<PlayingInfo> {
+    let g = GLOBAL.lock().unwrap();
+    g.playing.get(&provider_id).cloned()
+}
+
+pub fn clear_playing(provider_id: i64) {
+    let mut g = GLOBAL.lock().unwrap();
+    g.playing.remove(&provider_id);
 }
