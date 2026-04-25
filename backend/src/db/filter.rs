@@ -1,8 +1,8 @@
 use crate::msg::{
     self,
     filter::{
-        AlbumFilter, ArtistFilter, DateCondition, FilterLogic, IntCondition, StringCondition,
-        TypeCondition,
+        AlbumFilter, ArtistFilter, DateCondition, FilterLogic, IntCondition, LogicOp,
+        StringCondition, TypeCondition,
     },
 };
 use chrono::TimeZone;
@@ -45,14 +45,18 @@ impl HasGroup for msg::filter::RemoteMixFilter {
 }
 
 /// Bucket filters by their `group`, AND inside each bucket, then combine
-/// buckets via `logic` (AND or OR; UNSPECIFIED == AND).
-/// Returns None if every filter resolves to None (so callers don't add a
-/// no-op WHERE).
+/// buckets according to `logics`:
+///   - Each FilterLogic entry defines a binary relation (AND/OR) between two
+///     groups whose rules both produced expressions. Entries that reference a
+///     missing/empty group are dropped.
+///   - All produced binary expressions are ANDed together.
+///   - Groups not referenced by any surviving entry are also ANDed in.
+/// Returns None if every filter resolves to None.
 pub fn build_grouped_condition<'a, F, GFn, EFn>(
     filters: impl IntoIterator<Item = &'a F>,
     group_of: GFn,
     to_expr: EFn,
-    logic: FilterLogic,
+    logics: &[FilterLogic],
 ) -> Option<Condition>
 where
     F: 'a,
@@ -68,16 +72,45 @@ where
     if buckets.is_empty() {
         return None;
     }
-    let mut outer = match logic {
-        FilterLogic::Or => Condition::any(),
-        FilterLogic::And | FilterLogic::Unspecified => Condition::all(),
+
+    let group_cond = |g: i32| -> Option<Condition> {
+        buckets.get(&g).map(|exprs| {
+            let mut c = Condition::all();
+            for e in exprs {
+                c = c.add(e.clone());
+            }
+            c
+        })
     };
-    for (_g, exprs) in buckets {
-        let mut inner = Condition::all();
-        for e in exprs {
-            inner = inner.add(e);
+
+    let mut pair_conds: Vec<Condition> = Vec::new();
+    let mut referenced = std::collections::BTreeSet::<i32>::new();
+    for entry in logics {
+        let a = group_cond(entry.group_a);
+        let b = group_cond(entry.group_b);
+        let (a, b) = match (a, b) {
+            (Some(a), Some(b)) => (a, b),
+            _ => continue,
+        };
+        let combined = match entry.op() {
+            LogicOp::Or => Condition::any().add(a).add(b),
+            LogicOp::And | LogicOp::Unspecified => Condition::all().add(a).add(b),
+        };
+        pair_conds.push(combined);
+        referenced.insert(entry.group_a);
+        referenced.insert(entry.group_b);
+    }
+
+    let mut outer = Condition::all();
+    for c in pair_conds {
+        outer = outer.add(c);
+    }
+    for (g, _) in &buckets {
+        if !referenced.contains(g) {
+            if let Some(c) = group_cond(*g) {
+                outer = outer.add(c);
+            }
         }
-        outer = outer.add(inner);
     }
     Some(outer)
 }
@@ -85,9 +118,9 @@ where
 /// Convenience for the special-case in `GetSongIdsReq::album_filters`.
 pub fn album_filters_to_condition(
     filters: &[AlbumFilter],
-    logic: FilterLogic,
+    logics: &[FilterLogic],
 ) -> Option<Condition> {
-    build_grouped_condition(filters, |f| f.group, album_filter_to_expr, logic)
+    build_grouped_condition(filters, |f| f.group, album_filter_to_expr, logics)
 }
 
 pub fn album_filter_to_expr(f: &AlbumFilter) -> Option<SimpleExpr> {
@@ -304,7 +337,7 @@ pub fn song_filter_to_expr(f: &msg::filter::SongFilter) -> Option<SimpleExpr> {
 
 pub trait SelectQcmMsgFilters: Sized {
     type Filter;
-    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logics: &[FilterLogic]) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a;
@@ -313,12 +346,12 @@ pub trait SelectQcmMsgFilters: Sized {
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
     type Filter = AlbumFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logics: &[FilterLogic]) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        match build_grouped_condition(filters, |f| f.group, album_filter_to_expr, logic) {
+        match build_grouped_condition(filters, |f| f.group, album_filter_to_expr, logics) {
             Some(cond) => self.filter(cond),
             None => self,
         }
@@ -328,12 +361,12 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::artist::Entity> {
     type Filter = ArtistFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logics: &[FilterLogic]) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        match build_grouped_condition(filters, |f| f.group, artist_filter_to_expr, logic) {
+        match build_grouped_condition(filters, |f| f.group, artist_filter_to_expr, logics) {
             Some(cond) => self.filter(cond),
             None => self,
         }
@@ -343,12 +376,12 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::artist::Entity> {
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::mix::Entity> {
     type Filter = msg::filter::MixFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logics: &[FilterLogic]) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        match build_grouped_condition(filters, |f| f.group, mix_filter_to_expr, logic) {
+        match build_grouped_condition(filters, |f| f.group, mix_filter_to_expr, logics) {
             Some(cond) => self.filter(cond),
             None => self,
         }
@@ -358,12 +391,12 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::mix::Entity> {
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::remote_mix::Entity> {
     type Filter = msg::filter::RemoteMixFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logics: &[FilterLogic]) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        match build_grouped_condition(filters, |f| f.group, remote_mix_filter_to_expr, logic) {
+        match build_grouped_condition(filters, |f| f.group, remote_mix_filter_to_expr, logics) {
             Some(cond) => self.filter(cond),
             None => self,
         }
@@ -373,12 +406,12 @@ impl SelectQcmMsgFilters for sea_orm::Select<sqlm::remote_mix::Entity> {
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::song::Entity> {
     type Filter = msg::filter::SongFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logics: &[FilterLogic]) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        match build_grouped_condition(filters, |f| f.group, song_filter_to_expr, logic) {
+        match build_grouped_condition(filters, |f| f.group, song_filter_to_expr, logics) {
             Some(cond) => self.filter(cond),
             None => self,
         }
