@@ -253,7 +253,7 @@ pub async fn process_qcm(
                     .left_join(sqlm::dynamic::Entity)
                     .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .filter(sqlm::dynamic::Column::IsExternal.eq(false))
-                    .qcm_filters(&req.filters)
+                    .qcm_filters(&req.filters, req.group_logic())
                     .order_by(album_sort_col(sort), sort_asc);
 
                 let paginator = query.paginate(&ctx.provider_context.db, page_params.page_size);
@@ -283,7 +283,7 @@ pub async fn process_qcm(
                     .inner_join(sqlm::item::Entity)
                     .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_album_artist::Entity)
-                    .qcm_filters(&req.filters)
+                    .qcm_filters(&req.filters, req.group_logic())
                     .order_by(sort_col, req.sort_asc.qcm_into())
                     .distinct()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
@@ -315,7 +315,7 @@ pub async fn process_qcm(
                     .inner_join(sqlm::item::Entity)
                     .filter(sqlm::item::Column::LibraryId.is_in(req.library_id.clone()))
                     .inner_join(sqlm::rel_song_artist::Entity)
-                    .qcm_filters(&req.filters)
+                    .qcm_filters(&req.filters, req.group_logic())
                     .order_by(sort_col, req.sort_asc.qcm_into())
                     .distinct()
                     .paginate(&ctx.provider_context.db, page_params.page_size);
@@ -359,7 +359,7 @@ pub async fn process_qcm(
 
                 let paginator = sqlm::mix::Entity::find()
                     .filter(sqlm::mix::Column::MixType.ne(MixType::Cache))
-                    .qcm_filters(&req.filters)
+                    .qcm_filters(&req.filters, req.group_logic())
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
                 let total = paginator.num_items().await?;
@@ -384,7 +384,7 @@ pub async fn process_qcm(
                 let page_params = PageParams::new(req.page, req.page_size);
 
                 let paginator = sqlm::remote_mix::Entity::find()
-                    .qcm_filters(&req.filters)
+                    .qcm_filters(&req.filters, req.group_logic())
                     .find_also_related(sqlm::mix::Entity)
                     .paginate(&ctx.provider_context.db, page_params.page_size);
 
@@ -591,7 +591,7 @@ pub async fn process_qcm(
 
                     let query = sqlm::song::Entity::find()
                         .inner_join(sqlm::item::Entity)
-                        .qcm_filters(&req.filters);
+                        .qcm_filters(&req.filters, req.group_logic());
                     ids = query
                         .select_only()
                         .column(sqlm::song::Column::Id)
@@ -610,7 +610,12 @@ pub async fn process_qcm(
                         .try_into()
                         .map_err(|_| ProcessError::NotImplemented)?;
 
-                    let cond: Condition = req.album_filters.clone().into_iter().qcm_into();
+                    let cond: Condition =
+                        crate::db::filter::album_filters_to_condition(
+                            &req.album_filters,
+                            req.album_group_logic(),
+                        )
+                        .unwrap_or_else(Condition::all);
                     let cte_query = Query::select()
                         .column((sqlm::album::Entity, sqlm::album::Column::Id))
                         .inner_join(sqlm::dynamic::Entity, sqlm::dynamic::Relation::Album.def())

@@ -1,7 +1,8 @@
 use crate::msg::{
     self,
     filter::{
-        AlbumFilter, ArtistFilter, DateCondition, IntCondition, StringCondition, TypeCondition,
+        AlbumFilter, ArtistFilter, DateCondition, FilterLogic, IntCondition, StringCondition,
+        TypeCondition,
     },
 };
 use chrono::TimeZone;
@@ -11,6 +12,83 @@ use sea_orm::{
     Condition,
 };
 use sea_orm::{QueryFilter, RelationTrait};
+use std::collections::BTreeMap;
+
+trait HasGroup {
+    fn group(&self) -> i32;
+}
+
+impl HasGroup for AlbumFilter {
+    fn group(&self) -> i32 {
+        self.group
+    }
+}
+impl HasGroup for ArtistFilter {
+    fn group(&self) -> i32 {
+        self.group
+    }
+}
+impl HasGroup for msg::filter::SongFilter {
+    fn group(&self) -> i32 {
+        self.group
+    }
+}
+impl HasGroup for msg::filter::MixFilter {
+    fn group(&self) -> i32 {
+        self.group
+    }
+}
+impl HasGroup for msg::filter::RemoteMixFilter {
+    fn group(&self) -> i32 {
+        self.group
+    }
+}
+
+/// Bucket filters by their `group`, AND inside each bucket, then combine
+/// buckets via `logic` (AND or OR; UNSPECIFIED == AND).
+/// Returns None if every filter resolves to None (so callers don't add a
+/// no-op WHERE).
+pub fn build_grouped_condition<'a, F, GFn, EFn>(
+    filters: impl IntoIterator<Item = &'a F>,
+    group_of: GFn,
+    to_expr: EFn,
+    logic: FilterLogic,
+) -> Option<Condition>
+where
+    F: 'a,
+    GFn: Fn(&F) -> i32,
+    EFn: Fn(&F) -> Option<SimpleExpr>,
+{
+    let mut buckets: BTreeMap<i32, Vec<SimpleExpr>> = BTreeMap::new();
+    for f in filters {
+        if let Some(expr) = to_expr(f) {
+            buckets.entry(group_of(f)).or_default().push(expr);
+        }
+    }
+    if buckets.is_empty() {
+        return None;
+    }
+    let mut outer = match logic {
+        FilterLogic::Or => Condition::any(),
+        FilterLogic::And | FilterLogic::Unspecified => Condition::all(),
+    };
+    for (_g, exprs) in buckets {
+        let mut inner = Condition::all();
+        for e in exprs {
+            inner = inner.add(e);
+        }
+        outer = outer.add(inner);
+    }
+    Some(outer)
+}
+
+/// Convenience for the special-case in `GetSongIdsReq::album_filters`.
+pub fn album_filters_to_condition(
+    filters: &[AlbumFilter],
+    logic: FilterLogic,
+) -> Option<Condition> {
+    build_grouped_condition(filters, |f| f.group, album_filter_to_expr, logic)
+}
 
 pub fn album_filter_to_expr(f: &AlbumFilter) -> Option<SimpleExpr> {
     use msg::filter::album_filter::Payload;
@@ -111,9 +189,122 @@ pub fn album_filter_to_expr(f: &AlbumFilter) -> Option<SimpleExpr> {
     expr
 }
 
+pub fn artist_filter_to_expr(f: &ArtistFilter) -> Option<SimpleExpr> {
+    use msg::filter::artist_filter::Payload;
+    use sea_orm::sea_query::{Expr, Query, SelectStatement};
+    match &f.payload {
+        Some(Payload::NameFilter(name)) => name.get_expr_from_col(sqlm::artist::Column::Name),
+        Some(Payload::AddedDateFilter(added)) => {
+            added.get_expr_from_col(sqlm::artist::Column::AddedAt)
+        }
+        Some(Payload::AlbumTitleFilter(album_name)) => album_name
+            .get_expr(Expr::col((sqlm::album::Entity, sqlm::album::Column::Name)).into())
+            .map(|album_name_expr| {
+                let subquery: SelectStatement = Query::select()
+                    .expr(Expr::val(1)) // SELECT 1
+                    .from(sqlm::album::Entity)
+                    .inner_join(
+                        sqlm::rel_album_artist::Entity,
+                        sqlm::rel_album_artist::Relation::Album.def(),
+                    )
+                    .and_where(
+                        Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id)).equals((
+                            sqlm::rel_album_artist::Entity,
+                            sqlm::rel_album_artist::Column::ArtistId,
+                        )),
+                    )
+                    .and_where(album_name_expr)
+                    .limit(1)
+                    .to_owned();
+                Expr::exists(subquery)
+            }),
+        Some(_) => None::<SimpleExpr>,
+        None => None,
+    }
+}
+
+pub fn mix_filter_to_expr(f: &msg::filter::MixFilter) -> Option<SimpleExpr> {
+    use msg::filter::mix_filter::Payload;
+    match &f.payload {
+        Some(Payload::NameFilter(name)) => name.get_expr_from_col(sqlm::mix::Column::Name),
+        Some(Payload::TrackFilter(track)) => {
+            track.get_expr_from_col(sqlm::mix::Column::TrackCount)
+        }
+        Some(Payload::TypeFilter(tf)) => tf.get_expr_from_col(sqlm::mix::Column::MixType),
+        Some(_) => None::<SimpleExpr>,
+        None => None,
+    }
+}
+
+pub fn remote_mix_filter_to_expr(f: &msg::filter::RemoteMixFilter) -> Option<SimpleExpr> {
+    use msg::filter::remote_mix_filter::Payload;
+    use sea_orm::sea_query::{Expr, Query, SelectStatement};
+    match &f.payload {
+        Some(Payload::NameFilter(name)) => {
+            name.get_expr_from_col(sqlm::remote_mix::Column::Name)
+        }
+        Some(Payload::TypeFilter(mix_type)) => mix_type.get_expr(Expr::col((
+            sqlm::remote_mix::Entity,
+            sqlm::remote_mix::Column::MixType,
+        ))),
+        Some(Payload::TrackFilter(track)) => {
+            track.get_expr_from_col(sqlm::remote_mix::Column::TrackCount)
+        }
+        Some(Payload::LocalTypeFilter(tf)) => tf
+            .get_expr(Expr::col((sqlm::mix::Entity, sqlm::mix::Column::MixType)).into())
+            .map(|type_expr| {
+                let subquery: SelectStatement = Query::select()
+                    .expr(Expr::val(1)) // SELECT 1
+                    .from(sqlm::mix::Entity)
+                    .and_where(
+                        Expr::col((sqlm::mix::Entity, sqlm::mix::Column::RemoteId))
+                            .equals((sqlm::remote_mix::Entity, sqlm::remote_mix::Column::Id)),
+                    )
+                    .and_where(type_expr)
+                    .limit(1)
+                    .to_owned();
+                Expr::exists(subquery)
+            }),
+        None => None,
+    }
+}
+
+pub fn song_filter_to_expr(f: &msg::filter::SongFilter) -> Option<SimpleExpr> {
+    use msg::filter::song_filter::Payload;
+    use sea_orm::sea_query::{Expr, Query, SelectStatement};
+    match &f.payload {
+        Some(Payload::AlbumIdFilter(id)) => id.get_expr_from_col(sqlm::song::Column::AlbumId),
+        Some(Payload::MixIdFilter(id)) => id
+            .get_expr(
+                Expr::col((
+                    sqlm::rel_mix_song::Entity,
+                    sqlm::rel_mix_song::Column::MixId,
+                ))
+                .into(),
+            )
+            .map(|id_expr| {
+                let subquery: SelectStatement = Query::select()
+                    .expr(Expr::val(1)) // SELECT 1
+                    .from(sqlm::rel_mix_song::Entity)
+                    .and_where(
+                        Expr::col((
+                            sqlm::rel_mix_song::Entity,
+                            sqlm::rel_mix_song::Column::SongId,
+                        ))
+                        .equals((sqlm::song::Entity, sqlm::song::Column::Id)),
+                    )
+                    .and_where(id_expr)
+                    .limit(1)
+                    .to_owned();
+                Expr::exists(subquery)
+            }),
+        None => None,
+    }
+}
+
 pub trait SelectQcmMsgFilters: Sized {
     type Filter;
-    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a;
@@ -122,216 +313,75 @@ pub trait SelectQcmMsgFilters: Sized {
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::album::Entity> {
     type Filter = AlbumFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        let mut select = self;
-
-        for f in filters {
-            let expr = album_filter_to_expr(f);
-
-            if let Some(expr) = expr {
-                select = select.filter(expr);
-            }
+        match build_grouped_condition(filters, |f| f.group, album_filter_to_expr, logic) {
+            Some(cond) => self.filter(cond),
+            None => self,
         }
-        select
     }
 }
 
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::artist::Entity> {
     type Filter = ArtistFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        use msg::filter::artist_filter::Payload;
-        use sea_orm::sea_query::{Expr, Query, SelectStatement};
-        let mut select = self;
-
-        for f in filters {
-            let expr = match &f.payload {
-                Some(Payload::NameFilter(name)) => {
-                    name.get_expr_from_col(sqlm::artist::Column::Name)
-                }
-                Some(Payload::AddedDateFilter(added)) => {
-                    added.get_expr_from_col(sqlm::artist::Column::AddedAt)
-                }
-                Some(Payload::AlbumTitleFilter(album_name)) => {
-                    album_name
-                        .get_expr(
-                            Expr::col((sqlm::album::Entity, sqlm::album::Column::Name)).into(),
-                        )
-                        .map(|album_name_expr| {
-                            let subquery: SelectStatement = Query::select()
-                                .expr(Expr::val(1)) // SELECT 1
-                                .from(sqlm::album::Entity)
-                                .inner_join(
-                                    sqlm::rel_album_artist::Entity,
-                                    sqlm::rel_album_artist::Relation::Album.def(),
-                                )
-                                .and_where(
-                                    Expr::col((sqlm::artist::Entity, sqlm::artist::Column::Id))
-                                        .equals((
-                                            sqlm::rel_album_artist::Entity,
-                                            sqlm::rel_album_artist::Column::ArtistId,
-                                        )),
-                                )
-                                .and_where(album_name_expr)
-                                .limit(1)
-                                .to_owned();
-                            Expr::exists(subquery)
-                        })
-                }
-                Some(_) => None::<SimpleExpr>,
-                None => None,
-            };
-
-            if let Some(expr) = expr {
-                select = select.filter(expr);
-            }
+        match build_grouped_condition(filters, |f| f.group, artist_filter_to_expr, logic) {
+            Some(cond) => self.filter(cond),
+            None => self,
         }
-        select
     }
 }
 
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::mix::Entity> {
     type Filter = msg::filter::MixFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        use msg::filter::mix_filter::Payload;
-        let mut select = self;
-
-        for f in filters {
-            let expr = match &f.payload {
-                Some(Payload::NameFilter(name)) => name.get_expr_from_col(sqlm::mix::Column::Name),
-                Some(Payload::TrackFilter(track)) => {
-                    track.get_expr_from_col(sqlm::mix::Column::TrackCount)
-                }
-                Some(Payload::TypeFilter(tf)) => tf.get_expr_from_col(sqlm::mix::Column::MixType),
-                Some(_) => None::<SimpleExpr>,
-                None => None,
-            };
-
-            if let Some(expr) = expr {
-                select = select.filter(expr);
-            }
+        match build_grouped_condition(filters, |f| f.group, mix_filter_to_expr, logic) {
+            Some(cond) => self.filter(cond),
+            None => self,
         }
-        select
     }
 }
 
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::remote_mix::Entity> {
     type Filter = msg::filter::RemoteMixFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        use msg::filter::remote_mix_filter::Payload;
-        use sea_orm::sea_query::{Expr, Query, SelectStatement};
-        let mut select = self;
-
-        for f in filters {
-            let expr = match &f.payload {
-                Some(Payload::NameFilter(name)) => {
-                    name.get_expr_from_col(sqlm::remote_mix::Column::Name)
-                }
-                Some(Payload::TypeFilter(mix_type)) => mix_type.get_expr(Expr::col((
-                    sqlm::remote_mix::Entity,
-                    sqlm::remote_mix::Column::MixType,
-                ))),
-                Some(Payload::TrackFilter(track)) => {
-                    track.get_expr_from_col(sqlm::remote_mix::Column::TrackCount)
-                }
-                Some(Payload::LocalTypeFilter(tf)) => {
-                    tf.get_expr(Expr::col((sqlm::mix::Entity, sqlm::mix::Column::MixType)).into())
-                        .map(|type_expr| {
-                            let subquery: SelectStatement = Query::select()
-                                .expr(Expr::val(1)) // SELECT 1
-                                .from(sqlm::mix::Entity)
-                                .and_where(
-                                    Expr::col((sqlm::mix::Entity, sqlm::mix::Column::RemoteId))
-                                        .equals((
-                                            sqlm::remote_mix::Entity,
-                                            sqlm::remote_mix::Column::Id,
-                                        )),
-                                )
-                                .and_where(type_expr)
-                                .limit(1)
-                                .to_owned();
-                            Expr::exists(subquery)
-                        })
-                }
-                None => None,
-            };
-
-            if let Some(expr) = expr {
-                select = select.filter(expr);
-            }
+        match build_grouped_condition(filters, |f| f.group, remote_mix_filter_to_expr, logic) {
+            Some(cond) => self.filter(cond),
+            None => self,
         }
-        select
     }
 }
 
 impl SelectQcmMsgFilters for sea_orm::Select<sqlm::song::Entity> {
     type Filter = msg::filter::SongFilter;
 
-    fn qcm_filters<'a, I>(self, filters: I) -> Self
+    fn qcm_filters<'a, I>(self, filters: I, logic: FilterLogic) -> Self
     where
         I: IntoIterator<Item = &'a Self::Filter>,
         Self::Filter: 'a,
     {
-        use msg::filter::song_filter::Payload;
-        use sea_orm::sea_query::{Expr, Query, SelectStatement};
-        let mut select = self;
-
-        for f in filters {
-            let expr = match &f.payload {
-                Some(Payload::AlbumIdFilter(id)) => {
-                    id.get_expr_from_col(sqlm::song::Column::AlbumId)
-                }
-                Some(Payload::MixIdFilter(id)) => {
-                    id.get_expr(
-                        Expr::col((
-                            sqlm::rel_mix_song::Entity,
-                            sqlm::rel_mix_song::Column::MixId,
-                        ))
-                        .into(),
-                    )
-                    .map(|id_expr| {
-                        let subquery: SelectStatement = Query::select()
-                            .expr(Expr::val(1)) // SELECT 1
-                            .from(sqlm::rel_mix_song::Entity)
-                            .and_where(
-                                Expr::col((
-                                    sqlm::rel_mix_song::Entity,
-                                    sqlm::rel_mix_song::Column::SongId,
-                                ))
-                                .equals((sqlm::song::Entity, sqlm::song::Column::Id)),
-                            )
-                            .and_where(id_expr)
-                            .limit(1)
-                            .to_owned();
-                        Expr::exists(subquery)
-                    })
-                }
-                None => None,
-            };
-
-            if let Some(expr) = expr {
-                select = select.filter(expr);
-            }
+        match build_grouped_condition(filters, |f| f.group, song_filter_to_expr, logic) {
+            Some(cond) => self.filter(cond),
+            None => self,
         }
-        select
     }
 }
 
